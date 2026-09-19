@@ -1,10 +1,28 @@
-# OpsFlow Full-Stack Project Learning Guide
+# OpsFlow
 
-This folder contains the English version of the OpsFlow learning documents.
+OpsFlow is a Java full-stack portfolio project for order, inventory, and operations-ticket management. It is designed to demonstrate business modeling, transactional consistency, role-based access control, exception handling, and auditability in a realistic back-office system.
 
-OpsFlow is a medium-sized Java full-stack portfolio project: an order, inventory, and operations ticket management system. The purpose is not to follow a mechanical tutorial. The purpose is to help you understand what to think about, what to research, how to reason about business systems, and how to ask AI better questions when you get stuck.
+The repository currently contains the initial design and staged learning documents. Application code and database migrations will be added as the implementation progresses.
 
-## How To Use This Guide
+## Design Documents
+
+The current project design is documented separately from the learning guide:
+
+- [Initial Database Structure And Business Flow](docs/database/initial-database-design.md)
+- [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) - a concise overview for the README and project introduction.
+- [Initial Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) - table fields, keys, and implementation-oriented relationships.
+- [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) - the English order, inventory, audit, and exception-ticket flow.
+
+The simplified ERD is intended for quick communication. The physical ERD and database document are the references for implementation.
+
+## Documentation Structure
+
+- [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
+- [`opsflow_learning_docs_en`](opsflow_learning_docs_en/) contains the English learning path.
+- [`汉化说明书`](汉化说明书/) contains the Chinese learning path.
+- [`ENVIRONMENT_SETUP.md`](ENVIRONMENT_SETUP.md) records the local development environment setup.
+
+## How To Use The Learning Guide
 
 Open one unit at a time. Before writing code, read the sections about what you need to understand and what questions you should consider. When you ask AI for help, do not only ask for code. Share your current design, what you have already tried, what you are unsure about, and what trade-off you are trying to understand.
 
