@@ -1,6 +1,6 @@
 # OpsFlow
 
-OpsFlow is a Java full-stack portfolio project for order, inventory, and operations-ticket management. It is designed to demonstrate business modeling, transactional consistency, role-based access control, exception handling, and auditability in a realistic back-office system.
+OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a realistic back-office system with transactional consistency, role-based access control, exception handling, and auditability.
 
 The repository currently contains the initial design and staged learning documents. Application code and database migrations will be added as the implementation progresses.
 
@@ -22,35 +22,20 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 - [`汉化说明书`](汉化说明书/) contains the Chinese learning path.
 - [`ENVIRONMENT_SETUP.md`](ENVIRONMENT_SETUP.md) records the local development environment setup.
 
-## How To Use The Learning Guide
+## Current Scope
 
-Open one unit at a time. Before writing code, read the sections about what you need to understand and what questions you should consider. When you ask AI for help, do not only ask for code. Share your current design, what you have already tried, what you are unsure about, and what trade-off you are trying to understand.
+The initial system scope includes:
 
-At the end of each unit, try to keep three outputs:
+- User authentication and role-based authorization
+- Product and inventory management
+- Transactional order creation with inventory deduction
+- Inventory transaction history
+- Exception-ticket assignment and reassignment history
+- Ticket comments and resolution tracking
+- Auditable business operations
 
-- A short summary in your own words.
-- A design note, code draft, or diagram you can keep improving.
-- Three questions you still do not fully understand.
+## Implementation Direction
 
-## Unit List
+The backend will be implemented with Spring Boot and MySQL. Database changes will be managed as versioned migrations alongside the application code. Redis and RabbitMQ will be introduced when the corresponding idempotency, rate-limiting, and asynchronous-processing requirements are implemented.
 
-1. [01 Project Understanding And Business Modeling](opsflow_learning_docs_en/01_project_understanding.md)
-2. [02 Database Design](opsflow_learning_docs_en/02_database_design.md)
-3. [03 Spring Boot Project Setup](opsflow_learning_docs_en/03_spring_boot_setup.md)
-4. [04 Product And Inventory Module](opsflow_learning_docs_en/04_product_inventory.md)
-5. [05 Authentication And Role-Based Access Control](opsflow_learning_docs_en/05_auth_rbac.md)
-6. [06 Core Order Creation Flow](opsflow_learning_docs_en/06_order_flow.md)
-7. [07 Redis Idempotency And Rate Limiting](opsflow_learning_docs_en/07_redis_idempotency.md)
-8. [08 Exception Ticket Module](opsflow_learning_docs_en/08_ticket_module.md)
-9. [09 Operation Logs And Audit Trail](opsflow_learning_docs_en/09_audit_logs.md)
-10. [10 Frontend Admin Interface](opsflow_learning_docs_en/10_frontend_admin.md)
-11. [11 RabbitMQ Asynchronous Tasks](opsflow_learning_docs_en/11_rabbitmq_async.md)
-12. [12 Testing, API Documentation, And Validation](opsflow_learning_docs_en/12_testing_docs_validation.md)
-13. [13 Docker Deployment And Project Documentation](opsflow_learning_docs_en/13_docker_readme.md)
-14. [14 Resume Writing And Interview Preparation](opsflow_learning_docs_en/14_resume_interview.md)
-
-## Core Learning Principle
-
-Do not turn this project into a random list of features. What you really need to build is an understanding of business systems: why orders need states, why inventory cannot be reduced carelessly, why logs matter, why exceptions become tickets, and why Redis and message queues solve real problems such as duplicate submissions, asynchronous processing, failure recovery, and troubleshooting.
-
-When you can explain those problems clearly, the project becomes useful for internship applications.
+The learning documents remain available as supporting material, while `README.md` and `docs/` define the current project scope and implementation decisions.
