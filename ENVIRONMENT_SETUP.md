@@ -52,8 +52,16 @@
 - Configuration file: `C:\ProgramData\MySQL\MySQL Server 8.4\my.ini`
 - Windows service name: `MySQL84` (startup type Automatic)
 - Port: `3306`
-- Account: `root`
-- Password: `<your-mysql-root-password>`  ⚠️ **Never commit the real password to the repository or hard-code it in configuration files.** Keep it in the `OPSFLOW_DB_PASSWORD` environment variable (see section 3) and let the application read it from there.
+- Accounts (all `@localhost`), with separate privileges:
+
+  | Account | Purpose | Privileges on `opsflow` | Credentials |
+  |---|---|---|---|
+  | `root` | Administration only: create databases and accounts, grant privileges | All | Password chosen by you. Keep it in a password manager. It is **not** stored in an environment variable and must never appear in application configuration. |
+  | `opsflow_migrator` | Runs schema migrations (Flyway) | `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES` | `OPSFLOW_MIGRATION_USERNAME` and `OPSFLOW_MIGRATION_PASSWORD` |
+  | `opsflow_app` | Runtime access from the application | `SELECT, INSERT, UPDATE` | `OPSFLOW_DB_USERNAME` and `OPSFLOW_DB_PASSWORD` |
+
+  Neither application account has global privileges, `GRANT OPTION`, or access to any other database. `opsflow_app` cannot change the schema, and it has no `DELETE`, because history tables are append-only and users and products are soft-deleted. When a feature genuinely needs to delete rows, grant it per table after the tables exist, for example `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';`. `SELECT ... FOR UPDATE` works with these privileges, which the stock row locking relies on.
+- ⚠️ **Never commit a real password to the repository or hard-code it in configuration files.** The application reads credentials from environment variables (see section 3).
 - Character set: `utf8mb4` (set as the server default)
 - `mysql.exe` has been added to `PATH`
 
@@ -64,21 +72,33 @@ Start-Service MySQL84
 Stop-Service MySQL84
 Restart-Service MySQL84
 
-# Connect to the database
+# Connect for administration (type the password at the prompt)
 mysql -u root -p
 ```
 
-Reference `application.yml` configuration for Spring Boot:
+Reference `application.yml` configuration for Spring Boot. The application connects as `opsflow_app`, and Flyway connects as `opsflow_migrator`:
 ```yaml
 spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/opsflow?useSSL=false&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
-    username: ${OPSFLOW_DB_USERNAME:root}
+    username: ${OPSFLOW_DB_USERNAME}
     password: ${OPSFLOW_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    user: ${OPSFLOW_MIGRATION_USERNAME}
+    password: ${OPSFLOW_MIGRATION_PASSWORD}
 ```
-The password has no default on purpose: if `OPSFLOW_DB_PASSWORD` is not set, the application fails to start instead of falling back to a value in the repository.
-> Create the database manually first: `CREATE DATABASE opsflow DEFAULT CHARACTER SET utf8mb4;`
+None of these variables has a default on purpose: if one is not set, the application fails to start instead of falling back to a value in the repository. The application account is never `root`.
+
+The `opsflow` database and both accounts already exist on this machine. To set them up on another machine, run the following as `root`, replacing the placeholders. Start the client with `mysql -u root -p --histignore="*IDENTIFIED*"` so the typed passwords are not saved in the client's history file:
+```sql
+CREATE DATABASE IF NOT EXISTS opsflow DEFAULT CHARACTER SET utf8mb4;
+CREATE USER 'opsflow_migrator'@'localhost' IDENTIFIED BY '<migrator-password>';
+CREATE USER 'opsflow_app'@'localhost' IDENTIFIED BY '<app-password>';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON opsflow.* TO 'opsflow_migrator'@'localhost';
+GRANT SELECT, INSERT, UPDATE ON opsflow.* TO 'opsflow_app'@'localhost';
+```
+Use long random passwords for the two application accounts, because they are only ever read from environment variables.
 
 > Time zone: OpsFlow stores all times in UTC. The two JDBC parameters above set the session time zone to UTC, so changing only `serverTimezone` is not enough. Run `SET time_zone = '+00:00';` before manual SQL that involves time. See [Time zone](docs/database/database-design.md#time-zone).
 
@@ -182,19 +202,24 @@ Real credentials live in environment variables and never in the repository. The 
 
 | Variable | Used for | Required |
 |---|---|---|
-| `OPSFLOW_DB_USERNAME` | MySQL user | No, defaults to `root` |
-| `OPSFLOW_DB_PASSWORD` | MySQL password | Yes |
+| `OPSFLOW_DB_USERNAME` | Application account, `opsflow_app` | Yes |
+| `OPSFLOW_DB_PASSWORD` | Password of the application account | Yes |
+| `OPSFLOW_MIGRATION_USERNAME` | Migration account, `opsflow_migrator` | Yes |
+| `OPSFLOW_MIGRATION_PASSWORD` | Password of the migration account | Yes |
 | `RABBITMQ_USERNAME` | RabbitMQ user | No, defaults to `guest` |
 | `RABBITMQ_PASSWORD` | RabbitMQ password | Yes |
 
-Set them at user level in PowerShell, then open a new terminal and restart the IDE so it picks them up:
+The MySQL `root` password is deliberately not in this list.
+
+On this machine the four `OPSFLOW_` variables are already set. To set or change a password, type it at a masked prompt so it is not left in the shell history, then open a new terminal and restart the IDE so it picks the value up:
 ```powershell
-[Environment]::SetEnvironmentVariable("OPSFLOW_DB_PASSWORD", "<your-mysql-root-password>", "User")
-[Environment]::SetEnvironmentVariable("RABBITMQ_PASSWORD", "<your-rabbitmq-password>", "User")
+$p = Read-Host "App password" -AsSecureString
+[Environment]::SetEnvironmentVariable("OPSFLOW_DB_PASSWORD", [System.Net.NetworkCredential]::new("", $p).Password, "User")
 ```
+To rotate an application password, run `ALTER USER 'opsflow_app'@'localhost' IDENTIFIED BY '<new-password>';` as `root`, then update the variable the same way.
 
 Rules:
-- Never write a real password in a document, source file, commit message, or chat. Use a placeholder such as `<your-mysql-root-password>`.
+- Never write a real password in a document, source file, commit message, or chat. Use a placeholder such as `<app-password>`.
 - Run `mysql -u root -p` and type the password at the prompt, instead of putting it on the command line.
 - If you prefer a file, use `application-local.yml` or `.env`. Both are ignored by git. Spring Boot does not read `.env` by itself.
 - If a secret has ever been committed, treat it as exposed. Change the secret first, then clean the history if needed.
