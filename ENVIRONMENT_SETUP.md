@@ -72,12 +72,14 @@ Spring Boot `application.yml` 参考配置：
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/opsflow?useSSL=false&serverTimezone=Asia/Shanghai&characterEncoding=utf8
+    url: jdbc:mysql://127.0.0.1:3306/opsflow?useSSL=false&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
     username: root
     password: OpsFlow@2026
     driver-class-name: com.mysql.cj.jdbc.Driver
 ```
 > 记得先手动创建数据库：`CREATE DATABASE opsflow DEFAULT CHARACTER SET utf8mb4;`
+
+> Time zone: OpsFlow stores all times in UTC. The two JDBC parameters above set the session time zone to UTC, so changing only `serverTimezone` is not enough. Run `SET time_zone = '+00:00';` before manual SQL that involves time. See [Time zone](docs/database/database-design.md#time-zone).
 
 ### 2.4 Redis 8.10.1
 

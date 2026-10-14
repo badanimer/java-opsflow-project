@@ -22,7 +22,8 @@ When an area in the left column changes, update everything in the right column i
 
 | Area changed | Must also update |
 | --- | --- |
-| Database design: tables, fields, constraints, order or inventory flow | [database-design.md](database/database-design.md) and its Change Log; the [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1); a new iteration file; the Project Log in `README.md` |
+| Database design: tables, fields, constraints, order or inventory flow | [database-design.md](database/database-design.md) and its Change Log; the [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1); the migrations in [`db/migration`](../db/migration/); a new iteration file; the Project Log in `README.md` |
+| Database migration added or changed | The Field Specifications and Initial Constraints in [database-design.md](database/database-design.md), and the Physical ERD if tables or fields changed. Never edit a migration that has been applied; add a new one. |
 | Database structure: tables added or removed, or relationships changed | The [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1), in addition to the row above |
 | Business flow that changes what the diagrams show | The Business Process Flowchart linked from [database-design.md](database/database-design.md) |
 | A new iteration file | The Change Log of the matching current-state document; the Project Log in `README.md` |
