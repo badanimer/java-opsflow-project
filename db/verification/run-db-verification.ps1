@@ -282,6 +282,17 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'the same key for the same user is rejected' (Dup $r)
     $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-a',1,'OTHER','LOW','t','d'),('TKT-A',1,'OTHER','LOW','t','d');"
     Check 'ticket_no is case-sensitive (TKT-a and TKT-A both accepted)' (Allowed $r)
+    $null = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,content) SELECT id,1,'orig' FROM tickets WHERE ticket_no='TKT-a';"
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix' FROM tickets t JOIN ticket_comments c ON c.ticket_id=t.id WHERE t.ticket_no='TKT-a' AND c.content='orig';"
+    Check 'a correction comment can point at a comment of the same ticket' (Allowed $r)
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix again' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKT-a' AND c.content='orig';"
+    Check 'a comment can be corrected more than once' (Allowed $r)
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'wrong ticket' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKT-A';"
+    Check 'a correction pointing at another ticket comment is rejected by the database' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT id,1,999999,'missing' FROM tickets WHERE ticket_no='TKT-a';"
+    Check 'a correction pointing at a missing comment is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "DELETE FROM ticket_comments WHERE content='orig';"
+    Check 'a corrected comment cannot be deleted while a correction points at it' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
     $r = As-Admin "INSERT INTO users(username,password_hash,email) VALUES ('Alice','x','alice@example.com'),('alice','x','alice2@example.com');"
     Check 'usernames keep the case-insensitive rule (Alice vs alice rejected)' (Dup $r)
 

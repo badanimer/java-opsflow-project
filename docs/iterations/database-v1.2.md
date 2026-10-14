@@ -71,6 +71,7 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 
 - Comments are never edited or deleted, and a mistake is corrected by adding a new comment. `ticket_comments.updated_at` was removed from the migration and the physical ERD.
 - The application account therefore gets only `SELECT` and `INSERT` on `ticket_comments`. This replaces the earlier plan to keep the table updatable.
+- A nullable `corrects_comment_id` links a correction to the comment it corrects. It is backed by the composite foreign key (`ticket_id`, `corrects_comment_id`) to (`ticket_id`, `id`) and a unique key on (`ticket_id`, `id`), so the database itself rejects a correction that points at another ticket's comment. Every correction points at the original comment. V1 had not been applied, so the field was added to V1 directly.
 
 ### Per-table privileges
 
@@ -84,8 +85,8 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 ### Concurrency and privilege verification
 
 - Script: `db/verification/run-db-verification.ps1`, run against MySQL 8.4.9 in a temporary database with temporary accounts, under the restricted application account. The real `opsflow` database was not touched.
-- Result: 57 checks passed, 0 failed, in the default run (4 to 12 rounds per race) and in a 24-round stress run.
-- Confirmed: confirm versus cancel, repeated submission, partial-stock rollback, no oversell with an unbroken snapshot chain, double timeout jobs, expired confirmation, deadlock handling, lock wait timeout behavior, case-sensitive identifiers, and per-table privileges (append-only and frozen tables refuse UPDATE and DELETE).
+- Result: 62 checks passed, 0 failed in the default run (4 to 12 rounds per race). An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added.
+- Confirmed: confirm versus cancel, repeated submission, partial-stock rollback, no oversell with an unbroken snapshot chain, double timeout jobs, expired confirmation, deadlock handling, lock wait timeout behavior, case-sensitive identifiers, correction comments (same-ticket rule, repeated corrections, missing target, delete protection), and per-table privileges (append-only and frozen tables refuse UPDATE and DELETE).
 - Negative control: reading stock without a lock breaks the snapshot chain, so the check detects what row locking prevents.
 - Limits: the procedures are an executable specification, not the application code, and the run uses one server at `REPEATABLE READ`. See [Concurrency and privilege verification](../database/database-design.md#concurrency-and-privilege-verification).
 
@@ -114,7 +115,8 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 | Identifier comparison | `utf8mb4_0900_bin` for `order_no`, `ticket_no`, and `idempotency_key` only | Binary comparison for every unique column, or keep the default |
 | Order and ticket numbers | `ORD-` or `TKT-` plus a random UUID without hyphens, with the unique constraint kept | A sequence, or a date-based format |
 | First application of V1 | Flyway, when the backend exists | Applying it by hand now and baselining Flyway later |
-| Ticket comments | Append-only, corrected by a new comment | Editable comments, or a link from a correction to the comment it corrects |
+| Ticket comments | Append-only, corrected by a new comment that links to the original through `corrects_comment_id` | Editable comments, or a correction described only in the comment text |
+| Same-ticket rule for corrections | Composite foreign key (`ticket_id`, `corrects_comment_id`), enforced by the database | A check in the service layer only |
 | Application privileges | Per-table, after the first migration, history tables insert-only | Database-wide `INSERT` and `UPDATE` with service-layer rules only |
 
 ## Affected Artifacts

@@ -266,18 +266,24 @@ CREATE TABLE ticket_assignment_history (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- Append-only: comments are never edited or deleted, so there is no updated_at. A mistake
--- is corrected by adding a new comment.
+-- is corrected by adding a new comment. corrects_comment_id points to the comment being
+-- corrected. The composite foreign key (ticket_id, corrects_comment_id) makes the database
+-- reject a correction that points at a comment of another ticket; it is not checked when
+-- corrects_comment_id is empty.
 CREATE TABLE ticket_comments (
-    id         BIGINT      NOT NULL AUTO_INCREMENT,
-    ticket_id  BIGINT      NOT NULL,
-    user_id    BIGINT      NOT NULL,
-    content    TEXT        NOT NULL,
-    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    id                  BIGINT      NOT NULL AUTO_INCREMENT,
+    ticket_id           BIGINT      NOT NULL,
+    user_id             BIGINT      NOT NULL,
+    corrects_comment_id BIGINT      NULL,
+    content             TEXT        NOT NULL,
+    created_at          DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
+    UNIQUE KEY uk_ticket_comments_ticket_id (ticket_id, id),
     KEY idx_ticket_comments_ticket_created (ticket_id, created_at),
     KEY idx_ticket_comments_user (user_id),
     CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
+    CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_ticket_comments_corrects FOREIGN KEY (ticket_id, corrects_comment_id) REFERENCES ticket_comments (ticket_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- ---------------------------------------------------------------------------

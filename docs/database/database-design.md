@@ -130,7 +130,7 @@ A ticket may initially be unassigned and may be reassigned multiple times during
 
 `tickets.type` uses `ORDER_EXCEPTION`, `INVENTORY_EXCEPTION`, or `OTHER`. `tickets.status` uses `OPEN`, `IN_PROGRESS`, `RESOLVED`, or `CLOSED`. `tickets.priority` uses `LOW`, `MEDIUM`, `HIGH`, or `URGENT`. `order_id` is optional because not every ticket relates to an order.
 
-Ticket comments are append-only. A comment is never edited or deleted, so `ticket_comments` has no `updated_at`. A mistake is corrected by adding a new comment that states the correction.
+Ticket comments are append-only. A comment is never edited or deleted, so `ticket_comments` has no `updated_at`. A mistake is corrected by adding a new comment that states the correction. That comment sets `corrects_comment_id` to the comment it corrects, so the screen can show the two together while the original stays unchanged. The field is empty for ordinary comments. A comment may be corrected more than once, and every correction points at the original comment, not at an earlier correction. The foreign key is the pair (`ticket_id`, `corrects_comment_id`) to (`ticket_id`, `id`), backed by a unique key on (`ticket_id`, `id`), so the database rejects a correction that points at a comment of another ticket.
 
 `type` and `priority` are required and have no database default, so a missing value fails instead of silently producing a wrong one. `status` defaults to `OPEN`. A ticket form may preselect `MEDIUM`, but the submit endpoint must still receive the priority explicitly, and the program must set both type and priority when it creates a ticket automatically.
 
@@ -160,6 +160,7 @@ The initial version uses a generic target reference. `target_type` and `target_i
 | `tickets` | 1:N | `ticket_assignment_history` | A ticket retains its complete assignment history |
 | `users` | 1:N | `ticket_assignment_history` | A user appears as the previous assignee, new assignee, or acting user |
 | `tickets` | 1:N | `ticket_comments` | A ticket contains processing notes and communication |
+| `ticket_comments` | 1:N | `ticket_comments` | A correction comment points at the comment it corrects, on the same ticket |
 | `users` | 0..1:N | `operation_logs` | A user performs multiple audited operations; system actions have no user |
 
 ## Order and Inventory Flow
@@ -309,12 +310,13 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 - An order item's `subtotal` equals `unit_price * quantity`.
 - The snapshots of an inventory transaction agree with its type and quantity. For example, `RESERVE` lowers `available` and raises `locked` by `quantity`.
 - A ticket assignment record must change the assignee. A move from empty to empty, or from a user to the same user, is rejected.
+- A correction comment must belong to the same ticket as the comment it corrects. The composite foreign key on `ticket_comments` enforces this, and leaves ordinary comments unchecked.
 
 ## Concurrency and privilege verification
 
 The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows.
 
-Latest full run (2026-10-14, MySQL 8.4.9): 57 checks passed, 0 failed. Races were repeated 4 to 12 rounds each, and a separate 24-round stress run also passed all 57 checks. The temporary database and accounts were dropped afterwards.
+Latest full run (2026-10-14, MySQL 8.4.9): 62 checks passed, 0 failed. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
 
 | Area | What the run shows |
 | --- | --- |
@@ -327,6 +329,7 @@ Latest full run (2026-10-14, MySQL 8.4.9): 57 checks passed, 0 failed. Races wer
 | Deadlock | Locking rows in opposite orders makes MySQL abort exactly one session, with its earlier writes rolled back, and the retry succeeds. Orders that list the same items in opposite orders do not deadlock, because rows are locked by ascending inventory id. |
 | Lock wait timeout | Only the statement that timed out is rolled back. The earlier statements of the transaction stay pending until the application rolls back explicitly, which confirms the rule under Concurrency and duplicate protection. |
 | Privileges | The application account can update the mutable tables and insert into every table it writes. It is refused any update or delete on the append-only and frozen tables, and any change to the schema. |
+| Comment corrections | A correction can point at a comment of the same ticket, and a comment can be corrected more than once. A correction that points at another ticket's comment or at a missing comment is rejected by the database, and a corrected comment cannot be deleted. |
 | Identifiers | `Abc` and `abc` are different idempotency keys, `ORD-aaa` and `ORD-AAA` are different order numbers, and `Alice` and `alice` are still the same username. |
 
 What this does not show: the procedures are an executable specification of the flows in SQL, not the application code, so the application's own retry logic, connection pool, and time zone handling still need the same checks once the backend exists. The run uses one server at the default `REPEATABLE READ` isolation level. A passing run shows that the design holds under the interleavings it produces, not that every possible interleaving was tried.
