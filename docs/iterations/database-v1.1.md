@@ -19,7 +19,7 @@ The authoritative design is [Initial Database Structure And Business Flow](../da
 
 ## Summary
 
-Version 1.1 reviews the Initial Physical ERD against the design document, fixes inconsistencies between them, and moves stock reservation into the first release. Order creation now reserves stock. Confirmation converts the reservation into a permanent deduction. Cancellation, timeout, or business failure releases it.
+Version 1.1 reviews the Physical ERD against the design document, fixes inconsistencies between them, and moves stock reservation into the first release. Order creation now reserves stock. Confirmation converts the reservation into a permanent deduction. Cancellation, timeout, or business failure releases it.
 
 ## Changes
 
@@ -66,7 +66,7 @@ Version 1.1 reviews the Initial Physical ERD against the design document, fixes 
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated and renamed from `initial-database-design.md` |
-| [Initial Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated |
+| [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated |
 | [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Not updated; does not show reservation |
 | [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) | Not updated; does not show reservation |
 
