@@ -1,74 +1,74 @@
-# OpsFlow 本地开发环境配置文档
+# OpsFlow Local Development Environment Setup
 
-> 记录时间：2026-09-12
-> 操作系统：Windows 11 Home (10.0.26200)
-> 说明：本机是一台**虚拟机**，不支持嵌套虚拟化（VT-x/AMD-V 未透传），因此 Docker Desktop 虽已安装但**无法正常运行**，所有中间件均改为 **Windows 原生服务** 方式安装。
+> Recorded: 2026-09-12
+> Operating system: Windows 11 Home (10.0.26200)
+> Note: this machine is a **virtual machine** without nested virtualization (VT-x/AMD-V is not passed through). Docker Desktop is installed but **cannot run**, so all middleware is installed as **native Windows services** instead.
 
 ---
 
-## 1. 环境总览
+## 1. Environment Overview
 
-| 组件 | 用途 | 版本 | 安装方式 | 状态 |
+| Component | Purpose | Version | Installed via | Status |
 |---|---|---|---|---|
-| JDK | Java 运行/编译环境 | Microsoft Build of OpenJDK 17 (17.0.20.1) | winget | ✅ 已装 |
-| Maven | Spring Boot 项目构建工具 | 3.9.16 | 手动下载解压 | ✅ 已装 |
-| MySQL | 主数据库 | 8.4.9 | winget（MSI，手动初始化） | ✅ Windows 服务运行中，开机自启 |
-| Redis | 缓存 / 幂等 / 限流 | 8.10.1（redis-windows-fork，MSYS2 构建） | winget + NSSM 注册为服务 | ✅ Windows 服务运行中，开机自启 |
-| Erlang/OTP | RabbitMQ 运行依赖 | 27.3.4.17 | 手动下载安装 | ✅ 已装 |
-| RabbitMQ | 消息队列（异步任务） | 4.3.5 | 手动下载安装 | ✅ Windows 服务运行中，开机自启，管理插件已启用 |
-| Node.js | 前端构建/运行 | v21.7.0 | 系统自带 | ✅ 已装 |
-| npm | 前端包管理 | 10.5.0 | 系统自带 | ✅ 已装 |
-| Git | 版本控制 | 2.44.0.windows.1 | 系统自带 | ✅ 已装 |
-| Docker Desktop | 容器化部署 | 4.90.0 | winget | ⚠️ 已装但不可用（宿主机不支持嵌套虚拟化） |
+| JDK | Java runtime and compiler | Microsoft Build of OpenJDK 17 (17.0.20.1) | winget | ✅ Installed |
+| Maven | Spring Boot build tool | 3.9.16 | Manual download and extract | ✅ Installed |
+| MySQL | Primary database | 8.4.9 | winget (MSI, manual initialization) | ✅ Running as a Windows service, starts on boot |
+| Redis | Cache, idempotency, rate limiting | 8.10.1 (redis-windows-fork, MSYS2 build) | winget + NSSM registered as a service | ✅ Running as a Windows service, starts on boot |
+| Erlang/OTP | RabbitMQ runtime dependency | 27.3.4.17 | Manual download and install | ✅ Installed |
+| RabbitMQ | Message queue (asynchronous tasks) | 4.3.5 | Manual download and install | ✅ Running as a Windows service, starts on boot, management plugin enabled |
+| Node.js | Frontend build and runtime | v21.7.0 | Preinstalled | ✅ Installed |
+| npm | Frontend package manager | 10.5.0 | Preinstalled | ✅ Installed |
+| Git | Version control | 2.44.0.windows.1 | Preinstalled | ✅ Installed |
+| Docker Desktop | Container deployment | 4.90.0 | winget | ⚠️ Installed but unusable (the host does not support nested virtualization) |
 
 ---
 
-## 2. 详细配置信息
+## 2. Detailed Configuration
 
 ### 2.1 JDK 17
 
-- 安装路径：`C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot`
-- 环境变量：`JAVA_HOME` = 上述路径（用户级），已加入 `PATH`
-- 验证命令：
+- Install path: `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot`
+- Environment variable: `JAVA_HOME` = the path above (user level), added to `PATH`
+- Verify:
   ```powershell
   java -version
   ```
 
 ### 2.2 Maven 3.9.16
 
-- 安装路径：`C:\Tools\maven`
-- 环境变量：`M2_HOME` = `C:\Tools\maven`，`bin` 目录已加入 `PATH`
-- 本地仓库（默认）：`C:\Users\Admin\.m2\repository`
-- 验证命令：
+- Install path: `C:\Tools\maven`
+- Environment variable: `M2_HOME` = `C:\Tools\maven`, with the `bin` directory added to `PATH`
+- Local repository (default): `C:\Users\Admin\.m2\repository`
+- Verify:
   ```powershell
   mvn -version
   ```
-- 建议：如果后续下载依赖慢，可以在 `C:\Users\Admin\.m2\settings.xml` 里配置阿里云等国内镜像仓库。
+- Tip: if dependency downloads are slow, configure a mirror repository (for example Alibaba Cloud) in `C:\Users\Admin\.m2\settings.xml`.
 
 ### 2.3 MySQL 8.4.9
 
-- 安装路径：`C:\Program Files\MySQL\MySQL Server 8.4`
-- 数据目录：`C:\ProgramData\MySQL\MySQL Server 8.4\Data`
-- 配置文件：`C:\ProgramData\MySQL\MySQL Server 8.4\my.ini`
-- Windows 服务名：`MySQL84`（启动类型 Automatic）
-- 端口：`3306`
-- 账号：`root`
-- 密码：`OpsFlow@2026`  ⚠️ 仅供本地开发使用，**不要提交到代码仓库或写死在配置文件里**，正式项目里请用环境变量 / `.env` 注入
-- 字符集：`utf8mb4`（server 级默认已设置）
-- `mysql.exe` 已加入 `PATH`
+- Install path: `C:\Program Files\MySQL\MySQL Server 8.4`
+- Data directory: `C:\ProgramData\MySQL\MySQL Server 8.4\Data`
+- Configuration file: `C:\ProgramData\MySQL\MySQL Server 8.4\my.ini`
+- Windows service name: `MySQL84` (startup type Automatic)
+- Port: `3306`
+- Account: `root`
+- Password: `OpsFlow@2026`  ⚠️ For local development only. **Do not commit it to the repository or hard-code it in configuration files.** In the real project, inject it through environment variables or a `.env` file.
+- Character set: `utf8mb4` (set as the server default)
+- `mysql.exe` has been added to `PATH`
 
-常用命令：
+Common commands:
 ```powershell
-# 启动/停止/重启服务
+# Start, stop, or restart the service
 Start-Service MySQL84
 Stop-Service MySQL84
 Restart-Service MySQL84
 
-# 连接数据库
+# Connect to the database
 mysql -u root -p
 ```
 
-Spring Boot `application.yml` 参考配置：
+Reference `application.yml` configuration for Spring Boot:
 ```yaml
 spring:
   datasource:
@@ -77,32 +77,32 @@ spring:
     password: OpsFlow@2026
     driver-class-name: com.mysql.cj.jdbc.Driver
 ```
-> 记得先手动创建数据库：`CREATE DATABASE opsflow DEFAULT CHARACTER SET utf8mb4;`
+> Create the database manually first: `CREATE DATABASE opsflow DEFAULT CHARACTER SET utf8mb4;`
 
 > Time zone: OpsFlow stores all times in UTC. The two JDBC parameters above set the session time zone to UTC, so changing only `serverTimezone` is not enough. Run `SET time_zone = '+00:00';` before manual SQL that involves time. See [Time zone](docs/database/database-design.md#time-zone).
 
 ### 2.4 Redis 8.10.1
 
-- 安装路径（可执行文件）：
+- Install path (executables):
   `C:\Users\Admin\AppData\Local\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork_Microsoft.Winget.Source_8wekyb3d8bbwe\Redis-8.10.1-Windows-x64-msys2`
-- 数据/配置目录：`C:\ProgramData\Redis`（`redis.conf` 在此）
-- Windows 服务名：`Redis`（通过 **NSSM** 注册，启动类型 Automatic）
-  - NSSM 工具路径：`...\NSSM.NSSM_...\nssm-2.24-101-g897c7ad\win64\nssm.exe`
-- 端口：`6379`，监听 `127.0.0.1`
-- 未设置密码（本地开发默认无密码，`bind 127.0.0.1` 已限制只能本机访问）
-- `redis-cli` 未加入全局 PATH（如需使用，进入上述安装目录，或自行加到 PATH）
+- Data and configuration directory: `C:\ProgramData\Redis` (`redis.conf` is here)
+- Windows service name: `Redis` (registered through **NSSM**, startup type Automatic)
+  - NSSM path: `...\NSSM.NSSM_...\nssm-2.24-101-g897c7ad\win64\nssm.exe`
+- Port: `6379`, listening on `127.0.0.1`
+- No password is set. Local development uses no password by default, and `bind 127.0.0.1` restricts access to this machine.
+- `redis-cli` is not on the global `PATH`. To use it, go to the install directory above or add it to `PATH` yourself.
 
-常用命令：
+Common commands:
 ```powershell
 Start-Service Redis
 Stop-Service Redis
 Restart-Service Redis
 
-# 测试连接
+# Test the connection
 & "C:\Users\Admin\AppData\Local\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork_Microsoft.Winget.Source_8wekyb3d8bbwe\Redis-8.10.1-Windows-x64-msys2\redis-cli.exe" -h 127.0.0.1 -p 6379 PING
 ```
 
-Spring Boot 配置参考：
+Reference Spring Boot configuration:
 ```yaml
 spring:
   data:
@@ -114,29 +114,29 @@ spring:
 
 ### 2.5 RabbitMQ 4.3.5
 
-- 安装路径：`C:\Program Files\RabbitMQ Server\rabbitmq_server-4.3.5`
-- 依赖的 Erlang：`C:\Program Files\Erlang OTP`（27.3.4.17，环境变量 `ERLANG_HOME` 已设置为机器级）
-- Windows 服务名：`RabbitMQ`（启动类型 Automatic）
-- 端口：
-  - `5672`：AMQP 协议端口（应用连接用这个）
-  - `15672`：Web 管理界面
-- 管理界面：http://localhost:15672
-- 默认账号：`guest` / `guest`（**RabbitMQ 默认只允许 guest 账号从本机 localhost 登录**，如需远程访问需新建账号）
-- 管理插件 `rabbitmq_management` 已手动启用
-- `sbin` 目录已加入 `PATH`，可直接用 `rabbitmqctl`、`rabbitmq-plugins` 等命令
+- Install path: `C:\Program Files\RabbitMQ Server\rabbitmq_server-4.3.5`
+- Erlang dependency: `C:\Program Files\Erlang OTP` (27.3.4.17, with the machine-level environment variable `ERLANG_HOME` set)
+- Windows service name: `RabbitMQ` (startup type Automatic)
+- Ports:
+  - `5672`: AMQP port (applications connect here)
+  - `15672`: web management interface
+- Management interface: http://localhost:15672
+- Default account: `guest` / `guest` (**RabbitMQ only lets the guest account log in from localhost by default.** Create a new account for remote access.)
+- The `rabbitmq_management` plugin was enabled manually.
+- The `sbin` directory has been added to `PATH`, so `rabbitmqctl`, `rabbitmq-plugins`, and similar commands work directly.
 
-常用命令：
+Common commands:
 ```powershell
 Start-Service RabbitMQ
 Stop-Service RabbitMQ
 Restart-Service RabbitMQ
 
-# 查看状态 / 队列列表
+# Check status and list queues
 rabbitmqctl status
 rabbitmqctl list_queues
 ```
 
-Spring Boot 配置参考：
+Reference Spring Boot configuration:
 ```yaml
 spring:
   rabbitmq:
@@ -147,29 +147,29 @@ spring:
     virtual-host: /
 ```
 
-⚠️ **安装过程中的一个坑**：最初通过 winget 装的 Erlang 是 29.0.6，与 RabbitMQ 4.3.x 不兼容（RabbitMQ 4.3.x 官方只支持 Erlang 27.x，28.x 部分支持，29.x 不支持），启动时报 `incompatible_feature_flags` / `horus extraction_denied` 错误。后来卸载 Erlang 29，改装 Erlang 27.3.4.17 后正常。**以后升级 Erlang 前，先查 [RabbitMQ 官方兼容表](https://www.rabbitmq.com/docs/which-erlang)。**
+⚠️ **A pitfall during installation**: the Erlang installed first through winget was 29.0.6, which is incompatible with RabbitMQ 4.3.x. RabbitMQ 4.3.x officially supports Erlang 27.x, partly supports 28.x, and does not support 29.x. At startup it failed with `incompatible_feature_flags` and `horus extraction_denied` errors. After uninstalling Erlang 29 and installing Erlang 27.3.4.17, it worked. **Before upgrading Erlang in the future, check the [RabbitMQ compatibility table](https://www.rabbitmq.com/docs/which-erlang).**
 
-### 2.6 Docker Desktop（未启用）
+### 2.6 Docker Desktop (not enabled)
 
-- 已通过 winget 安装（4.90.0），但本机检测到：
-  - Windows 的 `VirtualMachinePlatform`、`Microsoft-Windows-Subsystem-Linux` 功能均已启用
-  - 但硬件虚拟化未透传给本机（`wsl --install` 报错提示未启用虚拟化，`systeminfo` 显示"已检测到一个虚拟机监控程序"）
-  - 结论：本机自身就是一台虚拟机，Docker/WSL2 需要宿主机开启**嵌套虚拟化**才能用，这个无法在虚拟机内部解决
-- 如果之后换到物理机，或宿主机开启了嵌套虚拟化，可以重新尝试 `wsl --install`，成功后 Docker Desktop 即可正常使用，届时可以把 MySQL/Redis/RabbitMQ 迁移为 `docker-compose` 管理（对应文档第 13 章）。
+- Installed through winget (4.90.0), but the machine checks showed:
+  - The Windows `VirtualMachinePlatform` and `Microsoft-Windows-Subsystem-Linux` features are both enabled.
+  - Hardware virtualization is not passed through to this machine. `wsl --install` reports that virtualization is not enabled, and `systeminfo` shows "A hypervisor has been detected".
+  - Conclusion: this machine is itself a virtual machine. Docker and WSL2 need **nested virtualization** enabled on the host, which cannot be fixed from inside the virtual machine.
+- On a physical machine, or if the host enables nested virtualization, try `wsl --install` again. Once it succeeds, Docker Desktop will work, and MySQL, Redis, and RabbitMQ can be moved to `docker-compose` (see chapter 13 of the learning documents).
 
 ---
 
-## 3. PATH / 环境变量汇总
+## 3. PATH and Environment Variable Summary
 
-以下均为**用户级（User）**环境变量，写入后需要**打开新终端窗口**才会生效：
+All of the following are **user-level** environment variables unless noted. After setting them, **open a new terminal window** for them to take effect:
 
-| 变量名 | 值 |
+| Variable | Value |
 |---|---|
 | `JAVA_HOME` | `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot` |
 | `M2_HOME` | `C:\Tools\maven` |
-| `ERLANG_HOME`（机器级） | `C:\Program Files\Erlang OTP` |
+| `ERLANG_HOME` (machine level) | `C:\Program Files\Erlang OTP` |
 
-`PATH` 新增条目：
+Entries added to `PATH`:
 - `C:\Tools\maven\bin`
 - `C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot\bin`
 - `C:\Program Files\MySQL\MySQL Server 8.4\bin`
@@ -177,9 +177,9 @@ spring:
 
 ---
 
-## 4. 一键自检
+## 4. One-Step Self-Check
 
-新开一个终端，依次执行：
+Open a new terminal and run the following in order:
 
 ```powershell
 java -version
@@ -191,19 +191,19 @@ git --version
 rabbitmqctl status
 ```
 
-服务状态检查：
+Check the service status:
 ```powershell
 Get-Service MySQL84, Redis, RabbitMQ | Select-Object Name, Status, StartType
 ```
 
-三个服务都应显示 `Running` / `Automatic`（意味着开机会自动启动，不需要每次手动开）。
+All three services should show `Running` / `Automatic`, which means they start on boot and need no manual start.
 
 ---
 
-## 5. 后续待办 / 建议
+## 5. Follow-Up Tasks and Suggestions
 
-- [ ] 手动创建业务数据库：`CREATE DATABASE opsflow ...`（见 2.3）
-- [ ] 用 [Spring Initializr](https://start.spring.io) 或 IDE 生成 Spring Boot 项目骨架（对应文档第 3 章）
-- [ ] 把 MySQL root 密码、RabbitMQ 账号等敏感信息改为通过环境变量 / `application-local.yml`（不提交 git）注入，而不是硬编码
-- [ ] 前端部分：确认用 Vue 还是 React（文档中两者都提到），再决定是否需要额外装脚手架 CLI（如 `npm create vite@latest`）
-- [ ] 如果以后机器换成支持虚拟化的环境，可以考虑迁移到 Docker Compose 统一管理这几个中间件，参考文档第 13 章
+- [ ] Create the business database manually: `CREATE DATABASE opsflow ...` (see 2.3)
+- [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE (see chapter 3 of the learning documents)
+- [ ] Move the MySQL root password, the RabbitMQ account, and other secrets to environment variables or `application-local.yml` (not committed to git) instead of hard-coding them
+- [ ] Frontend: decide between Vue and React (the learning documents mention both), then decide whether a scaffolding CLI is needed (for example `npm create vite@latest`)
+- [ ] If the machine moves to an environment that supports virtualization, consider managing these middleware services with Docker Compose, as in chapter 13 of the learning documents
