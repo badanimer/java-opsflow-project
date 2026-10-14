@@ -19,7 +19,7 @@ The authoritative design is [Database Structure and Business Flow](../database/d
 
 ## Summary
 
-Version 1.2 keeps the table structure and tightens the rules around it. The review found that the tables were sound and that the open risks were in concurrency rules and constraints. This iteration fixes five of the six review points, brings the Business Process Flowchart in line with the reservation flow, records the operating parameters and field specifications, and turns them into the first executable migration, `db/migration/V1__initial_schema.sql`. This covers all six review points.
+Version 1.2 keeps the table structure and tightens the rules around it. The review found that the tables were sound and that the open risks were in concurrency rules and constraints. This iteration fixes five of the six review points, brings the Business Process Flowchart in line with the reservation flow, records the operating parameters and field specifications, and turns them into the first executable migration, `db/migration/V1__initial_schema.sql`. This covers all six review points. Follow-up decisions then fixed the comparison rules of the generated identifiers, made ticket comments append-only, turned the per-table privileges into a script, and verified the schema, the privileges, and the concurrency rules against a real MySQL server.
 
 ## Changes
 
@@ -59,8 +59,35 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 - Indexes: `orders(status, reserved_until)` for the timeout job, `inventory_transactions(inventory_id, created_at)`, `tickets(assignee_id, status)`, `operation_logs(target_type, target_id)`, and an index on every foreign key.
 - Extra `CHECK` constraints beyond the design rules: an order is `CREATED` exactly when `finished_at` is empty, an order item's `subtotal` equals `unit_price * quantity`, inventory transaction snapshots agree with the type and quantity, and a ticket assignment must change the assignee.
 - `tickets.type` and `tickets.priority` are required with no default, so callers must choose them, including code that creates tickets automatically. A form may preselect `MEDIUM`, but the endpoint must receive the priority explicitly. `tickets.status` defaults to `OPEN`.
-- Verified on MySQL 8.4.9 in a scratch database, since dropped: the script applied cleanly, and 39 checks behaved as expected. These covered accepted valid data, rejected invalid data, composite and per-user keys, `NULL` handling, and restricted deletes. Concurrent behavior (locking, deadlock retry, confirm racing cancel) is not covered; it needs application code.
+- Verified on MySQL 8.4.9 in a temporary database. See Concurrency and privilege verification below.
 - Time zone: all times are stored in UTC. The defaults follow the session time zone, so every connection must set it explicitly. The JDBC URL in `ENVIRONMENT_SETUP.md` now uses `connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true` instead of `serverTimezone=Asia/Shanghai`, and manual SQL runs `SET time_zone = '+00:00';` first. Java must also generate the times it writes in UTC.
+
+### Identifiers
+
+- `orders.order_no`, `tickets.ticket_no`, and `orders.idempotency_key` use the `utf8mb4_0900_bin` collation, so they are compared exactly. Before, the default collation treated `Abc` and `abc` as the same key. Usernames, emails, SKUs, and role codes keep the default case-insensitive rule.
+- `order_no` is `ORD-` plus a random UUID without hyphens, and `ticket_no` is `TKT-` plus the same, generated in lowercase by the application. The unique constraint stays as the final guard, and a collision is retried with a new UUID.
+
+### Ticket comments are append-only
+
+- Comments are never edited or deleted, and a mistake is corrected by adding a new comment. `ticket_comments.updated_at` was removed from the migration and the physical ERD.
+- The application account therefore gets only `SELECT` and `INSERT` on `ticket_comments`. This replaces the earlier plan to keep the table updatable.
+
+### Per-table privileges
+
+- Having no `DELETE` does not make history append-only while `UPDATE` is granted database-wide. The correction: `db/admin/restrict-app-privileges.sql` replaces the database-wide grants with per-table ones. `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, `operation_logs`, and `order_items` become insert-only, and `user_roles` is insert-only until the permission feature needs `DELETE` on that table alone.
+- Run it as `root` after Flyway applies the first migration. It is not a migration, because the migration account has no `GRANT` privilege and privileges belong to the server.
+
+### First application of the migration
+
+- V1 is not applied to the real `opsflow` database by hand. Flyway applies it when the backend is connected, so its schema history exists from the start. Experiments use a temporary database.
+
+### Concurrency and privilege verification
+
+- Script: `db/verification/run-db-verification.ps1`, run against MySQL 8.4.9 in a temporary database with temporary accounts, under the restricted application account. The real `opsflow` database was not touched.
+- Result: 57 checks passed, 0 failed, in the default run (4 to 12 rounds per race) and in a 24-round stress run.
+- Confirmed: confirm versus cancel, repeated submission, partial-stock rollback, no oversell with an unbroken snapshot chain, double timeout jobs, expired confirmation, deadlock handling, lock wait timeout behavior, case-sensitive identifiers, and per-table privileges (append-only and frozen tables refuse UPDATE and DELETE).
+- Negative control: reading stock without a lock breaks the snapshot chain, so the check detects what row locking prevents.
+- Limits: the procedures are an executable specification, not the application code, and the run uses one server at `REPEATABLE READ`. See [Concurrency and privilege verification](../database/database-design.md#concurrency-and-privilege-verification).
 
 ### Business Process Flowchart
 
@@ -84,6 +111,11 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 | Operating parameters and field types | Adopt the values recommended during the review | Leave them to the migration author |
 | Migration location | `db/migration/` at the repository root, named `V1__initial_schema.sql` | Inside a backend module, which does not exist yet |
 | Integrity checks | Add `CHECK` constraints for order finish state, item subtotal, inventory movement, and assignment change | Enforce these only in the service layer |
+| Identifier comparison | `utf8mb4_0900_bin` for `order_no`, `ticket_no`, and `idempotency_key` only | Binary comparison for every unique column, or keep the default |
+| Order and ticket numbers | `ORD-` or `TKT-` plus a random UUID without hyphens, with the unique constraint kept | A sequence, or a date-based format |
+| First application of V1 | Flyway, when the backend exists | Applying it by hand now and baselining Flyway later |
+| Ticket comments | Append-only, corrected by a new comment | Editable comments, or a link from a correction to the comment it corrects |
+| Application privileges | Per-table, after the first migration, history tables insert-only | Database-wide `INSERT` and `UPDATE` with service-layer rules only |
 
 ## Affected Artifacts
 
@@ -91,15 +123,19 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated |
 | [Initial migration](../../db/migration/V1__initial_schema.sql) | New |
+| [Per-table privilege script](../../db/admin/restrict-app-privileges.sql) | New; run once after the first migration |
+| [Verification scripts](../../db/verification/) | New; the concurrency fixtures and the runner |
+| [Environment setup](../../ENVIRONMENT_SETUP.md) | Updated; accounts, UTC, environment variables |
 | [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated; shows generic types, the migration holds the exact ones |
 | [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Updated; `version` removed |
 | [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) | Updated; shows reservation, confirmation, release, timeout, and retry |
 
 ## Open Items
 
-- After the first migration is applied, replace the application account's database-wide grants with per-table ones, so the append-only and frozen tables are insert-only. The planned statements are in `ENVIRONMENT_SETUP.md`.
+- When Flyway first applies V1, run `db/admin/restrict-app-privileges.sql` as `root`. Add `GRANT DELETE ON opsflow.user_roles` when the permission feature is built.
 - Add a separate seed migration for the roles `ADMIN`, `OPERATOR`, and `VIEWER` when the permission module is implemented. An empty `roles` table is expected until then.
 - When the Spring Boot backend is created, move the migrations (not copy them) to `src/main/resources/db/migration`, so only one copy exists.
 - Make the application connection and Java time handling follow the UTC convention once backend code exists.
-- Validate the design against four scenarios once code exists: confirm and cancel at the same time, repeated submission, a multi-item order where one item is short, and timeout release.
-- Decide whether `ticket_comments` may be edited after creation.
+- Generate `ORD-` and `TKT-` numbers in application code, and retry with a new UUID on a unique-key collision.
+- Repeat the concurrency checks against the real application code, including its retry logic, connection pool, and transaction handling. The verification so far runs the flows as stored procedures.
+- Re-run `db/verification/run-db-verification.ps1` whenever the schema, the privileges, or the flows change.

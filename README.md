@@ -19,6 +19,8 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 
 - [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
 - [`db/migration`](db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
+- [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
+- [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification).
 - [`docs/iterations`](docs/iterations/) contains one summary file per design iteration, indexed in the Project Log below.
 - [`docs/documentation-sync-rules.md`](docs/documentation-sync-rules.md) defines which documents must be updated together and how iterations are recorded. Read it before changing any design document or diagram.
 - [`opsflow_learning_docs_en`](opsflow_learning_docs_en/) contains the English learning path.
@@ -31,7 +33,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
-| 2026-10-14 | 1.2 | Database | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, and added the initial migration | [database-v1.2.md](docs/iterations/database-v1.2.md) |
+| 2026-10-14 | 1.2 | Database | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](docs/iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Database | Added stock reservation, redefined order statuses, and aligned the physical ERD with the design document | [database-v1.1.md](docs/iterations/database-v1.1.md) |
 
 ## Current Scope

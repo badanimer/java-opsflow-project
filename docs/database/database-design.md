@@ -12,7 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
-| 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, and added the initial migration | [database-v1.2.md](../iterations/database-v1.2.md) |
+| 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Added stock reservation, redefined order statuses, and aligned the document with the physical ERD | [database-v1.1.md](../iterations/database-v1.1.md) |
 | Before 2026-10-14 | 1.0 | Initial database design baseline with 12 tables | Commit `7ab5f55` |
 
@@ -94,6 +94,10 @@ An order item should retain the product name or SKU and price as they were when 
 
 Once an order is created, its items and amounts are frozen. The product, quantity, price, and composition of the items, as well as `total_amount` and `item_count`, must not be edited or deleted. Confirm and release read `order_items.quantity` to decide how much stock to move, so a changed quantity would move the wrong amount. To change an order, cancel it and create a new one. For the same reason `order_items` has `created_at` but no `updated_at`.
 
+#### Order and ticket numbers
+
+`orders.order_no` is `ORD-` followed by a random UUID without hyphens, for example `ORD-3f2b8c1e9a4d4b6f8e0c5a7d1b2c3d4e`. `tickets.ticket_no` follows the same pattern with `TKT-`. The application generates them in lowercase. The unique constraint on each column stays as the final guard: on the practically impossible collision, the insert fails and the application retries with a new UUID.
+
 #### Order status
 
 | Status | Meaning |
@@ -118,13 +122,15 @@ Additional `orders` fields support this lifecycle:
 | --- | --- |
 | `tickets` | Stores exception tickets, the fixed creator, current assignee, resolver, status, and priority |
 | `ticket_assignment_history` | Records every assignment and reassignment, including the previous and new assignees |
-| `ticket_comments` | Stores investigation notes, communication, and resolution details |
+| `ticket_comments` | Stores investigation notes, communication, and resolution details. Append-only. |
 
 The ticket creator is fixed in `created_by`. `assignee_id` contains only the current assignee, and a ticket has at most one current assignee at a time. Each assignee change creates a new `ticket_assignment_history` record instead of overwriting the assignment history.
 
 A ticket may initially be unassigned and may be reassigned multiple times during its lifecycle. Each reassignment should record the previous assignee (`from_user_id`), new assignee (`to_user_id`), acting user (`changed_by`), reason, and timestamp. `from_user_id` is empty for the first assignment, and `to_user_id` is empty when a ticket is unassigned.
 
 `tickets.type` uses `ORDER_EXCEPTION`, `INVENTORY_EXCEPTION`, or `OTHER`. `tickets.status` uses `OPEN`, `IN_PROGRESS`, `RESOLVED`, or `CLOSED`. `tickets.priority` uses `LOW`, `MEDIUM`, `HIGH`, or `URGENT`. `order_id` is optional because not every ticket relates to an order.
+
+Ticket comments are append-only. A comment is never edited or deleted, so `ticket_comments` has no `updated_at`. A mistake is corrected by adding a new comment that states the correction.
 
 `type` and `priority` are required and have no database default, so a missing value fails instead of silently producing a wrong one. `status` defaults to `OPEN`. A ticket form may preselect `MEDIUM`, but the submit endpoint must still receive the priority explicitly, and the program must set both type and priority when it creates a ticket automatically.
 
@@ -274,6 +280,8 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | Product and ticket descriptions, `tickets.resolution`, `ticket_comments.content` | `TEXT` |
 | `operation_logs.before_data`, `after_data` | `JSON` |
 
+`orders.order_no`, `tickets.ticket_no`, and `orders.idempotency_key` use the `utf8mb4_0900_bin` collation, so they are compared exactly and `Abc` and `abc` are different values. `users.username`, `users.email`, `products.sku`, and `roles.code` keep the default case-insensitive, accent-insensitive collation, so two usernames that differ only in case count as the same.
+
 `roles.name` and `roles.description` were not covered by the supplied values. Use `VARCHAR(64)` and `VARCHAR(255)` unless a reason to change appears.
 
 ### Time zone
@@ -289,6 +297,8 @@ Times are stored in UTC. `DATETIME` carries no time zone, and the defaults for `
 
 The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 12 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
 
+The first application of this migration is done by Flyway, when the backend is connected to Flyway. Do not apply it to `opsflow` by hand, so that Flyway's schema history exists from the start. Experiments use a temporary database.
+
 Run migrations with the `opsflow_migrator` account, which can change the schema. The application connects as `opsflow_app`, which can only read, insert, and update rows in `opsflow`. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#23-mysql-849) for the accounts and their credentials.
 
 When the Spring Boot backend is created, move the migrations to its `src/main/resources/db/migration/`, which Flyway reads by default (`classpath:db/migration`). Move them, do not copy them, so that only one copy exists.
@@ -299,6 +309,29 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 - An order item's `subtotal` equals `unit_price * quantity`.
 - The snapshots of an inventory transaction agree with its type and quantity. For example, `RESERVE` lowers `available` and raises `locked` by `quantity`.
 - A ticket assignment record must change the assignee. A move from empty to empty, or from a user to the same user, is rejected.
+
+## Concurrency and privilege verification
+
+The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows.
+
+Latest full run (2026-10-14, MySQL 8.4.9): 57 checks passed, 0 failed. Races were repeated 4 to 12 rounds each, and a separate 24-round stress run also passed all 57 checks. The temporary database and accounts were dropped afterwards.
+
+| Area | What the run shows |
+| --- | --- |
+| Confirm racing cancel | Exactly one wins. Stock, order status, and inventory transactions are consistent in every round, whichever side wins. |
+| Repeated submission | One order is created and stock is reserved once. The same key from two different users creates two orders. |
+| Multi-item order with one item short | The whole transaction is rolled back: no order, no items, no stock change, no transaction. Five buyers racing for the last unit give one winner and four out-of-stock results, with nothing half-done. |
+| Many reservations on one stock row | No oversell. The snapshots of the inventory transactions form an unbroken chain that ends at the real stock. |
+| Negative control | The same race with an unlocked read breaks the chain. This shows that the check would catch the problem that row locking prevents. |
+| Timeout and expired confirmation | Two timeout jobs at once release each expired order exactly once and leave live orders alone. Confirming an expired order cancels it and releases the stock at once. Double confirmation and double cancellation take effect once. |
+| Deadlock | Locking rows in opposite orders makes MySQL abort exactly one session, with its earlier writes rolled back, and the retry succeeds. Orders that list the same items in opposite orders do not deadlock, because rows are locked by ascending inventory id. |
+| Lock wait timeout | Only the statement that timed out is rolled back. The earlier statements of the transaction stay pending until the application rolls back explicitly, which confirms the rule under Concurrency and duplicate protection. |
+| Privileges | The application account can update the mutable tables and insert into every table it writes. It is refused any update or delete on the append-only and frozen tables, and any change to the schema. |
+| Identifiers | `Abc` and `abc` are different idempotency keys, `ORD-aaa` and `ORD-AAA` are different order numbers, and `Alice` and `alice` are still the same username. |
+
+What this does not show: the procedures are an executable specification of the flows in SQL, not the application code, so the application's own retry logic, connection pool, and time zone handling still need the same checks once the backend exists. The run uses one server at the default `REPEATABLE READ` isolation level. A passing run shows that the design holds under the interleavings it produces, not that every possible interleaving was tried.
+
+To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. It asks for the MySQL root password in a masked dialog, creates a temporary database and two temporary accounts, and drops them at the end. It never touches `opsflow`. Run it again whenever the schema, the privileges, or the flows change.
 
 ## Initial Constraints
 
@@ -311,10 +344,10 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 - Use fixed-precision decimals for money.
 - Keep transaction prices and product snapshots in `order_items` unchanged after order creation, and do not edit or delete order items after the order is created.
 - Place order creation, order-item creation, stock reservation, and reservation transactions in the same transaction boundary. Do the same for confirm and release.
-- Treat inventory transactions, ticket assignment history, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration).
+- Treat inventory transactions, ticket assignment history, ticket comments, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) and [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql).
 - Use controlled status values. Enforce valid state transitions in the service layer, and enforce the order status gate with the conditional update described above.
-- Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions` and `order_items`, must include at least a creation timestamp.
-- Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, and `operation_logs` must not delete or null out history rows.
+- Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions`, `ticket_comments`, and `order_items`, must include at least a creation timestamp.
+- Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution
 
