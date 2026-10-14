@@ -53,7 +53,7 @@
 - Windows service name: `MySQL84` (startup type Automatic)
 - Port: `3306`
 - Account: `root`
-- Password: `OpsFlow@2026`  ⚠️ For local development only. **Do not commit it to the repository or hard-code it in configuration files.** In the real project, inject it through environment variables or a `.env` file.
+- Password: `<your-mysql-root-password>`  ⚠️ **Never commit the real password to the repository or hard-code it in configuration files.** Keep it in the `OPSFLOW_DB_PASSWORD` environment variable (see section 3) and let the application read it from there.
 - Character set: `utf8mb4` (set as the server default)
 - `mysql.exe` has been added to `PATH`
 
@@ -73,10 +73,11 @@ Reference `application.yml` configuration for Spring Boot:
 spring:
   datasource:
     url: jdbc:mysql://127.0.0.1:3306/opsflow?useSSL=false&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
-    username: root
-    password: OpsFlow@2026
+    username: ${OPSFLOW_DB_USERNAME:root}
+    password: ${OPSFLOW_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 ```
+The password has no default on purpose: if `OPSFLOW_DB_PASSWORD` is not set, the application fails to start instead of falling back to a value in the repository.
 > Create the database manually first: `CREATE DATABASE opsflow DEFAULT CHARACTER SET utf8mb4;`
 
 > Time zone: OpsFlow stores all times in UTC. The two JDBC parameters above set the session time zone to UTC, so changing only `serverTimezone` is not enough. Run `SET time_zone = '+00:00';` before manual SQL that involves time. See [Time zone](docs/database/database-design.md#time-zone).
@@ -121,7 +122,7 @@ spring:
   - `5672`: AMQP port (applications connect here)
   - `15672`: web management interface
 - Management interface: http://localhost:15672
-- Default account: `guest` / `guest` (**RabbitMQ only lets the guest account log in from localhost by default.** Create a new account for remote access.)
+- Default account: `guest` (**RabbitMQ only lets the guest account log in from localhost by default.** Create a new account for remote access.) Its password is the RabbitMQ product default, which is public knowledge, so it is not repeated here.
 - The `rabbitmq_management` plugin was enabled manually.
 - The `sbin` directory has been added to `PATH`, so `rabbitmqctl`, `rabbitmq-plugins`, and similar commands work directly.
 
@@ -142,8 +143,8 @@ spring:
   rabbitmq:
     host: 127.0.0.1
     port: 5672
-    username: guest
-    password: guest
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD}
     virtual-host: /
 ```
 
@@ -175,6 +176,29 @@ Entries added to `PATH`:
 - `C:\Program Files\MySQL\MySQL Server 8.4\bin`
 - `C:\Program Files\RabbitMQ Server\rabbitmq_server-4.3.5\sbin`
 
+### Application secrets
+
+Real credentials live in environment variables and never in the repository. The configuration examples in section 2 read them from these variables:
+
+| Variable | Used for | Required |
+|---|---|---|
+| `OPSFLOW_DB_USERNAME` | MySQL user | No, defaults to `root` |
+| `OPSFLOW_DB_PASSWORD` | MySQL password | Yes |
+| `RABBITMQ_USERNAME` | RabbitMQ user | No, defaults to `guest` |
+| `RABBITMQ_PASSWORD` | RabbitMQ password | Yes |
+
+Set them at user level in PowerShell, then open a new terminal and restart the IDE so it picks them up:
+```powershell
+[Environment]::SetEnvironmentVariable("OPSFLOW_DB_PASSWORD", "<your-mysql-root-password>", "User")
+[Environment]::SetEnvironmentVariable("RABBITMQ_PASSWORD", "<your-rabbitmq-password>", "User")
+```
+
+Rules:
+- Never write a real password in a document, source file, commit message, or chat. Use a placeholder such as `<your-mysql-root-password>`.
+- Run `mysql -u root -p` and type the password at the prompt, instead of putting it on the command line.
+- If you prefer a file, use `application-local.yml` or `.env`. Both are ignored by git. Spring Boot does not read `.env` by itself.
+- If a secret has ever been committed, treat it as exposed. Change the secret first, then clean the history if needed.
+
 ---
 
 ## 4. One-Step Self-Check
@@ -204,6 +228,6 @@ All three services should show `Running` / `Automatic`, which means they start o
 
 - [ ] Create the business database manually: `CREATE DATABASE opsflow ...` (see 2.3)
 - [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE (see chapter 3 of the learning documents)
-- [ ] Move the MySQL root password, the RabbitMQ account, and other secrets to environment variables or `application-local.yml` (not committed to git) instead of hard-coding them
+- [ ] When the backend is created, read the MySQL and RabbitMQ credentials from the environment variables in section 3, as in the section 2 examples, and keep `application-local.yml` out of git
 - [ ] Frontend: decide between Vue and React (the learning documents mention both), then decide whether a scaffolding CLI is needed (for example `npm create vite@latest`)
 - [ ] If the machine moves to an environment that supports virtualization, consider managing these middleware services with Docker Compose, as in chapter 13 of the learning documents
