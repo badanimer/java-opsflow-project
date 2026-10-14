@@ -1,4 +1,4 @@
-# OpsFlow Initial Database Structure and Business Flow
+# OpsFlow Database Structure and Business Flow
 
 ## Purpose
 
