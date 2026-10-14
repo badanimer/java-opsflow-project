@@ -311,7 +311,7 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 - Use fixed-precision decimals for money.
 - Keep transaction prices and product snapshots in `order_items` unchanged after order creation, and do not edit or delete order items after the order is created.
 - Place order creation, order-item creation, stock reservation, and reservation transactions in the same transaction boundary. Do the same for confirm and release.
-- Treat inventory transactions, ticket assignment history, and operation logs as append-only trace data.
+- Treat inventory transactions, ticket assignment history, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration).
 - Use controlled status values. Enforce valid state transitions in the service layer, and enforce the order status gate with the conditional update described above.
 - Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions` and `order_items`, must include at least a creation timestamp.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, and `operation_logs` must not delete or null out history rows.

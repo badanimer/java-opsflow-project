@@ -60,7 +60,9 @@
   | `opsflow_migrator` | Runs schema migrations (Flyway) | `SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES` | `OPSFLOW_MIGRATION_USERNAME` and `OPSFLOW_MIGRATION_PASSWORD` |
   | `opsflow_app` | Runtime access from the application | `SELECT, INSERT, UPDATE` | `OPSFLOW_DB_USERNAME` and `OPSFLOW_DB_PASSWORD` |
 
-  Neither application account has global privileges, `GRANT OPTION`, or access to any other database. `opsflow_app` cannot change the schema, and it has no `DELETE`, because history tables are append-only and users and products are soft-deleted. When a feature genuinely needs to delete rows, grant it per table after the tables exist, for example `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';`. `SELECT ... FOR UPDATE` works with these privileges, which the stock row locking relies on.
+  Neither application account has global privileges, `GRANT OPTION`, or access to any other database. `opsflow_app` cannot change the schema. `SELECT ... FOR UPDATE` works with these privileges, which the stock row locking relies on.
+
+  **The `opsflow_app` grants are interim.** Privileges can only be granted on tables that exist, so until the first migration is applied they are database-wide. That means `opsflow_app` can still update every table, including the append-only ones. Having no `DELETE` does not make history append-only. Tighten the grants after the first migration, as described under "Per-table privileges after the first migration" below.
 - ⚠️ **Never commit a real password to the repository or hard-code it in configuration files.** The application reads credentials from environment variables (see section 3).
 - Character set: `utf8mb4` (set as the server default)
 - `mysql.exe` has been added to `PATH`
@@ -99,6 +101,45 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES ON 
 GRANT SELECT, INSERT, UPDATE ON opsflow.* TO 'opsflow_app'@'localhost';
 ```
 Use long random passwords for the two application accounts, because they are only ever read from environment variables.
+
+Keep the two connections separate in Spring Boot:
+
+| Setting | Account |
+|---|---|
+| Application database connection (`spring.datasource.*`) | `opsflow_app` |
+| Flyway schema creation and upgrades (`spring.flyway.*`) | `opsflow_migrator` |
+
+#### Per-table privileges after the first migration
+
+The following has not been run yet, because the tables do not exist. Run it as `root` after the first migration is applied, and verify it the way the database-wide grants were verified: an update on an append-only table must be refused.
+
+```sql
+-- Replace the database-wide write privileges with per-table ones. SELECT stays database-wide.
+REVOKE INSERT, UPDATE ON opsflow.* FROM 'opsflow_app'@'localhost';
+
+-- Mutable business tables
+GRANT INSERT, UPDATE ON opsflow.users    TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.roles    TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.products TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.inventory TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.orders   TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.tickets  TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.ticket_comments TO 'opsflow_app'@'localhost';
+
+-- Append-only or frozen tables: read and insert only
+GRANT INSERT ON opsflow.inventory_transactions    TO 'opsflow_app'@'localhost';
+GRANT INSERT ON opsflow.ticket_assignment_history TO 'opsflow_app'@'localhost';
+GRANT INSERT ON opsflow.operation_logs            TO 'opsflow_app'@'localhost';
+GRANT INSERT ON opsflow.order_items               TO 'opsflow_app'@'localhost';
+
+-- Link rows are created and, later, removed, but never edited
+GRANT INSERT ON opsflow.user_roles TO 'opsflow_app'@'localhost';
+```
+
+- `order_items` is included because order items are frozen after the order is created.
+- Revoking a user's role deletes a `user_roles` row. When the permission management feature is built, add `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';` for that table only.
+- `ticket_comments` stays updatable while comments may be edited. Move it to the insert-only group if that is decided otherwise.
+- Every later migration that adds a table must be followed by a grant for that table. A missing grant shows up as a permission error in tests, which is the safe way to fail.
 
 > Time zone: OpsFlow stores all times in UTC. The two JDBC parameters above set the session time zone to UTC, so changing only `serverTimezone` is not enough. Run `SET time_zone = '+00:00';` before manual SQL that involves time. See [Time zone](docs/database/database-design.md#time-zone).
 

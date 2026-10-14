@@ -97,6 +97,7 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 
 ## Open Items
 
+- After the first migration is applied, replace the application account's database-wide grants with per-table ones, so the append-only and frozen tables are insert-only. The planned statements are in `ENVIRONMENT_SETUP.md`.
 - Add a separate seed migration for the roles `ADMIN`, `OPERATOR`, and `VIEWER` when the permission module is implemented. An empty `roles` table is expected until then.
 - When the Spring Boot backend is created, move the migrations (not copy them) to `src/main/resources/db/migration`, so only one copy exists.
 - Make the application connection and Java time handling follow the UTC convention once backend code exists.
