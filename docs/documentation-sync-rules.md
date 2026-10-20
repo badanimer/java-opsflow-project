@@ -27,7 +27,8 @@ When an area in the left column changes, update everything in the right column i
 | Database migration added or changed | The Field Specifications and Initial Constraints in [database-design.md](database/database-design.md), and the Physical ERD if tables or fields changed. Never edit a migration that has been applied; add a new one. |
 | Database structure: tables added or removed, or relationships changed | The [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1), in addition to the row above |
 | Business flow that changes what the diagrams show | The Business Process Flowchart linked from [database-design.md](database/database-design.md) |
-| A new iteration file | The Change Log of the matching current-state document; the Project Log in `README.md` |
+| A new iteration file | The Change Log of the matching current-state document; the Project Log in `README.md`; every item in its Open Items must also be in [project-todo.md](project-todo.md) |
+| A task is confirmed, finished, or newly found, or a question is decided | [project-todo.md](project-todo.md): add the task, remove it when done, or move a decided question from Potential to Confirmed. Record the decision in the iteration that makes it. |
 | A file is renamed or moved | Every link that points to it. Search the repository for the old name. |
 | A new area is introduced (see below) | This sync map and the Documentation Structure list in `README.md`, plus the new area's first iteration file and Project Log entry |
 
@@ -52,7 +53,7 @@ Examples of minor changes:
 
 For a minor change, update only the artifact being edited. No other document, diagram, Change Log entry, or iteration file is required. If a change fails any condition above, treat it as significant and follow the Sync Map.
 
-Changes to this file and to `CLAUDE.md` are process changes. They are not recorded in the Project Log.
+Changes to this file and to `CLAUDE.md` are process changes. They are not recorded in the Project Log. Changes to [project-todo.md](project-todo.md) are not recorded in the Project Log either, because it is a working list and not a design iteration.
 
 ## Iteration Files
 
@@ -76,5 +77,6 @@ An area is a distinct part of the project with its own design or code, such as t
 - The current-state document matches the change.
 - Every artifact in the Sync Map row for this area is updated, or listed as not updated with a reason.
 - A new iteration file exists, and the Change Log and Project Log point to it.
+- [project-todo.md](project-todo.md) matches the change: finished tasks are removed, and new open items are added.
 - No link points to a missing file.
 - All documentation is written in English.

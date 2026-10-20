@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-10-21 | 1.3 | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged in `operation_logs` | [database-v1.3.md](../iterations/database-v1.3.md) |
 | 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Added stock reservation, redefined order statuses, and aligned the document with the physical ERD | [database-v1.1.md](../iterations/database-v1.1.md) |
 | Before 2026-10-14 | 1.0 | Initial database design baseline with 12 tables | Commit `7ab5f55` |
@@ -24,7 +25,7 @@ This document always describes the current design. Each iteration has a summary 
 | Physical ERD | Defines implementation-oriented fields, keys, and relationships | [Open Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) |
 | Business Process Flowchart | Describes the order, inventory, audit, and exception-ticket flow | [Open Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) |
 
-The Simplified ERD reflects inventory reservation. The Business Process Flowchart still shows the earlier flow, with direct stock deduction and no confirm, cancel, release, or timeout steps. Update it to match the flow in this document.
+The Simplified ERD and the Business Process Flowchart both reflect inventory reservation and the confirm, cancel, release, timeout, and retry steps.
 
 ## Table Overview
 
@@ -39,6 +40,12 @@ The Simplified ERD reflects inventory reservation. The Business Process Flowchar
 `users` and `roles` have a many-to-many relationship implemented through `user_roles`. A user cannot be granted the same role twice, so `user_roles` has a composite unique key on `(user_id, role_id)`.
 
 `users` and `products` use soft deletion (`status` plus `deleted`). Unique values such as `username`, `email`, and `sku` stay reserved after soft deletion and cannot be reused. This protects historical orders and audit records.
+
+#### Role grants
+
+The foreign keys on `user_roles` only check that the user row and the role row exist. They do not read `deleted` or `status`, so the database accepts a grant to a soft-deleted user. The application must refuse to grant a role to a user whose `deleted` is true. This rule lives in the service layer because the database cannot express it with a foreign key.
+
+`user_roles` holds only the grants that exist now. It has no history and no deletion mark, so after a grant is revoked, nothing in the table shows that it ever existed. Every grant and revocation is therefore written to `operation_logs`; see Auditing.
 
 ### Product and Inventory
 
@@ -141,6 +148,21 @@ Ticket comments are append-only. A comment is never edited or deleted, so `ticke
 | `operation_logs` | Records important business actions, actors, target objects, and relevant state changes |
 
 The initial version uses a generic target reference. `target_type` and `target_id` identify an order, inventory record, ticket, or another business object. The application maintains this polymorphic relationship because it cannot be represented by one conventional foreign-key constraint. `before_data` and `after_data` store the changed state as JSON. `operator_id` is empty for system actions.
+
+#### Role grant and revocation logs
+
+`user_roles` keeps no history, so `operation_logs` is the only record of who held which role and when. Each grant or revocation writes one log row in the same transaction as the change to `user_roles`. If the log insert fails, the grant or revocation rolls back with it.
+
+| Field | Grant | Revocation |
+| --- | --- | --- |
+| `action` | `ROLE_GRANTED` | `ROLE_REVOKED` |
+| `target_type` | `USER` | `USER` |
+| `target_id` | `users.id` of the user who receives or loses the role | the same |
+| `operator_id` | The administrator who made the change. Empty only for system actions such as seeding. | the same |
+| `before_data` | Empty | `{"roleId": 2, "roleCode": "OPERATOR"}` |
+| `after_data` | `{"roleId": 2, "roleCode": "OPERATOR"}` | Empty |
+
+The log stores `roleCode` as well as `roleId`, so it stays readable if the role row is removed later. Removing a role means revoking every grant of it first, and each revocation is logged, so the logs still show who held the role.
 
 ## Relationship Summary
 
@@ -350,6 +372,7 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Treat inventory transactions, ticket assignment history, ticket comments, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) and [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql).
 - Use controlled status values. Enforce valid state transitions in the service layer, and enforce the order status gate with the conditional update described above.
 - Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions`, `ticket_comments`, and `order_items`, must include at least a creation timestamp.
+- Refuse role grants to soft-deleted users in the service layer, because no foreign key can. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution
