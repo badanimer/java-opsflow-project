@@ -18,6 +18,7 @@ DELIMITER //
 CREATE PROCEDURE reset_data() SQL SECURITY INVOKER
 BEGIN
     DELETE FROM operation_logs;
+    DELETE FROM email_verification_codes;
     DELETE FROM ticket_comments WHERE corrects_comment_id IS NOT NULL;
     DELETE FROM ticket_comments;
     DELETE FROM ticket_assignment_history;

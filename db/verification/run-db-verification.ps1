@@ -264,7 +264,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     # -----------------------------------------------------------------------------------------
     Section 'Structure'
     # -----------------------------------------------------------------------------------------
-    Check '12 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '12')
+    Check '13 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '13')
     Check 'ticket_comments has no updated_at (append-only)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='ticket_comments' AND column_name='updated_at';") -eq '0')
     Check 'order_items has no updated_at (frozen)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='order_items' AND column_name='updated_at';") -eq '0')
     Check 'inventory has no version column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='inventory' AND column_name='version';") -eq '0')
@@ -296,6 +296,9 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $r = As-Admin "INSERT INTO users(username,password_hash,email) VALUES ('Alice','x','alice@example.com'),('alice','x','alice2@example.com');"
     Check 'usernames keep the case-insensitive rule (Alice vs alice rejected)' (Dup $r)
     Check 'users.must_change_password defaults to FALSE' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='must_change_password';") -eq '0')
+    Check 'users.failed_login_count defaults to 0' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='failed_login_count';") -eq '0')
+    $r = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('x@example.com','OTHER','h',NOW(3));"
+    Check 'email_verification_codes rejects an unknown purpose' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
 
     # -----------------------------------------------------------------------------------------
     Section 'Per-table privileges (db/admin/restrict-app-privileges.sql)'
@@ -316,12 +319,13 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         "INSERT INTO tickets(id,ticket_no,created_by,type,priority,title,description) VALUES (100,'TKT-p',1,'OTHER','LOW','t','d'); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,NULL,2,1); " +
         "INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'c'); " +
-        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100);")
+        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
+        "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('a@example.com','REGISTER','h',NOW(3));")
 
-    Check 'app: update mutable tables (users, roles, products, inventory, orders, tickets)' (Allowed (As-App "UPDATE users SET status='ACTIVE' WHERE id=1; UPDATE roles SET name='R2' WHERE id=1; UPDATE products SET name='W2' WHERE id=1; UPDATE inventory SET sold_quantity=sold_quantity WHERE id=1; UPDATE orders SET remark='x' WHERE id=100; UPDATE tickets SET status='IN_PROGRESS' WHERE id=100;"))
+    Check 'app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes)' (Allowed (As-App "UPDATE email_verification_codes SET attempts=attempts+1 WHERE email='a@example.com'; UPDATE users SET failed_login_count=1, last_failed_login_at=NOW(3), locked_until=NOW(3), password_changed_at=NOW(3) WHERE id=1; UPDATE users SET status='ACTIVE' WHERE id=1; UPDATE roles SET name='R2' WHERE id=1; UPDATE products SET name='W2' WHERE id=1; UPDATE inventory SET sold_quantity=sold_quantity WHERE id=1; UPDATE orders SET remark='x' WHERE id=100; UPDATE tickets SET status='IN_PROGRESS' WHERE id=100;"))
     Check 'app: insert into every table it writes' (Allowed (As-App ("INSERT INTO users(username,password_hash,email) VALUES ('n1','x','n1@example.com'); INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'second'); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,2,3,1); INSERT INTO operation_logs(action,target_type,target_id) VALUES ('B','ORDER',100); " +
-        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after) VALUES (1,'RESTOCK',1,6,7,0,0); INSERT INTO user_roles(user_id,role_id) VALUES (2,1);")))
+        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after) VALUES (1,'RESTOCK',1,6,7,0,0); INSERT INTO user_roles(user_id,role_id) VALUES (2,1); INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('b@example.com','RESET_PASSWORD','h',NOW(3));")))
     Check 'app: SELECT ... FOR UPDATE on inventory' (Allowed (As-App "START TRANSACTION; SELECT id FROM inventory WHERE id=1 FOR UPDATE; COMMIT;"))
     $refusals = @(
         @('UPDATE inventory_transactions', "UPDATE inventory_transactions SET reason='x';"),
@@ -340,6 +344,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('DELETE users', "DELETE FROM users WHERE id=3;"),
         @('DELETE products', "DELETE FROM products;"),
         @('DELETE inventory', "DELETE FROM inventory;"),
+        @('DELETE email_verification_codes', "DELETE FROM email_verification_codes;"),
         @('CREATE TABLE', "CREATE TABLE zzz (id INT);"),
         @('DROP TABLE', "DROP TABLE ticket_comments;")
     )

@@ -4,7 +4,7 @@
 
 This document defines the initial database boundaries, entity relationships, and core business flow for OpsFlow. It serves as the design baseline for implementation. It does not replace executable database migration scripts.
 
-The initial model contains 12 tables across five domains: identity and access, product and inventory, orders, tickets, and auditing.
+The initial model contains 13 tables across five domains: identity and access, product and inventory, orders, tickets, and auditing.
 
 ## Change Log
 
@@ -12,7 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
-| 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password`, and fixed who may change what: the `MANAGER` role may assign roles below manager but cannot touch role definitions, `ADMIN`, or `MANAGER`, and added the permission matrix for the four roles | [database-v1.4.md](../iterations/database-v1.4.md) |
+| 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password`, and fixed who may change what: the `MANAGER` role may assign roles below manager but cannot touch role definitions, `ADMIN`, or `MANAGER`, and added the permission matrix for the four roles, and defined login lockout, email codes for sign-up and recovery, and per-request token checks | [database-v1.4.md](../iterations/database-v1.4.md) |
 | 2026-10-21 | 1.3 | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged in `operation_logs` | [database-v1.3.md](../iterations/database-v1.3.md) |
 | 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Added stock reservation, redefined order statuses, and aligned the document with the physical ERD | [database-v1.1.md](../iterations/database-v1.1.md) |
@@ -37,6 +37,7 @@ The Simplified ERD and the Business Process Flowchart both reflect inventory res
 | `users` | Stores user accounts, identity information, and account status |
 | `roles` | Defines system roles |
 | `user_roles` | Associates users with roles and supports multiple roles per user |
+| `email_verification_codes` | Holds the one-time email codes used for sign-up and password recovery |
 
 `users` and `roles` have a many-to-many relationship implemented through `user_roles`. A user cannot be granted the same role twice, so `user_roles` has a composite unique key on `(user_id, role_id)`.
 
@@ -210,6 +211,33 @@ The check runs again on refresh and on the next login, so a user whose role was 
 A new user has no role and only an administrator or a manager can grant one, and the first manager is appointed by an administrator, so the first administrator is created by the program itself at startup. If no usable account holds `ADMIN`, the program reads the username, email, and password from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. If one is missing, startup fails with a message that names it. Otherwise one transaction hashes the password, creates the user with `must_change_password` set to true, grants `ADMIN`, and writes a `ROLE_GRANTED` row with an empty `operator_id`, because it is a system action. The `ADMIN` role must already exist, so this runs after the roles are seeded. When a usable administrator already exists, the variables are ignored. If the system ever has none, the next startup with the variables set creates one again. The password is never written to a file.
 
 `users.must_change_password` is a boolean that defaults to false. It is used only for the first administrator. While it is true, the user can log in but can use nothing except changing the password, and the application sets it to false when the password has been changed. The bootstrap administrator always starts with it true, because the initial password was typed by the person who set up the server and may remain in a shell history. Every other account sets its own password when it signs up, so it stays false and no password change is forced.
+
+#### Login security and account recovery
+
+**Lockout after wrong passwords.** Failures are counted per account, in `users.failed_login_count`, and the count escalates every five failures:
+
+| Failures in a row | Lock |
+| --- | --- |
+| 5 | 1 minute |
+| 10 | 5 minutes |
+| 15 | 15 minutes |
+| 20 | Until midnight |
+
+- Failures in a row means since the last successful login, password reset, or midnight reset. Each wrong password updates `failed_login_count` and `last_failed_login_at` in one statement on the locked user row, and sets `locked_until` when a threshold is reached.
+- While `locked_until` is in the future, a login attempt is refused without checking the password, and the attempt is not counted. The refusal says when to try again.
+- The count resets at midnight. Midnight is taken in Sydney time (`Australia/Sydney`), set in the application configuration, while all times stay stored in UTC. Daylight saving is handled by the time zone rules, so a day may be 23 or 25 hours long. The reset is lazy: when `last_failed_login_at` is before the most recent midnight, the count is treated as zero.
+- A successful login and a password reset clear the count and `locked_until`.
+- A login error never says whether the username exists.
+- The lock is per account only. Anyone who knows a username can lock that account, and its owner gets back in through password recovery. Limiting attempts per address belongs with Q-07.
+
+**Email codes.** Sign-up and password recovery both use a one-time code sent to the email address, stored in `email_verification_codes`.
+
+- A code has 6 digits and is stored hashed. It is valid for 10 minutes, accepts at most 5 wrong entries, and a new code for the same email and purpose cannot be requested within 60 seconds. Requesting a new code marks the earlier unused ones consumed, so only the latest code works. A correct entry sets `consumed_at`.
+- **Sign-up**: the user requests a code for an email address that is not in `users` (soft-deleted users count, because their values stay reserved), enters the code, and then the account is created with `status` `ACTIVE`, no role, and `must_change_password` false.
+- **Recovery**: the user requests a code for the email of an existing, not soft-deleted account, and enters it before choosing a new password. The response is the same whether or not the email is registered. The reset sets `password_hash` and `password_changed_at`, and clears the lock fields.
+- The application account may insert and update code rows but not delete them. Old rows are cleaned up later, when their volume makes it worth a privilege (Future Evolution).
+
+**Token checks.** A login token carries only the user id and its issue time. On every request the service layer loads the user and the user's roles from the database. It refuses the request when the account is not a usable account, or when the token was issued before `users.password_changed_at`. So disabling an account, changing its roles, and resetting its password all take effect on the next request, and a stolen token stops working after a password reset. The token still has an expiry; its length is chosen when authentication is built.
 
 #### Administrator protection
 
@@ -393,6 +421,9 @@ These values belong in application configuration, not in the database. The datab
 | Orders per scan batch | 100 | Avoids processing too many at once; each order uses its own transaction |
 | Attempts on deadlock or lock-wait timeout | 3 in total, including the first | At most two retries, so retrying never loops |
 | Wait between retries | 50 ms, then 150 ms, each with a small random delay | Prevents conflicting requests from retrying at the same moment |
+| Login lock steps | 5 failures: 1 minute; 10: 5 minutes; 15: 15 minutes; 20: until midnight | Slows guessing while giving a person who mistyped a quick way back |
+| Failure count reset | Midnight in Sydney time (`Australia/Sydney`), configurable | A new day starts clean, on the clock the users live by |
+| Email code | 6 digits, valid 10 minutes, 5 wrong entries, resend after 60 seconds | Long enough to be inconvenient to guess, short enough to be quick to use |
 
 Retry only after the previous transaction has been fully rolled back, and run the retry in a new transaction.
 
@@ -419,6 +450,8 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | `users.username` | `VARCHAR(64)` |
 | `users.email` | `VARCHAR(254)` |
 | `users.password_hash` | `VARCHAR(255)` |
+| `email_verification_codes.email` | `VARCHAR(254)`, the same as `users.email` |
+| `email_verification_codes.code_hash` | `VARCHAR(255)` |
 | `products.sku`, `order_items.product_sku` | `VARCHAR(64)` |
 | `products.name`, `order_items.product_name` | `VARCHAR(200)` |
 | `orders.order_no`, `tickets.ticket_no` | `VARCHAR(64)` |
@@ -447,7 +480,7 @@ Times are stored in UTC. `DATETIME` carries no time zone, and the defaults for `
 
 ## Initial Migration
 
-The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 12 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
+The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 13 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
 
 The first application of this migration is done by Flyway, when the backend is connected to Flyway. Do not apply it to `opsflow` by hand, so that Flyway's schema history exists from the start. Experiments use a temporary database.
 
@@ -467,7 +500,7 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 
 The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows.
 
-Latest full run (2026-10-22): 63 checks passed, 0 failed. The previous full run (2026-10-14, MySQL 8.4.9) had 62; the new check confirms that `users.must_change_password` defaults to false. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
+Latest full run (2026-10-22): 66 checks passed, 0 failed. The previous full run (2026-10-14, MySQL 8.4.9) had 62. The new checks cover 13 tables, the defaults of `users.must_change_password` and `users.failed_login_count`, the allowed purposes of `email_verification_codes`, insert and update on that table for the application account, and the refusal of deleting from it. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
 
 | Area | What the run shows |
 | --- | --- |
@@ -506,6 +539,7 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Refuse any change that would leave no usable account holding `ADMIN`, after locking the `ADMIN` row in `roles`. A new user has no role until an administrator grants one.
 - Treat `ADMIN` and `MANAGER` as protected roles: never delete them and never change their `code`. Let only `ADMIN` create, update, or delete roles, and appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`.
 - Create the first administrator at startup from environment variables only when no usable `ADMIN` exists, with `must_change_password` true. Never write the initial password to a file.
+- Lock an account after repeated wrong passwords on the schedule in Login security and account recovery, and refuse attempts without checking the password while it is locked. Store email codes hashed, and let the application account insert and update `email_verification_codes` but never delete. On every request, load the account and its roles from the database, and refuse a token issued before `users.password_changed_at`.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution

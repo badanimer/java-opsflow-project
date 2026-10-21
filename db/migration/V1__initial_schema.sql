@@ -20,20 +20,25 @@
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE users (
-    id            BIGINT       NOT NULL AUTO_INCREMENT,
-    username      VARCHAR(64)  NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
-    email         VARCHAR(254) NOT NULL,
-    status        VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
-    deleted       BOOLEAN      NOT NULL DEFAULT FALSE,
-    last_login_at DATETIME(3)  NULL,
-    created_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at    DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    id                   BIGINT       NOT NULL AUTO_INCREMENT,
+    username             VARCHAR(64)  NOT NULL,
+    password_hash        VARCHAR(255) NOT NULL,
+    must_change_password BOOLEAN      NOT NULL DEFAULT FALSE,
+    password_changed_at  DATETIME(3)  NULL,
+    email                VARCHAR(254) NOT NULL,
+    status               VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
+    deleted              BOOLEAN      NOT NULL DEFAULT FALSE,
+    last_login_at        DATETIME(3)  NULL,
+    failed_login_count   INT          NOT NULL DEFAULT 0,
+    last_failed_login_at DATETIME(3)  NULL,
+    locked_until         DATETIME(3)  NULL,
+    created_at           DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at           DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     CONSTRAINT uk_users_username UNIQUE (username),
     CONSTRAINT uk_users_email UNIQUE (email),
-    CONSTRAINT chk_users_status CHECK (status IN ('ACTIVE', 'DISABLED'))
+    CONSTRAINT chk_users_status CHECK (status IN ('ACTIVE', 'DISABLED')),
+    CONSTRAINT chk_users_failed_login_count CHECK (failed_login_count >= 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 CREATE TABLE roles (
@@ -57,6 +62,24 @@ CREATE TABLE user_roles (
     KEY idx_user_roles_role (role_id),
     CONSTRAINT fk_user_roles_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_user_roles_role FOREIGN KEY (role_id) REFERENCES roles (id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- One-time codes sent by email for sign-up and for password recovery. There is no foreign key
+-- to users, because a sign-up code exists before the user does. The code itself is stored
+-- hashed. Rows are short-lived; the application account may insert and update them, not delete.
+CREATE TABLE email_verification_codes (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    email       VARCHAR(254) NOT NULL,
+    purpose     VARCHAR(32)  NOT NULL,
+    code_hash   VARCHAR(255) NOT NULL,
+    attempts    INT          NOT NULL DEFAULT 0,
+    expires_at  DATETIME(3)  NOT NULL,
+    consumed_at DATETIME(3)  NULL,
+    created_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_email_codes_lookup (email, purpose, created_at),
+    CONSTRAINT chk_email_codes_purpose CHECK (purpose IN ('REGISTER', 'RESET_PASSWORD')),
+    CONSTRAINT chk_email_codes_attempts CHECK (attempts >= 0)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- ---------------------------------------------------------------------------

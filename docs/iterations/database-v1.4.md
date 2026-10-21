@@ -13,8 +13,8 @@ The authoritative design is [Database Structure and Business Flow](../database/d
 | Version | 1.4 |
 | Date | 2026-10-21 |
 | Baseline | v1.3, see [database-v1.3.md](database-v1.3.md) |
-| Type | Design rules and one schema change (one column on `users`) |
-| Table count | 12 (unchanged) |
+| Type | Design rules and schema changes (columns on `users`, one new table) |
+| Table count | 13 (one added: `email_verification_codes`) |
 | Trigger | Open question Q-02: whether role grants to users with status `DISABLED` should also be refused. Working on it showed that creating, updating, deleting roles and replacing a user's roles were not defined either |
 
 ## Summary
@@ -51,6 +51,15 @@ Version 1.4 gives account status a defined meaning and completes the role lifecy
 - **Update**: only `name` and `description` can change. `code` never changes, because logs and permission checks refer to it.
 - **Delete**: physical. Holders are not an obstacle: in the same transaction the service layer deletes every `user_roles` row of the role, writes one `ROLE_REVOKED` row for each (`role deleted` in `remark`), then deletes the role and writes `ROLE_DELETED`. Holders lose only this role; those left with no role get no default. The administrator sees the number of affected users before confirming. The foreign key stays `RESTRICT`, and the service layer deletes the grants itself, because a cascade would skip the log rows. The `ADMIN` role can never be deleted. Roles have no status.
 - **Replace a user's roles**: one transaction. The user must be a usable account and every added role must exist. Unchanged roles are left alone and not logged. Each removed role writes `ROLE_REVOKED` and each added role writes `ROLE_GRANTED`, with `replace roles` in `remark`. An identical list changes nothing.
+
+### Login security and account recovery
+
+- **Lockout**: failures are counted per account and escalate every five: 1 minute, 5 minutes, 15 minutes, then locked until midnight. Midnight is in Sydney time (`Australia/Sydney`), set in the application; the count also resets on a successful login and on a password reset. While locked, attempts are refused without checking the password and are not counted.
+- **Email codes**: sign-up and password recovery both need a 6-digit code sent to the email address, valid 10 minutes, with 5 wrong entries allowed and a 60-second wait between requests.
+- **Token checks**: the token carries only the user id and its issue time, and every request loads the account and its roles from the database. A disabled account, a changed role, or a reset password takes effect on the next request. This replaces the earlier idea of short-lived tokens or a token version number (T-20).
+- **Schema**: `users` gets `password_changed_at`, `failed_login_count` (default 0, not negative), `last_failed_login_at`, and `locked_until`. A new table, `email_verification_codes`, holds the codes (email, purpose `REGISTER` or `RESET_PASSWORD`, hashed code, wrong-entry count, expiry, consumed time). It has no foreign key, because a sign-up code exists before the user does.
+- **Privileges**: the application account may insert and update `email_verification_codes`, not delete.
+- `V1__initial_schema.sql` was edited in place again, because it still has not been applied anywhere.
 
 ### Authority over roles and accounts
 
@@ -122,6 +131,11 @@ New actions, with `target_type` `ROLE` and `target_id` set to `roles.id`: `ROLE_
 | Who may manage roles and accounts | `ADMIN` manages role definitions and appoints managers and administrators. `MANAGER` assigns only roles below manager, to users who hold neither protected role | Letting `MANAGER` create, edit, or delete roles, which was rejected because it could reshape the permission set; a rank column on `roles` to allow several tiers, which adds a schema change before a second tier is needed |
 | Permissions of the seeded roles (Q-11) | A fixed matrix in the design document, kept in code by role code. New capabilities are added by the backend developers, so a new role gets its permissions with the code | Permission tables so that an administrator can configure new roles, which adds tables, changes both ERDs, and needs a configuration screen the project does not need |
 | Keeping `VIEWER` | Keep it as the read-only role | Dropping it and adding a read-only role later, which would need a migration and code when the first customer asks |
+| Lockout schedule | Escalating every 5 failures: 1 minute, 5 minutes, 15 minutes, until midnight; reset at midnight Sydney time | A fixed lock, which is either too weak or too harsh |
+| Where email codes live | A table, `email_verification_codes`, so the database stays self-contained | Redis with an expiry, which fits short-lived codes but depends on Q-07 |
+| Token checks (T-20) | Query the account on every request | Short-lived tokens, or a token version number, which leave a window or add a field |
+| `password_changed_at` | Added, so a token issued before a password change stops working. This was my addition to the decision | Leaving tokens valid after a reset, which lets a stolen token survive a password change |
+| Password reset and the lock | A reset clears the lock | Keeping the lock, which would leave a locked-out owner waiting until midnight |
 | Administrator protection | A fixed service-layer rule with a row lock, covering every operation that could remove the last usable `ADMIN`; the `ADMIN` role cannot be deleted | Protecting only role deletion, which leaves disabling and revoking open |
 | Database trigger behind Administrator protection (Q-10) | Not added. Direct SQL as `root` or the migration account can still remove the last `ADMIN`, and that is accepted: the startup bootstrap (T-24) creates a new administrator when none exists | A trigger on `user_roles` and `users`, which would stop even direct SQL but hides a business rule in the database and changes the schema, the Physical ERD, and the verification script |
 | Changing `code` | Not allowed after creation | Allowing it, which would leave old log rows pointing at a code that no longer exists |
@@ -132,12 +146,12 @@ New actions, with `target_type` `ROLE` and `target_id` set to `roles.id`: `ROLE_
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated |
-| [Initial migration](../../db/migration/V1__initial_schema.sql) | Updated in place (`users.must_change_password`); not yet applied anywhere |
+| [Initial migration](../../db/migration/V1__initial_schema.sql) | Updated in place (`users.must_change_password`, the login fields, and `email_verification_codes`); not yet applied anywhere |
 | [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Comment updated; the active grants did not change |
-| [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated: `must_change_password` (boolean, default false) added to `users`, after `password_hash` |
+| [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated: `users` gets `must_change_password`, `password_changed_at`, `failed_login_count`, `last_failed_login_at`, and `locked_until`, and the new table `email_verification_codes` is added |
 | [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn) | Updated: new Idempotency Check section, wired between Submit Order and Validate Products |
-| [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Not changed; no table or relationship changed |
-| [Verification script](../../db/verification/run-db-verification.ps1) | One check added for `users.must_change_password`. Re-run on 2026-10-22 against the updated migration: 63 checks passed, 0 failed |
+| [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Updated: the new table `email_verification_codes` is added, with its main columns. It has no relationship |
+| [Verification script](../../db/verification/run-db-verification.ps1) | Checks added for the new columns and the new table. Re-run on 2026-10-22 against the updated migration: 66 checks passed, 0 failed |
 
 ## Lessons From The Password Exposure
 
@@ -157,5 +171,6 @@ An early commit (`7096b88`) put a real database password into `ENVIRONMENT_SETUP
 - Create the first administrator at startup (T-24) and enforce the forced password change (T-25).
 - Handle users with no role at login, in the API, and in the frontend (T-22), and implement Administrator protection (T-23).
 - Review and refine the Permission Matrix, then enforce it (T-27) together with Authority over roles and accounts (T-26).
-- Make sure a token issued before an account was disabled stops working (T-20).
+- Database topics not settled yet are listed in the to-do file as Q-13 to Q-19.
+- Implement the per-request account check (T-20), the login lockout (T-28), and sign-up and recovery with email codes (T-29). Choose the email service (Q-12).
 - The open items of [database-v1.3.md](database-v1.3.md) and [database-v1.2.md](database-v1.2.md) still apply.
