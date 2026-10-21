@@ -52,6 +52,24 @@ Version 1.4 gives account status a defined meaning and completes the role lifecy
 - **Delete**: physical. Holders are not an obstacle: in the same transaction the service layer deletes every `user_roles` row of the role, writes one `ROLE_REVOKED` row for each (`role deleted` in `remark`), then deletes the role and writes `ROLE_DELETED`. Holders lose only this role; those left with no role get no default. The administrator sees the number of affected users before confirming. The foreign key stays `RESTRICT`, and the service layer deletes the grants itself, because a cascade would skip the log rows. The `ADMIN` role can never be deleted. Roles have no status.
 - **Replace a user's roles**: one transaction. The user must be a usable account and every added role must exist. Unchanged roles are left alone and not logged. Each removed role writes `ROLE_REVOKED` and each added role writes `ROLE_GRANTED`, with `replace roles` in `remark`. An identical list changes nothing.
 
+### Authority over roles and accounts
+
+- Purpose of the two top roles: `ADMIN` is for the team that builds and maintains the system and is used only for major changes; `MANAGER` is the role handed to the customer's own staff to manage employees.
+- Added the `MANAGER` role. Four roles are seeded: `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. `ADMIN` is the highest authority and is meant for major changes; `MANAGER` does the daily work. This is a convention, not a restriction.
+- `ADMIN` and `MANAGER` are protected roles: fixed codes, never deleted by anyone, `code` never changed. Every other role is below manager.
+- Only `ADMIN` can create, update, or delete roles, and appoint or dismiss managers and administrators. `MANAGER` has no authority over role definitions.
+- `MANAGER` can grant, revoke, and replace roles below manager, and manage users who hold neither `ADMIN` nor `MANAGER`. It cannot change any user who holds `ADMIN` or `MANAGER`, including its own account, so it cannot disable an administrator or another manager.
+- Nobody can delete or edit audit logs. This was already true: the application account has only `SELECT` and `INSERT` on `operation_logs`, and the database enforces it.
+- No schema change: "below manager" is decided by the two protected role codes, not by a rank column.
+
+### Permission matrix
+
+- Added a Permission Matrix to the design document: for each module (products, inventory, orders, tickets, audit logs, users, roles, own account) it says which of `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` may do what. Deny by default; `VIEWER` is read-only; `OPERATOR` runs orders, stock receipts, and tickets; `MANAGER` adds master data, manual stock correction, user and role assignment, and audit logs; `ADMIN` adds what Authority over roles and accounts reserves for it.
+- The matrix is a first version and is expected to be refined before the permission module is built.
+- `VIEWER` is kept. It costs one seeded row and one matrix column, and it matches real read-only staff such as finance, management, and auditors. The line between it and `OPERATOR` is that `OPERATOR` makes things happen (orders, stock receipts, tickets) while `VIEWER` only reads. The "no role" state is not a substitute, because it can see nothing.
+- The permissions of the four seeded roles are fixed in code, keyed by role code. A role created later has no permissions until a mapping is added, together with the code that needs it.
+- Several entries are working defaults to review before the permission module is built: `OPERATOR` can cancel any order, can restock but not correct stock, and cannot reassign or close tickets.
+
 ### Users without roles
 
 - A user with no `user_roles` row is valid, and the database does not require at least one role. OpsFlow is an internal program: apart from the first administrator, accounts are created through the normal sign-up flow. The user sets their own password, can log in at once, and starts with no role. Nothing is allowed until an administrator grants one.
@@ -67,7 +85,7 @@ Version 1.4 gives account status a defined meaning and completes the role lifecy
 
 ### First administrator and forced password change
 
-- A new user has no role and only an administrator can grant one, so the first administrator cannot be created through the program's normal flow. When no usable `ADMIN` exists, the program creates one at startup from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. A missing variable stops the startup with a clear message. When an administrator already exists, the variables are ignored. The password is never written to a file.
+- A new user has no role and only an administrator or a manager can grant one, and the first manager is appointed by an administrator, so the first administrator cannot be created through the program's normal flow. When no usable `ADMIN` exists, the program creates one at startup from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. A missing variable stops the startup with a clear message. When an administrator already exists, the variables are ignored. The password is never written to a file.
 - The creation is one transaction: hash the password, create the user, grant `ADMIN`, and write `ROLE_GRANTED` with an empty `operator_id`, a system action. It runs after the roles are seeded.
 - Added `users.must_change_password`: `BOOLEAN NOT NULL DEFAULT FALSE`. Only the bootstrap administrator starts with it true. While it is true, the user can only change the password, and the application clears it afterwards. Other accounts set their own password at sign-up, so no password change is forced for them.
 - `V1__initial_schema.sql` was edited in place, because it has not been applied to any database yet (T-01 is still open). After Flyway applies it, this is no longer allowed.
@@ -101,6 +119,9 @@ New actions, with `target_type` `ROLE` and `target_id` set to `roles.id`: `ROLE_
 | Line endings (Q-06) | LF for every text file, set by `.gitattributes` | CRLF, which the tools in this project (SQL, PowerShell, Java, frontend) handle less consistently |
 | Old password in Git history (Q-08) | Leave the history as it is; no rewrite, no force-push | Rewriting history, which cannot reach clones or hosting caches and costs more than it gains for a password that is already rotated |
 | Idempotency check in the flowchart (Q-05) | Drawn, as a separate section before order creation | Leaving it only in the text |
+| Who may manage roles and accounts | `ADMIN` manages role definitions and appoints managers and administrators. `MANAGER` assigns only roles below manager, to users who hold neither protected role | Letting `MANAGER` create, edit, or delete roles, which was rejected because it could reshape the permission set; a rank column on `roles` to allow several tiers, which adds a schema change before a second tier is needed |
+| Permissions of the seeded roles (Q-11) | A fixed matrix in the design document, kept in code by role code. New capabilities are added by the backend developers, so a new role gets its permissions with the code | Permission tables so that an administrator can configure new roles, which adds tables, changes both ERDs, and needs a configuration screen the project does not need |
+| Keeping `VIEWER` | Keep it as the read-only role | Dropping it and adding a read-only role later, which would need a migration and code when the first customer asks |
 | Administrator protection | A fixed service-layer rule with a row lock, covering every operation that could remove the last usable `ADMIN`; the `ADMIN` role cannot be deleted | Protecting only role deletion, which leaves disabling and revoking open |
 | Database trigger behind Administrator protection (Q-10) | Not added. Direct SQL as `root` or the migration account can still remove the last `ADMIN`, and that is accepted: the startup bootstrap (T-24) creates a new administrator when none exists | A trigger on `user_roles` and `users`, which would stop even direct SQL but hides a business rule in the database and changes the schema, the Physical ERD, and the verification script |
 | Changing `code` | Not allowed after creation | Allowing it, which would leave old log rows pointing at a code that no longer exists |
@@ -135,5 +156,6 @@ An early commit (`7096b88`) put a real database password into `ENVIRONMENT_SETUP
 - Implement the grant rules, the permission checks, and role management in the permission module (T-15, T-19, T-21), and grant `DELETE` on `roles` and `user_roles` with it (T-06).
 - Create the first administrator at startup (T-24) and enforce the forced password change (T-25).
 - Handle users with no role at login, in the API, and in the frontend (T-22), and implement Administrator protection (T-23).
+- Review and refine the Permission Matrix, then enforce it (T-27) together with Authority over roles and accounts (T-26).
 - Make sure a token issued before an account was disabled stops working (T-20).
 - The open items of [database-v1.3.md](database-v1.3.md) and [database-v1.2.md](database-v1.2.md) still apply.

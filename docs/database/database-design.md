@@ -12,7 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
-| 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password` | [database-v1.4.md](../iterations/database-v1.4.md) |
+| 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password`, and fixed who may change what: the `MANAGER` role may assign roles below manager but cannot touch role definitions, `ADMIN`, or `MANAGER`, and added the permission matrix for the four roles | [database-v1.4.md](../iterations/database-v1.4.md) |
 | 2026-10-21 | 1.3 | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged in `operation_logs` | [database-v1.3.md](../iterations/database-v1.3.md) |
 | 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Added stock reservation, redefined order statuses, and aligned the document with the physical ERD | [database-v1.1.md](../iterations/database-v1.1.md) |
@@ -158,18 +158,42 @@ The initial version uses a generic target reference. `target_type` and `target_i
 
 #### Role management
 
-Roles are managed by an administrator, and every operation here is also subject to Administrator protection. Every operation below writes its `operation_logs` row in the same transaction as the change, and the operation rolls back if the log insert fails. The formats are in Role management logs.
+Role definitions are managed by `ADMIN` only, and every operation here is also subject to Administrator protection and to Authority over roles and accounts. Every operation below writes its `operation_logs` row in the same transaction as the change, and the operation rolls back if the log insert fails. The formats are in Role management logs.
 
 | Operation | Rule |
 | --- | --- |
 | Create a role | Inserts a `roles` row. `code` must be new, because it is unique. |
-| Update a role | An administrator may change `name` and `description`. `code` never changes after creation, because the logs and permission checks refer to it. |
+| Update a role | `ADMIN` may change `name` and `description`. `code` never changes after creation, because the logs and permission checks refer to it. |
 | Delete a role | A physical delete of the `roles` row. A user who holds the role is not an obstacle: in the same transaction the service layer deletes every `user_roles` row of the role and writes one `ROLE_REVOKED` row for each, with `role deleted` in `remark`, and then deletes the role. Those users lose only this role. If a user has no other role, the user is left with no role, and no default role is given. The administrator must see how many users are affected before confirming. The `ADMIN` role can never be deleted. The service layer deletes the grants itself and does not rely on a cascading foreign key, because a cascade would skip the log rows. |
 | Replace a user's roles | Sets the user's roles to a given list in one transaction. The user must be a usable account, and every role that is added must exist. Removing `ADMIN` from a user is subject to Administrator protection. Roles the user already holds and that stay in the list are left alone and not logged. Each role that is removed writes `ROLE_REVOKED`, and each role that is added writes `ROLE_GRANTED`. The rows of one replacement carry `replace roles` in `remark`. A list equal to the current roles changes nothing and writes no log. |
 
+#### Authority over roles and accounts
+
+Four roles are seeded: `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. `ADMIN` and `MANAGER` are **protected roles**: their codes are fixed, they can never be deleted by anyone, and their `code` never changes. Every other role, including any role created later, is **below manager**.
+
+`ADMIN` is the highest authority and is meant for major changes only, for the team that builds and maintains the system. `MANAGER` is the role for the customer's own staff: it manages employees and does the daily work. That is a working convention, not a restriction: an `ADMIN` account can do everything a `MANAGER` can.
+
+| Action | ADMIN | MANAGER |
+| --- | --- | --- |
+| Create, update, or delete a role | Yes | **No**, `MANAGER` has no authority over role definitions at all |
+| Grant, revoke, or replace `ADMIN` or `MANAGER` on a user | Yes | No |
+| Grant, revoke, or replace roles below manager | Yes | Yes |
+| Change the status of, or soft-delete, a user who holds `ADMIN` or `MANAGER` | Yes | No |
+| Change the status of, or soft-delete, any other user | Yes | Yes |
+| Products, inventory, orders, and tickets | Yes | Yes. See Permission Matrix |
+| Delete or edit audit logs | No one | No one |
+
+How the rules are applied:
+
+- The service layer checks the acting user's roles and the target user's roles in the same transaction as the change. The check counts a role only when the acting account is a usable account.
+- A manager cannot change a user who holds `ADMIN` or `MANAGER`, which includes the manager's own account. Without this, a manager could disable an administrator or another manager, or remove their own limits.
+- When a manager replaces a user's roles, the list may not add or remove `ADMIN` or `MANAGER`.
+- Only `ADMIN` can appoint or dismiss a manager or an administrator. Administrator protection still applies to every operation on `ADMIN`.
+- Nobody can delete or edit audit logs, `ADMIN` included, because the application account has only `SELECT` and `INSERT` on `operation_logs`. The database enforces this, not the service layer.
+
 #### Users without roles
 
-A user with no `user_roles` row is a valid state, and the database does not require at least one role. OpsFlow is an internal program: apart from the first administrator, accounts are created through the normal sign-up flow of a web application. The user sets their own password, can log in at once, and starts with `status` `ACTIVE` and no role. Nothing is allowed until an administrator grants a role. A user can also end up with no role when the last role is revoked, when a replacement list is empty, or when a role is deleted. A permission check returns no permissions for such a user.
+A user with no `user_roles` row is a valid state, and the database does not require at least one role. OpsFlow is an internal program: apart from the first administrator, accounts are created through the normal sign-up flow of a web application. The user sets their own password, can log in at once, and starts with `status` `ACTIVE` and no role. Nothing is allowed until an administrator or a manager grants a role. A user can also end up with no role when the last role is revoked, when a replacement list is empty, or when a role is deleted. A permission check returns no permissions for such a user.
 
 After every login the user first lands on a pending page that checks the account, in this order:
 
@@ -183,7 +207,7 @@ The check runs again on refresh and on the next login, so a user whose role was 
 
 #### First administrator and forced password change
 
-A new user has no role and only an administrator can grant one, so the first administrator is created by the program itself at startup. If no usable account holds `ADMIN`, the program reads the username, email, and password from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. If one is missing, startup fails with a message that names it. Otherwise one transaction hashes the password, creates the user with `must_change_password` set to true, grants `ADMIN`, and writes a `ROLE_GRANTED` row with an empty `operator_id`, because it is a system action. The `ADMIN` role must already exist, so this runs after the roles are seeded. When a usable administrator already exists, the variables are ignored. If the system ever has none, the next startup with the variables set creates one again. The password is never written to a file.
+A new user has no role and only an administrator or a manager can grant one, and the first manager is appointed by an administrator, so the first administrator is created by the program itself at startup. If no usable account holds `ADMIN`, the program reads the username, email, and password from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. If one is missing, startup fails with a message that names it. Otherwise one transaction hashes the password, creates the user with `must_change_password` set to true, grants `ADMIN`, and writes a `ROLE_GRANTED` row with an empty `operator_id`, because it is a system action. The `ADMIN` role must already exist, so this runs after the roles are seeded. When a usable administrator already exists, the variables are ignored. If the system ever has none, the next startup with the variables set creates one again. The password is never written to a file.
 
 `users.must_change_password` is a boolean that defaults to false. It is used only for the first administrator. While it is true, the user can log in but can use nothing except changing the password, and the application sets it to false when the password has been changed. The bootstrap administrator always starts with it true, because the initial password was typed by the person who set up the server and may remain in a shell history. Every other account sets its own password when it signs up, so it stays false and no password change is forced.
 
@@ -314,6 +338,50 @@ Situations that need manual investigation create `tickets`, which then move thro
 | | Normal cancellation |
 | | Normal reservation timeout |
 
+## Permission Matrix
+
+This section says what each seeded role may do in each module. It is a first version, kept as it stands for now and expected to be refined before the permission module is built. It sits on top of Authority over roles and accounts, which says who may change roles and accounts. A role that is not allowed an action is refused with 403, and the frontend hides the control.
+
+Principles:
+
+- **Deny by default.** An action that is not listed is refused. A user with no role can do nothing (see Users without roles).
+- **`VIEWER` is read-only.** It never changes data in any module.
+- **`OPERATOR` runs the day-to-day flow**: orders, stock receipts, and tickets. It does not change master data, correct stock by hand, or see audit logs, user lists, or role lists.
+- **`MANAGER` can do everything `OPERATOR` can, plus master data, manual stock correction, user and role assignment (below manager), and audit logs.**
+- **`ADMIN` can do everything `MANAGER` can, plus the actions reserved for it in Authority over roles and accounts.**
+- A role counts only when the acting account is a usable account. System actions, such as the timeout job and automatic tickets, have no acting user and are not covered by this matrix.
+
+| Module | Action | ADMIN | MANAGER | OPERATOR | VIEWER |
+| --- | --- | --- | --- | --- | --- |
+| Products | View | Yes | Yes | Yes | Yes |
+| Products | Create, edit, change price, put on or off sale, soft-delete | Yes | Yes | No | No |
+| Inventory | View stock and stock transactions | Yes | Yes | Yes | Yes |
+| Inventory | Restock (`RESTOCK`) | Yes | Yes | Yes | No |
+| Inventory | Manual correction (`ADJUST_IN`, `ADJUST_OUT`) | Yes | Yes | No | No |
+| Orders | View | Yes | Yes | Yes | Yes |
+| Orders | Create | Yes | Yes | Yes | No |
+| Orders | Confirm | Yes | Yes | Yes | No |
+| Orders | Cancel | Yes | Yes | Yes | No |
+| Tickets | View | Yes | Yes | Yes | Yes |
+| Tickets | Create manually | Yes | Yes | Yes | No |
+| Tickets | Add a comment or a correction | Yes | Yes | Yes | No |
+| Tickets | Take an unassigned ticket (assign to oneself) | Yes | Yes | Yes | No |
+| Tickets | Assign or reassign to anyone | Yes | Yes | No | No |
+| Tickets | Move to `IN_PROGRESS` or `RESOLVED`, change priority | Yes | Yes | Yes | No |
+| Tickets | Move to `CLOSED` | Yes | Yes | No | No |
+| Audit logs | View | Yes | Yes | No | No |
+| Audit logs | Edit or delete | No one | No one | No one | No one |
+| Users | View the user list | Yes | Yes | No | No |
+| Users | Change status, soft-delete | See Authority over roles and accounts | See Authority over roles and accounts | No | No |
+| Roles | View the role list | Yes | Yes | No | No |
+| Roles | Create, update, delete, appoint managers and administrators | Yes | No | No | No |
+| Roles | Assign roles below manager | Yes | Yes | No | No |
+| Own account | View it, change own password | Yes | Yes | Yes | Yes |
+
+Where the permissions live: for the four seeded roles, they are fixed in the application code and keyed by role code. A role created later by an administrator has no permissions until a mapping is added, so creating one grants nothing by itself. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role gets its permissions together with the code that implements them.
+
+Several entries are working defaults and can be changed in this table before the permission module is built: `OPERATOR` may cancel any order and not only its own, `OPERATOR` may restock but not correct stock, and only `ADMIN` and `MANAGER` may close a ticket or reassign it to someone else.
+
 ## Operating Parameters
 
 These values belong in application configuration, not in the database. The database stores only the actual `reserved_until` of each order, so changing the configured duration does not affect existing orders.
@@ -379,7 +447,7 @@ Times are stored in UTC. `DATETIME` carries no time zone, and the defaults for `
 
 ## Initial Migration
 
-The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 12 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
+The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 12 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
 
 The first application of this migration is done by Flyway, when the backend is connected to Flyway. Do not apply it to `opsflow` by hand, so that Flyway's schema history exists from the start. Experiments use a temporary database.
 
@@ -436,6 +504,7 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Refuse role grants to users who are not usable accounts (`status` is not `ACTIVE`, or `deleted` is true) in the service layer, because no foreign key can. Count a user's roles in a permission check only when the user is a usable account. Set `status` to `DISABLED` when a user is soft-deleted. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
 - Never change `roles.code` after creation, and never delete the `ADMIN` role. When a role is deleted, delete its `user_roles` rows and write a `ROLE_REVOKED` row for each in the same transaction, then write `ROLE_DELETED`. Write `ROLE_CREATED`, `ROLE_UPDATED`, or `ROLE_DELETED` to `operation_logs` in the same transaction as every change to `roles`.
 - Refuse any change that would leave no usable account holding `ADMIN`, after locking the `ADMIN` row in `roles`. A new user has no role until an administrator grants one.
+- Treat `ADMIN` and `MANAGER` as protected roles: never delete them and never change their `code`. Let only `ADMIN` create, update, or delete roles, and appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`.
 - Create the first administrator at startup from environment variables only when no usable `ADMIN` exists, with `must_change_password` true. Never write the initial password to a file.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
 
