@@ -34,4 +34,5 @@ GRANT INSERT ON opsflow.order_items TO 'opsflow_app'@'localhost';
 -- Link rows are created and, later, removed, but never edited.
 -- When the permission management feature is built, also run:
 --   GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';
+--   GRANT DELETE ON opsflow.roles      TO 'opsflow_app'@'localhost';
 GRANT INSERT ON opsflow.user_roles TO 'opsflow_app'@'localhost';

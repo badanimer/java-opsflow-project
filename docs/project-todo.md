@@ -29,7 +29,7 @@ The rules for keeping this file current are in [documentation-sync-rules.md](doc
 | T-03 | Move the migrations to `src/main/resources/db/migration`. Move them, do not copy them. | When the Spring Boot backend is created | [database-v1.2.md](iterations/database-v1.2.md) |
 | T-04 | Add a grant for every table that a later migration creates. | With each migration that adds a table | [restrict-app-privileges.sql](../db/admin/restrict-app-privileges.sql) |
 | T-05 | Add a seed migration for the roles `ADMIN`, `OPERATOR`, and `VIEWER`. An empty `roles` table is expected until then. | When the permission module is implemented | [database-v1.2.md](iterations/database-v1.2.md) |
-| T-06 | Grant `DELETE` on `opsflow.user_roles` to the application account, for that table only. | When role revocation is built | [ENVIRONMENT_SETUP.md](../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) |
+| T-06 | Grant `DELETE` on `opsflow.user_roles` and on `opsflow.roles` to the application account, for those two tables only. | When role revocation and role deletion are built | [ENVIRONMENT_SETUP.md](../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) |
 
 ### Backend implementation
 
@@ -43,9 +43,16 @@ The rules for keeping this file current are in [documentation-sync-rules.md](doc
 | T-12 | Generate `ORD-` and `TKT-` numbers in lowercase in application code, and retry with a new UUID on a unique-key collision. | With T-10 and the ticket module | [Order and ticket numbers](database/database-design.md#order-and-ticket-numbers) |
 | T-13 | Make API validation limits equal to the database column lengths, so that over-long input is rejected instead of truncated. | When the API is built | [Field Specifications](database/database-design.md#field-specifications) |
 | T-14 | Create tickets automatically only for the two agreed cases: inconsistent stock and order records, and exhausted retries that need investigation. Set `type` and `priority` explicitly. | When the ticket module is built | [Exceptions](database/database-design.md#exceptions) |
-| T-15 | Refuse role grants to soft-deleted users, and write `ROLE_GRANTED` and `ROLE_REVOKED` rows to `operation_logs` in the same transaction as every change to `user_roles`. | When the permission module is built | [database-v1.3.md](iterations/database-v1.3.md) |
+| T-15 | Refuse role grants to users who are not usable accounts (`status` is not `ACTIVE`, or `deleted` is true), and write `ROLE_GRANTED` and `ROLE_REVOKED` rows to `operation_logs` in the same transaction as every change to `user_roles`. | When the permission module is built | [database-v1.4.md](iterations/database-v1.4.md), [database-v1.3.md](iterations/database-v1.3.md) |
 | T-16 | Make every comment correction point at the original comment, not at an earlier correction. The database enforces only that both are on the same ticket. | When the ticket module is built | [Tickets](database/database-design.md#tickets) |
 | T-17 | Repeat the concurrency checks against the real application code, including its retry logic, connection pool, and transaction handling. | When T-10 is done | [Concurrency and privilege verification](database/database-design.md#concurrency-and-privilege-verification) |
+| T-19 | Count a user's roles in a permission check only when the user is a usable account. Keep the `user_roles` rows when a user is disabled. Set `status` to `DISABLED` when a user is soft-deleted. | When the permission module is built | [Role grants](database/database-design.md#role-grants) |
+| T-20 | Make sure a login token issued before an account was disabled stops working, by checking the account on every request or by keeping tokens short-lived. | When authentication is built | [Role grants](database/database-design.md#role-grants) |
+| T-21 | Implement role management as specified: create a role, update its `name` and `description` only, delete it (removing every holder's grant and logging each one in the same transaction, never deleting `ADMIN`), and replace a user's roles in one transaction. Write the role management logs in the same transaction as each change. | When the permission module is built | [Role management](database/database-design.md#role-management) |
+| T-22 | Build the pending page that every user passes after login. If `status` is `DISABLED`, show that the account is disabled. Otherwise, if the user has no role, show that the account is waiting for an administrator to assign permissions. Otherwise skip the page. Run the check again on refresh and on the next login. The backend returns the account state, and protected endpoints return an error code that can be told apart from an ordinary denial. | When login and the permission module are built; the frontend part when the frontend starts | [Users without roles](database/database-design.md#users-without-roles) |
+| T-23 | Implement Administrator protection: lock the `ADMIN` row in `roles`, count usable `ADMIN` holders after the change, and roll back when the count would be zero. Apply it to disabling or soft-deleting a user, revoking or replacing roles, and deleting a role. Add a concurrency check for two administrators removing each other at the same moment. | With T-21 and the user module | [Administrator protection](database/database-design.md#administrator-protection) |
+| T-24 | Create the first administrator at startup, only when no usable `ADMIN` exists, from `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `..._EMAIL`, and `..._PASSWORD`: hash the password, set `must_change_password` to true, grant `ADMIN`, and log `ROLE_GRANTED` with an empty `operator_id`. Fail startup with a clear message when a variable is missing. Run it after the roles are seeded (T-05). | When the user module and the role seed (T-05) exist | [First administrator and forced password change](database/database-design.md#first-administrator-and-forced-password-change) |
+| T-25 | Enforce `must_change_password` for the first administrator only: after login, a user with the flag can use nothing except changing the password, and the application clears the flag when the password has been changed. Other accounts set their own password at sign-up. | When authentication is built | [First administrator and forced password change](database/database-design.md#first-administrator-and-forced-password-change) |
 
 ### Frontend and environment
 
@@ -61,22 +68,18 @@ These are not decided. Each one says what has to be decided.
 
 | ID | Question | What has to be decided | Details |
 | --- | --- | --- | --- |
-| Q-01 | Roles are removed with a physical delete, and `user_roles` keeps no history. | Whether roles need a status instead of physical deletion, and whether grants need a dedicated history table like `ticket_assignment_history`. Either one changes the schema and both ERDs. | [database-v1.3.md](iterations/database-v1.3.md) |
-| Q-02 | The grant rule covers soft-deleted users only. | Whether grants to users with status `DISABLED` should also be refused. | [Role grants](database/database-design.md#role-grants) |
-| Q-03 | Only role grants and revocations have a defined log format. | A catalog of the other audited actions: their names, targets, and what goes into `before_data` and `after_data`. | [Auditing](database/database-design.md#auditing) |
+| Q-01 | `user_roles` keeps no history, so the only record of past grants is `operation_logs`. | Whether grants need a dedicated history table like `ticket_assignment_history`. It would change the schema and both ERDs. Roles themselves have no status; that was decided in v1.4. | [database-v1.4.md](iterations/database-v1.4.md) |
+| Q-03 | Only role grants, revocations, and role management have a defined log format. | A catalog of the other audited actions: their names, targets, and what goes into `before_data` and `after_data`. | [Auditing](database/database-design.md#auditing) |
 | Q-04 | The initial model has one inventory record per product and one reservation per order item. | When to add warehouses, a separate reservation table, payment and refund entities, shipment entities, or log partitioning. Each depends on a feature entering the project scope. | [Future Evolution](database/database-design.md#future-evolution) |
 
 ### Documents and diagrams
 
 | ID | Question | What has to be decided | Details |
 | --- | --- | --- | --- |
-| Q-05 | The Business Process Flowchart does not draw the idempotency check. | Whether to add it to the diagram. The check is described in the text of the design document. | [database-v1.2.md](iterations/database-v1.2.md) |
-| Q-06 | Git warns that three files under `db/` will change from LF to CRLF the next time Git touches them. | Whether to add a `.gitattributes` file that sets one line-ending rule for the repository. | [db/](../db/) |
 
 ### Technology and security
 
 | ID | Question | What has to be decided | Details |
 | --- | --- | --- | --- |
 | Q-07 | Redis and RabbitMQ are installed but not used. | When to introduce them: Redis for idempotency and rate limiting, RabbitMQ for asynchronous processing. | [README.md](../README.md#implementation-direction) |
-| Q-08 | An old database password is still in the Git history, in commit `7096b88`, which is already on the remote. The password was rotated, and the history was deliberately not rewritten. | Whether to rewrite history later, for example before the repository is shared or made public. A rotated password does not need it, but anyone cloning the repository can still read the old value. | Recorded only here; see commit `7096b88` |
 | Q-09 | The services run directly on the machine. | Whether to manage MySQL, Redis, and RabbitMQ with Docker Compose, if the machine moves to an environment that supports virtualization. | [ENVIRONMENT_SETUP.md](../ENVIRONMENT_SETUP.md#5-follow-up-tasks-and-suggestions) |

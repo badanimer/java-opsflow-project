@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password` | [database-v1.4.md](../iterations/database-v1.4.md) |
 | 2026-10-21 | 1.3 | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged in `operation_logs` | [database-v1.3.md](../iterations/database-v1.3.md) |
 | 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Added stock reservation, redefined order statuses, and aligned the document with the physical ERD | [database-v1.1.md](../iterations/database-v1.1.md) |
@@ -25,7 +26,7 @@ This document always describes the current design. Each iteration has a summary 
 | Physical ERD | Defines implementation-oriented fields, keys, and relationships | [Open Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) |
 | Business Process Flowchart | Describes the order, inventory, audit, and exception-ticket flow | [Open Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) |
 
-The Simplified ERD and the Business Process Flowchart both reflect inventory reservation and the confirm, cancel, release, timeout, and retry steps.
+The Simplified ERD and the Business Process Flowchart both reflect inventory reservation and the confirm, cancel, release, timeout, and retry steps. The Business Process Flowchart also shows the idempotency check on order submission: a key already used by the same user returns the original order, and a duplicate-key race rolls back and returns it too.
 
 ## Table Overview
 
@@ -39,11 +40,17 @@ The Simplified ERD and the Business Process Flowchart both reflect inventory res
 
 `users` and `roles` have a many-to-many relationship implemented through `user_roles`. A user cannot be granted the same role twice, so `user_roles` has a composite unique key on `(user_id, role_id)`.
 
-`users` and `products` use soft deletion (`status` plus `deleted`). Unique values such as `username`, `email`, and `sku` stay reserved after soft deletion and cannot be reused. This protects historical orders and audit records.
+`users` and `products` use soft deletion, which is marked by the `deleted` flag. On `users`, `status` is a separate field: `ACTIVE` or `DISABLED`. `status` says whether the account can be used now and can change back and forth, while `deleted` says whether the account is treated as removed. When a user is soft-deleted, the service layer also sets `status` to `DISABLED`. Unique values such as `username`, `email`, and `sku` stay reserved after soft deletion and cannot be reused. This protects historical orders and audit records.
 
 #### Role grants
 
-The foreign keys on `user_roles` only check that the user row and the role row exist. They do not read `deleted` or `status`, so the database accepts a grant to a soft-deleted user. The application must refuse to grant a role to a user whose `deleted` is true. This rule lives in the service layer because the database cannot express it with a foreign key.
+The foreign keys on `user_roles` only check that the user row and the role row exist. They do not read `deleted` or `status`, so the database accepts a grant to a soft-deleted or disabled user. A user is a **usable account** only when `status` is `ACTIVE` and `deleted` is false. Two rules follow, and both live in the service layer because the database cannot express them with a foreign key:
+
+- The application must refuse to grant a role to a user who is not a usable account.
+- A permission check counts the roles of a user only when the user is a usable account. A disabled or soft-deleted user has no effective permissions, even though the `user_roles` rows still exist.
+- Revoking a grant is always allowed, including a grant held by a disabled user, except where Administrator protection refuses it.
+
+Disabling a user does not delete the rows in `user_roles`. When the user is set back to `ACTIVE`, the existing roles take effect again with no re-grant. Because a permission check must read `status` and `deleted` on every request, a login token issued before the account was disabled must not keep working: either check the account on every request, or keep tokens short-lived.
 
 `user_roles` holds only the grants that exist now. It has no history and no deletion mark, so after a grant is revoked, nothing in the table shows that it ever existed. Every grant and revocation is therefore written to `operation_logs`; see Auditing.
 
@@ -149,6 +156,46 @@ Ticket comments are append-only. A comment is never edited or deleted, so `ticke
 
 The initial version uses a generic target reference. `target_type` and `target_id` identify an order, inventory record, ticket, or another business object. The application maintains this polymorphic relationship because it cannot be represented by one conventional foreign-key constraint. `before_data` and `after_data` store the changed state as JSON. `operator_id` is empty for system actions.
 
+#### Role management
+
+Roles are managed by an administrator, and every operation here is also subject to Administrator protection. Every operation below writes its `operation_logs` row in the same transaction as the change, and the operation rolls back if the log insert fails. The formats are in Role management logs.
+
+| Operation | Rule |
+| --- | --- |
+| Create a role | Inserts a `roles` row. `code` must be new, because it is unique. |
+| Update a role | An administrator may change `name` and `description`. `code` never changes after creation, because the logs and permission checks refer to it. |
+| Delete a role | A physical delete of the `roles` row. A user who holds the role is not an obstacle: in the same transaction the service layer deletes every `user_roles` row of the role and writes one `ROLE_REVOKED` row for each, with `role deleted` in `remark`, and then deletes the role. Those users lose only this role. If a user has no other role, the user is left with no role, and no default role is given. The administrator must see how many users are affected before confirming. The `ADMIN` role can never be deleted. The service layer deletes the grants itself and does not rely on a cascading foreign key, because a cascade would skip the log rows. |
+| Replace a user's roles | Sets the user's roles to a given list in one transaction. The user must be a usable account, and every role that is added must exist. Removing `ADMIN` from a user is subject to Administrator protection. Roles the user already holds and that stay in the list are left alone and not logged. Each role that is removed writes `ROLE_REVOKED`, and each role that is added writes `ROLE_GRANTED`. The rows of one replacement carry `replace roles` in `remark`. A list equal to the current roles changes nothing and writes no log. |
+
+#### Users without roles
+
+A user with no `user_roles` row is a valid state, and the database does not require at least one role. OpsFlow is an internal program: apart from the first administrator, accounts are created through the normal sign-up flow of a web application. The user sets their own password, can log in at once, and starts with `status` `ACTIVE` and no role. Nothing is allowed until an administrator grants a role. A user can also end up with no role when the last role is revoked, when a replacement list is empty, or when a role is deleted. A permission check returns no permissions for such a user.
+
+After every login the user first lands on a pending page that checks the account, in this order:
+
+| Check | What the page shows |
+| --- | --- |
+| `status` is `DISABLED` | A message that the account is disabled |
+| The user has no role | A message that the account is waiting for an administrator to assign permissions |
+| The user has at least one role | Nothing: the page is skipped and the application opens normally |
+
+The check runs again on refresh and on the next login, so a user whose role was granted in the meantime, or before logging in, goes straight in. This is a backend and frontend behavior, not a database rule.
+
+#### First administrator and forced password change
+
+A new user has no role and only an administrator can grant one, so the first administrator is created by the program itself at startup. If no usable account holds `ADMIN`, the program reads the username, email, and password from the environment variables `OPSFLOW_BOOTSTRAP_ADMIN_USERNAME`, `OPSFLOW_BOOTSTRAP_ADMIN_EMAIL`, and `OPSFLOW_BOOTSTRAP_ADMIN_PASSWORD`. If one is missing, startup fails with a message that names it. Otherwise one transaction hashes the password, creates the user with `must_change_password` set to true, grants `ADMIN`, and writes a `ROLE_GRANTED` row with an empty `operator_id`, because it is a system action. The `ADMIN` role must already exist, so this runs after the roles are seeded. When a usable administrator already exists, the variables are ignored. If the system ever has none, the next startup with the variables set creates one again. The password is never written to a file.
+
+`users.must_change_password` is a boolean that defaults to false. It is used only for the first administrator. While it is true, the user can log in but can use nothing except changing the password, and the application sets it to false when the password has been changed. The bootstrap administrator always starts with it true, because the initial password was typed by the person who set up the server and may remain in a shell history. Every other account sets its own password when it signs up, so it stays false and no password change is forced.
+
+#### Administrator protection
+
+The system must always have at least one usable account that holds the `ADMIN` role. This rule is fixed and has no override: no operation, by anyone including an administrator, may leave the system without one. A new administrator must be made before the only existing one can be changed.
+
+- **Covered operations**: disabling a user, soft-deleting a user, revoking `ADMIN` from a user, replacing a user's roles so that `ADMIN` is removed, and deleting a role. The `ADMIN` role itself can never be deleted, and its `code` never changes.
+- **How it is checked**: in the same transaction as the change, the service layer applies the change, counts the usable accounts that hold `ADMIN`, and rolls back with a clear message if the count is zero.
+- **Concurrency**: every covered operation first locks the `ADMIN` row in `roles` with `SELECT ... FOR UPDATE`, then counts. Without the lock, two administrators could remove each other at the same moment, each seeing the other still there, and both would pass.
+- **Limit**: the rule lives in the service layer. Direct SQL run as `root` or the migration account does not pass through it.
+
 #### Role grant and revocation logs
 
 `user_roles` keeps no history, so `operation_logs` is the only record of who held which role and when. Each grant or revocation writes one log row in the same transaction as the change to `user_roles`. If the log insert fails, the grant or revocation rolls back with it.
@@ -163,6 +210,20 @@ The initial version uses a generic target reference. `target_type` and `target_i
 | `after_data` | `{"roleId": 2, "roleCode": "OPERATOR"}` | Empty |
 
 The log stores `roleCode` as well as `roleId`, so it stays readable if the role row is removed later. Removing a role means revoking every grant of it first, and each revocation is logged, so the logs still show who held the role.
+
+#### Role management logs
+
+These follow the same pattern as grants and revocations: `target_type` is `ROLE`, `target_id` is `roles.id`, and `operator_id` is the administrator.
+
+| Operation | `action` | `before_data` | `after_data` |
+| --- | --- | --- | --- |
+| Create | `ROLE_CREATED` | Empty | `{"roleCode": "AUDITOR", "name": "Auditor", "description": "Read-only audit access"}` |
+| Update `name` or `description` | `ROLE_UPDATED` | The changed fields before, for example `{"name": "Auditor"}` | The changed fields after, for example `{"name": "Audit reader"}` |
+| Delete | `ROLE_DELETED` | All fields of the row: `roleCode`, `name`, `description` | Empty |
+
+Deleting a role also writes one `ROLE_REVOKED` row for each user who held it, in the v1.3 format with `target_type` `USER`, before the `ROLE_DELETED` row.
+
+`ROLE_UPDATED` stores only the fields that changed. It puts `roleCode` in `remark`, so a log row stays readable after the role is deleted. Replacing a user's roles uses the `ROLE_GRANTED` and `ROLE_REVOKED` formats above, with `target_type` `USER`.
 
 ## Relationship Summary
 
@@ -338,7 +399,7 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 
 The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows.
 
-Latest full run (2026-10-14, MySQL 8.4.9): 62 checks passed, 0 failed. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
+Latest full run (2026-10-22): 63 checks passed, 0 failed. The previous full run (2026-10-14, MySQL 8.4.9) had 62; the new check confirms that `users.must_change_password` defaults to false. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
 
 | Area | What the run shows |
 | --- | --- |
@@ -372,7 +433,10 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Treat inventory transactions, ticket assignment history, ticket comments, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) and [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql).
 - Use controlled status values. Enforce valid state transitions in the service layer, and enforce the order status gate with the conditional update described above.
 - Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions`, `ticket_comments`, and `order_items`, must include at least a creation timestamp.
-- Refuse role grants to soft-deleted users in the service layer, because no foreign key can. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
+- Refuse role grants to users who are not usable accounts (`status` is not `ACTIVE`, or `deleted` is true) in the service layer, because no foreign key can. Count a user's roles in a permission check only when the user is a usable account. Set `status` to `DISABLED` when a user is soft-deleted. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
+- Never change `roles.code` after creation, and never delete the `ADMIN` role. When a role is deleted, delete its `user_roles` rows and write a `ROLE_REVOKED` row for each in the same transaction, then write `ROLE_DELETED`. Write `ROLE_CREATED`, `ROLE_UPDATED`, or `ROLE_DELETED` to `operation_logs` in the same transaction as every change to `roles`.
+- Refuse any change that would leave no usable account holding `ADMIN`, after locking the `ADMIN` row in `roles`. A new user has no role until an administrator grants one.
+- Create the first administrator at startup from environment variables only when no usable `ADMIN` exists, with `must_change_password` true. Never write the initial password to a file.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution

@@ -295,6 +295,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'a corrected comment cannot be deleted while a correction points at it' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
     $r = As-Admin "INSERT INTO users(username,password_hash,email) VALUES ('Alice','x','alice@example.com'),('alice','x','alice2@example.com');"
     Check 'usernames keep the case-insensitive rule (Alice vs alice rejected)' (Dup $r)
+    Check 'users.must_change_password defaults to FALSE' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='must_change_password';") -eq '0')
 
     # -----------------------------------------------------------------------------------------
     Section 'Per-table privileges (db/admin/restrict-app-privileges.sql)'

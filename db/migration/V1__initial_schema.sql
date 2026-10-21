@@ -23,6 +23,7 @@ CREATE TABLE users (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
     username      VARCHAR(64)  NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
     email         VARCHAR(254) NOT NULL,
     status        VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     deleted       BOOLEAN      NOT NULL DEFAULT FALSE,
