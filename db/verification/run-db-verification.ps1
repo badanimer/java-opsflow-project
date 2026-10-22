@@ -264,7 +264,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     # -----------------------------------------------------------------------------------------
     Section 'Structure'
     # -----------------------------------------------------------------------------------------
-    Check '13 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '13')
+    Check '14 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '14')
     Check 'ticket_comments has no updated_at (append-only)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='ticket_comments' AND column_name='updated_at';") -eq '0')
     Check 'order_items has no updated_at (frozen)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='order_items' AND column_name='updated_at';") -eq '0')
     Check 'inventory has no version column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='inventory' AND column_name='version';") -eq '0')
@@ -299,6 +299,46 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'users.failed_login_count defaults to 0' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='failed_login_count';") -eq '0')
     $r = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('x@example.com','OTHER','h',NOW(3));"
     Check 'email_verification_codes rejects an unknown purpose' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-batch',1,'INVENTORY_EXCEPTION','HIGH','batch','several products');"
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,i.id FROM tickets t, inventory i WHERE t.ticket_no='TKT-batch' AND i.id IN (1,2,3);"
+    Check 'one ticket can cover several inventory records' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM ticket_inventory;") -eq '3')) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,1 FROM tickets t WHERE t.ticket_no='TKT-batch';"
+    Check 'the same inventory record cannot be linked to a ticket twice' (Dup $r)
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,999999 FROM tickets t WHERE t.ticket_no='TKT-batch';"
+    Check 'a link to a missing inventory record is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-batch';"
+    Check 'a ticket with linked inventory records cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-first',1,'OTHER','LOW','first','first problem');"
+    $r = As-Admin "UPDATE tickets SET status='CANCELLED', cancel_reason='opened by mistake', cancelled_by=1, cancelled_at=NOW(3) WHERE ticket_no='TKT-first';"
+    Check 'a ticket can be CANCELLED with a reason, a canceller, and a time' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', status, '|', cancel_reason) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CANCELLED|opened by mistake')) (Short-Err $r.Err)
+    $r = As-Admin "UPDATE tickets SET status='REOPENED' WHERE ticket_no='TKT-first';"
+    Check 'there is no REOPENED status' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $null = As-Admin "UPDATE tickets SET status='CLOSED', closed_by=1, closed_at=NOW(3) WHERE ticket_no='TKT-first';"
+    Check 'a ticket can be CLOSED with a closer and a time' ((Scalar "SELECT CONCAT('RESULT=', status, '|', closed_by) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CLOSED|1')
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description,follows_ticket_id) SELECT 'TKT-second',1,'OTHER','LOW','second','continues the first',id FROM tickets WHERE ticket_no='TKT-first';"
+    Check 'a ticket can follow an earlier ticket' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM tickets f JOIN tickets p ON p.id=f.follows_ticket_id WHERE f.ticket_no='TKT-second' AND p.ticket_no='TKT-first';") -eq '1')) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description,follows_ticket_id) VALUES ('TKT-third',1,'OTHER','LOW','third','missing',999999);"
+    Check 'following a ticket that does not exist is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-first';"
+    Check 'a ticket that has a follow-up cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
+    $r = As-Admin "UPDATE tickets SET closed_by=999999 WHERE ticket_no='TKT-second';"
+    Check 'closed_by must be an existing user' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "UPDATE tickets SET cancelled_by=999999 WHERE ticket_no='TKT-second';"
+    Check 'cancelled_by must be an existing user' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $itx = "INSERT INTO inventory_transactions(inventory_id,operator_id,type,quantity,available_before,available_after,locked_before,locked_after,reason) "
+    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,8,0,0,'damaged in storage');")
+    Check 'a WRITE_OFF with a reason and an operator is accepted' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,12,0,0,'wrong direction');")
+    Check 'a WRITE_OFF that raises stock is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    foreach ($ty in 'RESTOCK','WRITE_OFF','ADJUST_IN','ADJUST_OUT') {
+        $after = if ($ty -in 'RESTOCK','ADJUST_IN') { 12 } else { 8 }
+        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,0,0,NULL);")
+        Check "$ty without a reason is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,0,0,'   ');")
+        Check "$ty with a blank reason is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+        $r = As-Admin ($itx + "VALUES (1,NULL,'$ty',2,10,$after,0,0,'no operator');")
+        Check "$ty without an operator is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    }
 
     # -----------------------------------------------------------------------------------------
     Section 'Per-table privileges (db/admin/restrict-app-privileges.sql)'
@@ -315,17 +355,17 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $null = As-Admin ("CALL seed(5); INSERT INTO roles(id,code,name) VALUES (1,'R','Role'); INSERT INTO user_roles(user_id,role_id) VALUES (1,1); " +
         "INSERT INTO orders(id,order_no,user_id,status,reserved_until) VALUES (100,'ORD-p',1,'CREATED',NOW(3)); " +
         "INSERT INTO order_items(order_id,product_id,product_sku,product_name,unit_price,quantity,subtotal) VALUES (100,1,'P1','Widget',10.00,1,10.00); " +
-        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after) VALUES (1,'RESTOCK',1,5,6,0,0); " +
+        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after,reason,operator_id) VALUES (1,'RESTOCK',1,5,6,0,0,'initial',1); " +
         "INSERT INTO tickets(id,ticket_no,created_by,type,priority,title,description) VALUES (100,'TKT-p',1,'OTHER','LOW','t','d'); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,NULL,2,1); " +
         "INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'c'); " +
-        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
+        "INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,1); " +        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
         "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('a@example.com','REGISTER','h',NOW(3));")
 
     Check 'app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes)' (Allowed (As-App "UPDATE email_verification_codes SET attempts=attempts+1 WHERE email='a@example.com'; UPDATE users SET failed_login_count=1, last_failed_login_at=NOW(3), locked_until=NOW(3), password_changed_at=NOW(3) WHERE id=1; UPDATE users SET status='ACTIVE' WHERE id=1; UPDATE roles SET name='R2' WHERE id=1; UPDATE products SET name='W2' WHERE id=1; UPDATE inventory SET sold_quantity=sold_quantity WHERE id=1; UPDATE orders SET remark='x' WHERE id=100; UPDATE tickets SET status='IN_PROGRESS' WHERE id=100;"))
-    Check 'app: insert into every table it writes' (Allowed (As-App ("INSERT INTO users(username,password_hash,email) VALUES ('n1','x','n1@example.com'); INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'second'); " +
+    Check 'app: insert into every table it writes' (Allowed (As-App ("INSERT INTO users(username,password_hash,email) VALUES ('n1','x','n1@example.com'); INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'second'); INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,2); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,2,3,1); INSERT INTO operation_logs(action,target_type,target_id) VALUES ('B','ORDER',100); " +
-        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after) VALUES (1,'RESTOCK',1,6,7,0,0); INSERT INTO user_roles(user_id,role_id) VALUES (2,1); INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('b@example.com','RESET_PASSWORD','h',NOW(3));")))
+        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after,reason,operator_id) VALUES (1,'RESTOCK',1,6,7,0,0,'delivery',1); INSERT INTO user_roles(user_id,role_id) VALUES (2,1); INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('b@example.com','RESET_PASSWORD','h',NOW(3));")))
     Check 'app: SELECT ... FOR UPDATE on inventory' (Allowed (As-App "START TRANSACTION; SELECT id FROM inventory WHERE id=1 FOR UPDATE; COMMIT;"))
     $refusals = @(
         @('UPDATE inventory_transactions', "UPDATE inventory_transactions SET reason='x';"),
@@ -334,7 +374,8 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('DELETE ticket_assignment_history', "DELETE FROM ticket_assignment_history;"),
         @('UPDATE ticket_comments', "UPDATE ticket_comments SET content='edited';"),
         @('DELETE ticket_comments', "DELETE FROM ticket_comments;"),
-        @('UPDATE operation_logs', "UPDATE operation_logs SET remark='x';"),
+        @('UPDATE ticket_inventory', "UPDATE ticket_inventory SET inventory_id=2;"),
+        @('DELETE ticket_inventory', "DELETE FROM ticket_inventory;"),        @('UPDATE operation_logs', "UPDATE operation_logs SET remark='x';"),
         @('DELETE operation_logs', "DELETE FROM operation_logs;"),
         @('UPDATE order_items (frozen)', "UPDATE order_items SET quantity=9;"),
         @('DELETE order_items', "DELETE FROM order_items;"),

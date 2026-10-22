@@ -188,6 +188,7 @@ CREATE TABLE order_items (
 -- Append-only. order_id is required for RESERVE, CONFIRM, and RELEASE and must be empty
 -- for the other types. The unique key does not apply to rows with an empty order_id, so
 -- repeated restocks are allowed. The snapshots must agree with the type and quantity.
+-- The manual types (RESTOCK, WRITE_OFF, ADJUST_IN, ADJUST_OUT) must name the operator and give a non-blank reason.
 CREATE TABLE inventory_transactions (
     id               BIGINT       NOT NULL AUTO_INCREMENT,
     inventory_id     BIGINT       NOT NULL,
@@ -208,8 +209,12 @@ CREATE TABLE inventory_transactions (
     CONSTRAINT fk_inventory_tx_inventory FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_inventory_tx_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_inventory_tx_operator FOREIGN KEY (operator_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT chk_inventory_tx_type CHECK (type IN ('RESTOCK', 'ADJUST_IN', 'ADJUST_OUT', 'RESERVE', 'CONFIRM', 'RELEASE')),
+    CONSTRAINT chk_inventory_tx_type CHECK (type IN ('RESTOCK', 'WRITE_OFF', 'ADJUST_IN', 'ADJUST_OUT', 'RESERVE', 'CONFIRM', 'RELEASE')),
     CONSTRAINT chk_inventory_tx_quantity CHECK (quantity > 0),
+    CONSTRAINT chk_inventory_tx_manual CHECK (
+        type IN ('RESERVE', 'CONFIRM', 'RELEASE')
+        OR (operator_id IS NOT NULL AND reason IS NOT NULL AND CHAR_LENGTH(TRIM(reason)) > 0)
+    ),
     CONSTRAINT chk_inventory_tx_snapshots CHECK (
         available_before >= 0 AND available_after >= 0 AND locked_before >= 0 AND locked_after >= 0
     ),
@@ -219,6 +224,7 @@ CREATE TABLE inventory_transactions (
     CONSTRAINT chk_inventory_tx_movement CHECK ((
         CASE type
             WHEN 'RESTOCK'    THEN available_after = available_before + quantity AND locked_after = locked_before
+            WHEN 'WRITE_OFF'  THEN available_after = available_before - quantity AND locked_after = locked_before
             WHEN 'ADJUST_IN'  THEN available_after = available_before + quantity AND locked_after = locked_before
             WHEN 'ADJUST_OUT' THEN available_after = available_before - quantity AND locked_after = locked_before
             WHEN 'RESERVE'    THEN available_after = available_before - quantity AND locked_after = locked_before + quantity
@@ -233,37 +239,53 @@ CREATE TABLE inventory_transactions (
 -- Tickets
 -- ---------------------------------------------------------------------------
 
+-- Status flow (enforced in the service layer, not by CHECK constraints):
+--   OPEN -> IN_PROGRESS -> RESOLVED -> CLOSED (CLOSED means archived), and
+--   OPEN or IN_PROGRESS -> CANCELLED. A ticket is never reopened. CLOSED and CANCELLED are final.
+-- follows_ticket_id marks a new ticket as the continuation of an earlier one. It is set when
+-- the ticket is created and never changed.
 CREATE TABLE tickets (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    ticket_no   VARCHAR(64)  COLLATE utf8mb4_0900_bin NOT NULL,
-    order_id    BIGINT       NULL,
-    created_by  BIGINT       NOT NULL,
-    assignee_id BIGINT       NULL,
-    resolved_by BIGINT       NULL,
-    type        VARCHAR(32)  NOT NULL,
-    priority    VARCHAR(32)  NOT NULL,
-    status      VARCHAR(32)  NOT NULL DEFAULT 'OPEN',
-    title       VARCHAR(200) NOT NULL,
-    description TEXT         NOT NULL,
-    resolution  TEXT         NULL,
-    resolved_at DATETIME(3)  NULL,
-    closed_at   DATETIME(3)  NULL,
-    created_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    updated_at  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    id                BIGINT       NOT NULL AUTO_INCREMENT,
+    ticket_no         VARCHAR(64)  COLLATE utf8mb4_0900_bin NOT NULL,
+    order_id          BIGINT       NULL,
+    follows_ticket_id BIGINT       NULL,
+    created_by        BIGINT       NOT NULL,
+    assignee_id       BIGINT       NULL,
+    resolved_by       BIGINT       NULL,
+    closed_by         BIGINT       NULL,
+    cancelled_by      BIGINT       NULL,
+    type              VARCHAR(32)  NOT NULL,
+    priority          VARCHAR(32)  NOT NULL,
+    status            VARCHAR(32)  NOT NULL DEFAULT 'OPEN',
+    title             VARCHAR(200) NOT NULL,
+    description       TEXT         NOT NULL,
+    resolution        TEXT         NULL,
+    cancel_reason     VARCHAR(255) NULL,
+    resolved_at       DATETIME(3)  NULL,
+    closed_at         DATETIME(3)  NULL,
+    cancelled_at      DATETIME(3)  NULL,
+    created_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     CONSTRAINT uk_tickets_ticket_no UNIQUE (ticket_no),
     KEY idx_tickets_order (order_id),
+    KEY idx_tickets_follows (follows_ticket_id),
     KEY idx_tickets_created_by (created_by),
     KEY idx_tickets_assignee_status (assignee_id, status),
     KEY idx_tickets_resolved_by (resolved_by),
+    KEY idx_tickets_closed_by (closed_by),
+    KEY idx_tickets_cancelled_by (cancelled_by),
     KEY idx_tickets_status_priority (status, priority),
     CONSTRAINT fk_tickets_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_tickets_follows FOREIGN KEY (follows_ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_assignee FOREIGN KEY (assignee_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_resolved_by FOREIGN KEY (resolved_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_tickets_closed_by FOREIGN KEY (closed_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_tickets_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_tickets_type CHECK (type IN ('ORDER_EXCEPTION', 'INVENTORY_EXCEPTION', 'OTHER')),
     CONSTRAINT chk_tickets_priority CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
-    CONSTRAINT chk_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'))
+    CONSTRAINT chk_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'CANCELLED'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- Append-only. from_user_id is empty for the first assignment, and to_user_id is empty
@@ -308,6 +330,21 @@ CREATE TABLE ticket_comments (
     CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_ticket_comments_corrects FOREIGN KEY (ticket_id, corrects_comment_id) REFERENCES ticket_comments (ticket_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Append-only. The stock records a ticket is about, so one ticket can cover a batch of
+-- products. A ticket may have none (for example an order or a general ticket). A link added
+-- by mistake is explained in a comment, not removed.
+CREATE TABLE ticket_inventory (
+    id           BIGINT      NOT NULL AUTO_INCREMENT,
+    ticket_id    BIGINT      NOT NULL,
+    inventory_id BIGINT      NOT NULL,
+    created_at   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    CONSTRAINT uk_ticket_inventory_ticket_inventory UNIQUE (ticket_id, inventory_id),
+    KEY idx_ticket_inventory_inventory (inventory_id),
+    CONSTRAINT fk_ticket_inventory_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_ticket_inventory_inventory FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- ---------------------------------------------------------------------------

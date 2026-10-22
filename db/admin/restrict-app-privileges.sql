@@ -20,13 +20,13 @@ GRANT INSERT, UPDATE ON opsflow.roles     TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.products  TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.inventory TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.orders    TO 'opsflow_app'@'localhost';
-GRANT INSERT, UPDATE ON opsflow.tickets   TO 'opsflow_app'@'localhost';
-GRANT INSERT, UPDATE ON opsflow.email_verification_codes TO 'opsflow_app'@'localhost';
+GRANT INSERT, UPDATE ON opsflow.tickets   TO 'opsflow_app'@'localhost';GRANT INSERT, UPDATE ON opsflow.email_verification_codes TO 'opsflow_app'@'localhost';
 
 -- Append-only tables: read and insert only
 GRANT INSERT ON opsflow.inventory_transactions    TO 'opsflow_app'@'localhost';
 GRANT INSERT ON opsflow.ticket_assignment_history TO 'opsflow_app'@'localhost';
 GRANT INSERT ON opsflow.ticket_comments           TO 'opsflow_app'@'localhost';
+GRANT INSERT ON opsflow.ticket_inventory          TO 'opsflow_app'@'localhost';
 GRANT INSERT ON opsflow.operation_logs            TO 'opsflow_app'@'localhost';
 
 -- Frozen after the order is created: read and insert only

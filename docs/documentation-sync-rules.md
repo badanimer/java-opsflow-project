@@ -78,5 +78,6 @@ An area is a distinct part of the project with its own design or code, such as t
 - Every artifact in the Sync Map row for this area is updated, or listed as not updated with a reason.
 - A new iteration file exists, and the Change Log and Project Log point to it.
 - [project-todo.md](project-todo.md) matches the change: finished tasks are removed, and new open items are added.
+- Every new or changed write path states in [database-design.md](database/database-design.md) what it reads, how a concurrent request is stopped from breaking it, and where it falls in the lock order. See Concurrency by Module.
 - No link points to a missing file.
 - All documentation is written in English.

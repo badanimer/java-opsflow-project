@@ -22,6 +22,8 @@ BEGIN
     DELETE FROM ticket_comments WHERE corrects_comment_id IS NOT NULL;
     DELETE FROM ticket_comments;
     DELETE FROM ticket_assignment_history;
+    DELETE FROM ticket_inventory;
+    DELETE FROM tickets WHERE follows_ticket_id IS NOT NULL;
     DELETE FROM tickets;
     DELETE FROM inventory_transactions;
     DELETE FROM order_items;

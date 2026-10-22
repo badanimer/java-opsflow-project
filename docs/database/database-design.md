@@ -4,7 +4,7 @@
 
 This document defines the initial database boundaries, entity relationships, and core business flow for OpsFlow. It serves as the design baseline for implementation. It does not replace executable database migration scripts.
 
-The initial model contains 13 tables across five domains: identity and access, product and inventory, orders, tickets, and auditing.
+The initial model contains 14 tables across five domains: identity and access, product and inventory, orders, tickets, and auditing.
 
 ## Change Log
 
@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-10-23 | 1.5 | Added the `WRITE_OFF` stock type and defined manual stock changes: stock in, write-off, and direct quantity setting, a required reason and operator on every manual change, and direct setting for `MANAGER` and `ADMIN` only; added the table `ticket_inventory` so one ticket can cover a batch of products, wrote down when a ticket should be opened, defined the ticket status flow (no reopening, `CLOSED` as the archive, a new `CANCELLED` status with a required reason) and follow-up tickets (`tickets.follows_ticket_id`), added the Concurrency by Module section, and defined who may take a ticket and who may reassign it (only a `MANAGER` or an `ADMIN`), and narrowed cancelling for operators to their own tickets | [database-v1.5.md](../iterations/database-v1.5.md) |
 | 2026-10-21 | 1.4 | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password`, and fixed who may change what: the `MANAGER` role may assign roles below manager but cannot touch role definitions, `ADMIN`, or `MANAGER`, and added the permission matrix for the four roles, and defined login lockout, email codes for sign-up and recovery, and per-request token checks | [database-v1.4.md](../iterations/database-v1.4.md) |
 | 2026-10-21 | 1.3 | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged in `operation_logs` | [database-v1.3.md](../iterations/database-v1.3.md) |
 | 2026-10-14 | 1.2 | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](../iterations/database-v1.2.md) |
@@ -39,7 +40,7 @@ The Simplified ERD and the Business Process Flowchart both reflect inventory res
 | `user_roles` | Associates users with roles and supports multiple roles per user |
 | `email_verification_codes` | Holds the one-time email codes used for sign-up and password recovery |
 
-`users` and `roles` have a many-to-many relationship implemented through `user_roles`. A user cannot be granted the same role twice, so `user_roles` has a composite unique key on `(user_id, role_id)`.
+`users` and `roles` have a many-to-many relationship implemented through `user_roles`. A user cannot be granted the same role twice, so `user_roles` has a composite unique key on `(user_id, role_id)`.q
 
 `users` and `products` use soft deletion, which is marked by the `deleted` flag. On `users`, `status` is a separate field: `ACTIVE` or `DISABLED`. `status` says whether the account can be used now and can change back and forth, while `deleted` says whether the account is treated as removed. When a user is soft-deleted, the service layer also sets `status` to `DISABLED`. Unique values such as `username`, `email`, and `sku` stay reserved after soft deletion and cannot be reused. This protects historical orders and audit records.
 
@@ -61,7 +62,7 @@ Disabling a user does not delete the rows in `user_roles`. When the user is set 
 | --- | --- |
 | `products` | Stores product details, prices, and sales status |
 | `inventory` | Stores the current stock position and concurrency-control data for each product |
-| `inventory_transactions` | Records every stock movement: restocks, adjustments, reservations, confirmations, and releases |
+| `inventory_transactions` | Records every stock movement: restocks, write-offs, adjustments, reservations, confirmations, and releases |
 
 In the initial version, each product has one current inventory record, so `products` and `inventory` have a one-to-one relationship. An inventory record has many inventory transactions. A transaction references its inventory record only; the product is reached through `inventory`.
 
@@ -81,16 +82,34 @@ All three quantities must stay greater than or equal to zero. Stock still held i
 
 | Type | Effect on `inventory` |
 | --- | --- |
-| `RESTOCK` | `available_quantity` increases |
-| `ADJUST_IN` | `available_quantity` increases (manual correction) |
-| `ADJUST_OUT` | `available_quantity` decreases (manual correction) |
+| `RESTOCK` | `available_quantity` increases (stock received) |
+| `WRITE_OFF` | `available_quantity` decreases (stock lost, damaged, or taken out of the warehouse) |
+| `ADJUST_IN` | `available_quantity` increases (the quantity was set higher by hand) |
+| `ADJUST_OUT` | `available_quantity` decreases (the quantity was set lower by hand) |
 | `RESERVE` | `available_quantity` decreases, `locked_quantity` increases |
 | `CONFIRM` | `locked_quantity` decreases, `sold_quantity` increases |
 | `RELEASE` | `locked_quantity` decreases, `available_quantity` increases |
 
 `quantity` is always greater than zero; the type determines the direction. Each transaction stores `available_before`, `available_after`, `locked_before`, and `locked_after` so that any movement can be audited without replaying history. The snapshots are taken from the inventory row while it is locked by the same transaction, so they are exact.
 
-`order_id` is required for `RESERVE`, `CONFIRM`, and `RELEASE`, and must be empty for `RESTOCK`, `ADJUST_IN`, and `ADJUST_OUT`. `operator_id` is empty for system actions such as timeout release.
+`order_id` is required for `RESERVE`, `CONFIRM`, and `RELEASE`, and must be empty for `RESTOCK`, `WRITE_OFF`, `ADJUST_IN`, and `ADJUST_OUT`. `operator_id` is empty for system actions such as timeout release.
+
+#### Manual stock changes
+
+People change stock by hand in three ways. All three work on `available_quantity` only, because `locked_quantity` belongs to orders.
+
+| Operation | Recorded as | Who |
+| --- | --- | --- |
+| Stock in (plus button) | `RESTOCK` | `ADMIN`, `MANAGER`, `OPERATOR` |
+| Write-off or stock out (minus button) | `WRITE_OFF` | `ADMIN`, `MANAGER`, `OPERATOR` |
+| Set the quantity directly | `ADJUST_IN` if the new number is higher, `ADJUST_OUT` if it is lower | `ADMIN`, `MANAGER` |
+
+- **Reason is required for every manual change.** Stock in, write-off, and direct set all need a non-blank reason and the acting user. `RESERVE`, `CONFIRM`, and `RELEASE` come from orders and need neither. The database enforces this with a `CHECK`, and the service layer validates it first.
+- **A change must change something.** The quantity is greater than zero. Setting the quantity to the number it already has is refused and writes nothing.
+- **Screen.** The inventory screen has one Modify button per product. An `OPERATOR` who presses it sees only a plus and a minus, plus a reason field. A `MANAGER` or `ADMIN` also gets a field to type the new quantity. Save is enabled only when the quantity has changed and the reason is filled in.
+- **Direct set.** The user types the new `available_quantity`. The request also carries the `available_quantity` the user saw. Inside the transaction the service layer locks the `inventory` row and compares it with the value seen. If they differ, someone else changed the stock in the meantime, and the request is refused with a "stock changed, please reload" result. If they match, the difference becomes the transaction quantity, and the type follows its sign.
+- **Write-off.** Under the same lock, `available_quantity >= q` must hold, otherwise the request is refused. Reserved stock cannot be written off.
+- **One transaction.** Each manual change locks the `inventory` row, updates it, inserts the `inventory_transactions` row with exact snapshots, and writes `operation_logs`, all together. It follows the same lock order, retry, and deadlock rules as the order flows.
 
 ### Orders
 
@@ -135,15 +154,102 @@ Additional `orders` fields support this lifecycle:
 
 | Table | Responsibility |
 | --- | --- |
-| `tickets` | Stores exception tickets, the fixed creator, current assignee, resolver, status, and priority |
+| `tickets` | Stores exception tickets, the fixed creator, current assignee, resolver, status, priority, the ticket it follows, and who closed or cancelled it |
 | `ticket_assignment_history` | Records every assignment and reassignment, including the previous and new assignees |
 | `ticket_comments` | Stores investigation notes, communication, and resolution details. Append-only. |
+| `ticket_inventory` | Links a ticket to the inventory records it is about, so one ticket can cover a batch of products. Append-only. |
+
+#### When to open a ticket
+
+A ticket is for a problem that the person who found it cannot, or may not, solve alone, and for the exceptions the system finds by itself. A problem that one person can finish directly is not a ticket: an operator who entered a wrong quantity cancels the order and creates it again.
+
+- **Automatic tickets** are limited to the two cases listed under Exceptions.
+- **Manual tickets** are opened by a person for a problem that needs someone else, such as a stock count that disagrees with the records when the finder cannot set the quantity. This is a usage rule. The database and the program do not enforce it, so it is kept in this document and in the screen text.
+- `OTHER` is for a problem that needs someone else but is neither an order nor a stock problem. It is not a place for notes.
+
+#### Linked inventory
+
+`ticket_inventory` records which stock the ticket is about. One ticket can link to many inventory records, and an inventory record can appear on many tickets. A ticket with no link is valid, for example an order exception or a general problem.
+
+- A link is unique per ticket and inventory record (`UK(ticket_id, inventory_id)`).
+- A link is chosen when the ticket is created or added later. It is append-only: a link added by mistake is explained in a comment and is not removed, so the application account has only `SELECT` and `INSERT` on the table.
+- The service layer should ask for at least one link on an `INVENTORY_EXCEPTION` ticket, and may allow any ticket to have links. The database does not require it, because a `CHECK` cannot look at another table.
+- The inventory record is the target, as in `inventory_transactions`, and the product is reached through it.
+- Links can be added while the ticket is `OPEN`, `IN_PROGRESS`, or `RESOLVED`, and never after it is `CLOSED` or `CANCELLED`.
+
+#### Ticket status
+
+| Status | Meaning |
+| --- | --- |
+| `OPEN` | The ticket exists and waits for someone to take it. It may have no assignee. |
+| `IN_PROGRESS` | Someone is working on it. It always has an assignee. |
+| `RESOLVED` | The assignee says the problem is solved and has written the resolution. It waits to be archived. |
+| `CLOSED` | The problem is solved and the ticket is archived. Archiving is done by a manager or an administrator, usually in batches. `CLOSED` does not mean "given up". |
+| `CANCELLED` | The ticket was withdrawn before it was resolved, for example because it was opened by mistake or duplicates another one. A reason is required. |
+
+`CLOSED` and `CANCELLED` are final. A ticket in either status is frozen: its status, priority, assignee, links, and comments no longer change.
+
+#### Status transitions
+
+A ticket is never reopened. If the problem comes back or continues, a new ticket is opened that follows the old one (see Follow-up tickets). Only the transitions below are allowed. The service layer enforces them, and the database does not (see Decisions in database-v1.5.md).
+
+| From | To | Who | Must have | Also sets |
+| --- | --- | --- | --- | --- |
+| `OPEN` | `IN_PROGRESS` | The assignee, `MANAGER`, `ADMIN` | An assignee. A person takes an unassigned ticket, or is assigned one. | |
+| `IN_PROGRESS` | `OPEN` | `MANAGER`, `ADMIN` | Happens when the assignee is removed, because `IN_PROGRESS` needs an assignee | Clears `assignee_id` and writes a `ticket_assignment_history` row |
+| `IN_PROGRESS` | `RESOLVED` | The assignee, `MANAGER`, `ADMIN` | A non-blank `resolution` | `resolved_by`, `resolved_at` |
+| `RESOLVED` | `CLOSED` | `MANAGER`, `ADMIN` | | `closed_by`, `closed_at` |
+| `OPEN` or `IN_PROGRESS` | `CANCELLED` | `MANAGER` and `ADMIN` for any ticket. `OPERATOR` only for their own: a ticket assigned to them, or one they created while it is still `OPEN`. `VIEWER` never. | A non-blank reason | `cancel_reason`, `cancelled_by`, `cancelled_at` |
+
+- A `RESOLVED` ticket cannot be cancelled. It can only be archived.
+- "Own" means the ticket's current assignee, or its creator while the ticket is still `OPEN`. Once someone else takes a ticket it is no longer the creator's for cancelling. To withdraw a ticket someone else holds, an operator asks a `MANAGER` or an `ADMIN`.
+- Priority can change while the ticket is `OPEN` or `IN_PROGRESS`. Assignment and reassignment are allowed in the same two statuses.
+- Comments are allowed until the ticket is `CLOSED` or `CANCELLED`, so a `RESOLVED` ticket can still be discussed before it is archived.
+- Automatic tickets start as `OPEN` with no assignee.
+- Every transition is made with a conditional update, `WHERE id = ? AND status = ?`, so only one person can make it, as the status gate does for orders. See Concurrency by module.
+
+#### Who may take a ticket
+
+An **eligible assignee** is a usable account (`status` is `ACTIVE` and `deleted` is false) that holds at least one of `OPERATOR`, `MANAGER`, or `ADMIN`. A `VIEWER`, a user with no role, a disabled user, and a soft-deleted user are not eligible. The check applies every time a ticket gets an assignee, and it is made inside the transaction that changes the assignee:
+
+- a person takes an unassigned `OPEN` ticket;
+- a `MANAGER` or an `ADMIN` assigns or reassigns a ticket to someone.
+
+Further basic limits: the ticket must be in a status that allows the change (`OPEN` for taking, `OPEN` or `IN_PROGRESS` for assigning), a person cannot take a ticket that already has an assignee, and every person who acts on a ticket must be a usable account, as for every action. A person may hold at most 99 unresolved tickets at once: tickets assigned to them whose status is `OPEN` or `IN_PROGRESS`. A `RESOLVED` ticket no longer counts. At the limit they cannot take another ticket, and a `MANAGER` or an `ADMIN` cannot assign or reassign one to them. The limit is an operating parameter. The count is made under an exclusive lock on the new assignee's user row, so two simultaneous assignments cannot both pass it.
+
+#### Reassigning a ticket
+
+Whoever holds a ticket controls it. Only the assignee, and a `MANAGER` or an `ADMIN`, can move it forward, and an `OPERATOR` can cancel only their own. So only a `MANAGER` or an `ADMIN` can take a ticket away from its assignee. An `OPERATOR` cannot take, or ask for, a ticket that someone else holds. There is no request process: the manager or administrator decides and acts directly. The ticket keeps its number, status, comments, links, and priority. Only the assignee changes, and the ticket continues in the normal flow. From that moment the previous assignee can no longer move or cancel it.
+
+A reassignment is valid only when all of these hold, checked inside one transaction:
+
+- the actor is a usable `MANAGER` or `ADMIN`;
+- the ticket is `OPEN` or `IN_PROGRESS`. A `RESOLVED`, `CLOSED`, or `CANCELLED` ticket cannot be reassigned;
+- the new assignee is an eligible assignee, is not the current assignee, and holds fewer than 99 unresolved tickets;
+- the actor saw the current assignee. The request carries the assignee shown on the screen, and under the ticket row lock it is compared with the real one. If someone changed it in the meantime, the request is refused and the screen is reloaded;
+- a reason is given. The service layer requires it to be non-blank, so that every change of hands can be explained later.
+
+The change writes one `ticket_assignment_history` row with the previous assignee, the new assignee, the acting user, and the reason, and an `operation_logs` row, in the same transaction. A ticket that is `IN_PROGRESS` stays `IN_PROGRESS` when it changes hands. Removing the assignee altogether is the other case: the ticket goes back to `OPEN`. If an assignee is disabled or soft-deleted while holding tickets, what happens to those tickets is Q-16.
+
+#### Follow-up tickets
+
+`tickets.follows_ticket_id` is empty for an ordinary ticket. When a problem continues after a ticket was resolved, the person opens a new ticket and chooses the earlier one, and the new ticket records it. This keeps the history of one problem connected across tickets without reopening any of them.
+
+- The earlier ticket must be `RESOLVED` or `CLOSED`. A ticket that is still `OPEN` or `IN_PROGRESS` cannot be followed: an `OPEN` ticket takes a comment, and an `IN_PROGRESS` ticket stays with its assignee, and only a `MANAGER` or an `ADMIN` can hand it to someone else (see Reassigning a ticket). A `CANCELLED` ticket was withdrawn, so nothing follows it.
+- The link is set when the new ticket is created and never changes. A ticket follows at most one earlier ticket, and an earlier ticket can have many follow-ups. A follow-up can itself be followed, so a chain forms.
+- The link is visible to everyone who can view tickets, in both directions: a follow-up shows the ticket it follows, and an earlier ticket lists its follow-ups. It is visible while the new ticket waits to be taken, while it is worked on, and after it ends.
+- The database rejects a link to a ticket that does not exist, and a ticket that is followed cannot be deleted. A ticket cannot follow itself, because the link is written when the ticket is created and the ticket does not exist yet.
+- The follow-up is an ordinary ticket in every other respect: its own number, assignee, status, and resolution.
+
+#### Archive
+
+`CLOSED` is the archive. A `MANAGER` or `ADMIN` archives `RESOLVED` tickets from time to time, one by one or in a batch. The archive has its own screen, which lists `CLOSED` tickets and is open to every role that can view tickets, `VIEWER` included. A batch archive moves each ticket in its own transaction through the status gate, so a ticket changed by someone else in the meantime is skipped and the rest still succeed.
 
 The ticket creator is fixed in `created_by`. `assignee_id` contains only the current assignee, and a ticket has at most one current assignee at a time. Each assignee change creates a new `ticket_assignment_history` record instead of overwriting the assignment history.
 
 A ticket may initially be unassigned and may be reassigned multiple times during its lifecycle. Each reassignment should record the previous assignee (`from_user_id`), new assignee (`to_user_id`), acting user (`changed_by`), reason, and timestamp. `from_user_id` is empty for the first assignment, and `to_user_id` is empty when a ticket is unassigned.
 
-`tickets.type` uses `ORDER_EXCEPTION`, `INVENTORY_EXCEPTION`, or `OTHER`. `tickets.status` uses `OPEN`, `IN_PROGRESS`, `RESOLVED`, or `CLOSED`. `tickets.priority` uses `LOW`, `MEDIUM`, `HIGH`, or `URGENT`. `order_id` is optional because not every ticket relates to an order.
+`tickets.type` uses `ORDER_EXCEPTION`, `INVENTORY_EXCEPTION`, or `OTHER`. `tickets.status` uses `OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`, or `CANCELLED`. `tickets.priority` uses `LOW`, `MEDIUM`, `HIGH`, or `URGENT`. `order_id` is optional because not every ticket relates to an order.
 
 Ticket comments are append-only. A comment is never edited or deleted, so `ticket_comments` has no `updated_at`. A mistake is corrected by adding a new comment that states the correction. That comment sets `corrects_comment_id` to the comment it corrects, so the screen can show the two together while the original stays unchanged. The field is empty for ordinary comments. A comment may be corrected more than once, and every correction points at the original comment, not at an earlier correction. The foreign key is the pair (`ticket_id`, `corrects_comment_id`) to (`ticket_id`, `id`), backed by a unique key on (`ticket_id`, `id`), so the database rejects a correction that points at a comment of another ticket.
 
@@ -292,9 +398,12 @@ Deleting a role also writes one `ROLE_REVOKED` row for each user who held it, in
 | `orders` | 0..1:N | `tickets` | An order can produce multiple tickets for separate exceptions |
 | `users` | 1:N | `tickets` | A user creates tickets |
 | `users` | 0..1:N | `tickets` | A user is the current assignee of, or resolves, multiple tickets |
+| `tickets` | 0..1:N | `tickets` | A ticket may follow one earlier ticket (`follows_ticket_id`); an earlier ticket can have many follow-ups |
+| `users` | 0..1:N | `tickets` | A user may be recorded as the one who closed (`closed_by`) or cancelled (`cancelled_by`) a ticket |
 | `tickets` | 1:N | `ticket_assignment_history` | A ticket retains its complete assignment history |
 | `users` | 1:N | `ticket_assignment_history` | A user appears as the previous assignee, new assignee, or acting user |
 | `tickets` | 1:N | `ticket_comments` | A ticket contains processing notes and communication |
+| `tickets` | M:N | `inventory` | Implemented through `ticket_inventory`; a ticket can cover a batch of stock records |
 | `ticket_comments` | 1:N | `ticket_comments` | A correction comment points at the comment it corrects, on the same ticket |
 | `users` | 0..1:N | `operation_logs` | A user performs multiple audited operations; system actions have no user |
 
@@ -351,6 +460,7 @@ Transient database or interface errors must roll back the transaction and leave 
 - **Deadlock and lock-wait retry.** If the database reports a deadlock or a lock wait timeout, the transaction is rolled back completely and retried in a new transaction, up to the attempt limit in Operating Parameters. MySQL rolls back the whole transaction on a deadlock, but a lock wait timeout may roll back only the failed statement, so the application must explicitly roll back before it retries. Retries are safe because the status gate and the unique constraints below prevent a repeated operation from taking effect twice.
 - **Status gate.** The conditional status update is the single gate for every transition. Because only one transaction can move an order out of `CREATED`, confirm and cancel can never both succeed, and repeated requests cannot deduct or release stock twice.
 - **Constraint backstop.** `CHECK` constraints keep stock quantities non-negative, so a logic error fails instead of corrupting stock.
+- **Manual stock changes** use the same row lock and transaction pattern as orders (see Manual stock changes). A manual change and an order on the same product wait for each other on the `inventory` row, so neither can overwrite the other's quantity. A direct set also checks the value the user saw, so a stale screen cannot silently undo a reservation. This is a check made while the row is locked, not an optimistic version counter.
 - **Duplicate inventory transactions.** `UK(order_id, inventory_id, type)` on `inventory_transactions` is a second line of defense. A duplicate `RESERVE`, `CONFIRM`, or `RELEASE` for the same order and inventory record violates the constraint and rolls back. Stock-level types have no order, and the constraint does not apply to them, so repeated restocks are allowed.
 - **Duplicate orders.** `UK(user_id, idempotency_key)` prevents duplicate order creation from repeated submissions. It is a composite key, not a unique key on `idempotency_key` alone.
 - **Time source.** Compare `reserved_until` with the database clock, not with application server clocks.
@@ -374,8 +484,8 @@ Principles:
 
 - **Deny by default.** An action that is not listed is refused. A user with no role can do nothing (see Users without roles).
 - **`VIEWER` is read-only.** It never changes data in any module.
-- **`OPERATOR` runs the day-to-day flow**: orders, stock receipts, and tickets. It does not change master data, correct stock by hand, or see audit logs, user lists, or role lists.
-- **`MANAGER` can do everything `OPERATOR` can, plus master data, manual stock correction, user and role assignment (below manager), and audit logs.**
+- **`OPERATOR` runs the day-to-day flow**: orders, stock in, write-offs, and tickets. It does not change master data, set stock quantities directly, or see audit logs, user lists, or role lists.
+- **`MANAGER` can do everything `OPERATOR` can, plus master data, setting stock quantities directly, user and role assignment (below manager), and audit logs.**
 - **`ADMIN` can do everything `MANAGER` can, plus the actions reserved for it in Authority over roles and accounts.**
 - A role counts only when the acting account is a usable account. System actions, such as the timeout job and automatic tickets, have no acting user and are not covered by this matrix.
 
@@ -384,19 +494,24 @@ Principles:
 | Products | View | Yes | Yes | Yes | Yes |
 | Products | Create, edit, change price, put on or off sale, soft-delete | Yes | Yes | No | No |
 | Inventory | View stock and stock transactions | Yes | Yes | Yes | Yes |
-| Inventory | Restock (`RESTOCK`) | Yes | Yes | Yes | No |
-| Inventory | Manual correction (`ADJUST_IN`, `ADJUST_OUT`) | Yes | Yes | No | No |
+| Inventory | Stock in (`RESTOCK`), reason required | Yes | Yes | Yes | No |
+| Inventory | Write-off or stock out (`WRITE_OFF`), reason required | Yes | Yes | Yes | No |
+| Inventory | Set the quantity directly (`ADJUST_IN`, `ADJUST_OUT`), reason required | Yes | Yes | No | No |
 | Orders | View | Yes | Yes | Yes | Yes |
 | Orders | Create | Yes | Yes | Yes | No |
 | Orders | Confirm | Yes | Yes | Yes | No |
 | Orders | Cancel | Yes | Yes | Yes | No |
-| Tickets | View | Yes | Yes | Yes | Yes |
-| Tickets | Create manually | Yes | Yes | Yes | No |
+| Tickets | View, including the archive screen of `CLOSED` tickets and the follow-up links | Yes | Yes | Yes | Yes |
+| Tickets | Create manually, link inventory records to a ticket, and open a follow-up to a `RESOLVED` or `CLOSED` ticket | Yes | Yes | Yes | No |
 | Tickets | Add a comment or a correction | Yes | Yes | Yes | No |
-| Tickets | Take an unassigned ticket (assign to oneself) | Yes | Yes | Yes | No |
-| Tickets | Assign or reassign to anyone | Yes | Yes | No | No |
-| Tickets | Move to `IN_PROGRESS` or `RESOLVED`, change priority | Yes | Yes | Yes | No |
-| Tickets | Move to `CLOSED` | Yes | Yes | No | No |
+| Tickets | Take an unassigned `OPEN` ticket (assign to oneself), if an eligible assignee | Yes | Yes | Yes | No |
+| Tickets | Assign or reassign to an eligible assignee, with a reason (the only way to take a ticket from its assignee) | Yes | Yes | No | No |
+| Tickets | Move to `IN_PROGRESS` or `RESOLVED` | Yes | Yes | Only a ticket assigned to them | No |
+| Tickets | Change priority | Yes | Yes | Yes | No |
+| Tickets | Cancel an `OPEN` or `IN_PROGRESS` ticket, with a reason | Yes, any | Yes, any | Only their own (assigned to them, or created by them while `OPEN`) | No |
+| Tickets | See the assignment history of a ticket | Yes | Yes | Yes | Yes |
+| Tickets | Archive a `RESOLVED` ticket (move to `CLOSED`), singly or in a batch | Yes | Yes | No | No |
+| Tickets | Reopen a ticket | No one | No one | No one | No one |
 | Audit logs | View | Yes | Yes | No | No |
 | Audit logs | Edit or delete | No one | No one | No one | No one |
 | Users | View the user list | Yes | Yes | No | No |
@@ -408,7 +523,45 @@ Principles:
 
 Where the permissions live: for the four seeded roles, they are fixed in the application code and keyed by role code. A role created later by an administrator has no permissions until a mapping is added, so creating one grants nothing by itself. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role gets its permissions together with the code that implements them.
 
-Several entries are working defaults and can be changed in this table before the permission module is built: `OPERATOR` may cancel any order and not only its own, `OPERATOR` may restock but not correct stock, and only `ADMIN` and `MANAGER` may close a ticket or reassign it to someone else.
+Several entries are working defaults and can be changed in this table before the permission module is built: `OPERATOR` may cancel any order and not only its own, `OPERATOR` may stock in and write off but not set the quantity directly, only `ADMIN` and `MANAGER` may archive a ticket or reassign it to someone else, any role that works on tickets may cancel an `OPEN` or `IN_PROGRESS` ticket whoever owns it, and an `OPERATOR` may move only their own tickets forward.
+
+## Concurrency by Module
+
+Order and inventory concurrency is specified under Order and Inventory Flow. This section applies the same thinking to every other module, because any two people can act at the same moment. Each rule below is a working default for the service layer. It is checked against the real code when the module is built, and the order and inventory checks in `db/verification` are the model for how.
+
+**Principles**
+
+- A write that depends on something the program just read must be protected by one of four things: a row lock (`SELECT ... FOR UPDATE`, or `FOR SHARE` for a check that must not change), a conditional update (`WHERE id = ? AND status = ?`), an atomic update (`SET n = n + 1`), or a unique constraint. A plain read followed by a write is never enough.
+- A unique constraint is the last line of defense. It does not replace the check the program makes first.
+- When one transaction locks several kinds of rows, it locks them in this order: `users` (ascending id), then `roles`, then `tickets`, then `orders`, then `inventory` (ascending id). A fixed order lowers the chance of deadlock but does not remove it, so every module uses the deadlock and lock-wait retry in Concurrency and duplicate protection.
+- A transaction that holds locks makes no call to anything outside the database, such as sending an email.
+- Every audit log row is written in the same transaction as the change it describes.
+
+| Module | What can race | Rule |
+| --- | --- | --- |
+| Products | Two managers edit the same product | Lock the product row, update only the fields the user changed, and log `before_data` and `after_data`. If both changed the same field, the later commit wins and the log shows both. |
+| Products | A product is edited while an order is created | Order creation reads the status, price, SKU, and name of each product in one statement and snapshots them. It takes no lock on `products`. An order that saw the product on sale is valid even if the product is put off sale a moment later, and its price is never a mix of two values. |
+| Products | Two products get the same SKU | The unique constraint rejects the second, and the program returns a conflict. |
+| Inventory | Manual changes, orders, and timeouts on the same stock | Row lock on `inventory`, as specified under Manual stock changes and Concurrency and duplicate protection. |
+| Orders | Confirm, cancel, timeout, repeated submission | Status gate, row locks, and unique keys, as specified under Order and Inventory Flow. |
+| Tickets | Two people take the same unassigned ticket | `UPDATE ... SET assignee_id = ? WHERE id = ? AND assignee_id IS NULL AND status = 'OPEN'`. Zero rows updated means someone else got it first. |
+| Tickets | Two status changes, such as archive and cancel, at once | Every transition is a conditional update on the current status, so only one succeeds. The other sees zero rows, reads the ticket, and reports its current state. |
+| Tickets | Two managers reassign the same ticket, or a reassignment meets a cancel or a resolve | Lock the ticket row, check the status is `OPEN` or `IN_PROGRESS`, and compare the current assignee with the one the manager saw on the screen. If it differs, refuse with "ticket changed, please reload", so one reassignment cannot silently overwrite another. Then update `assignee_id` and insert the `ticket_assignment_history` row, all in one transaction. |
+| Tickets | A ticket is taken or assigned while the new assignee's account is disabled, loses its role, or is soft-deleted, or two tickets are given to a person at 98 | Before changing the assignee, lock the new assignee's user row with `FOR UPDATE`, re-check that they are an eligible assignee, and count their unresolved tickets (assigned to them and `OPEN` or `IN_PROGRESS`). Refuse at 99. The exclusive lock makes two simultaneous assignments to the same person wait for each other, so the second one sees the first and cannot slip past the limit. Disabling a user or changing roles needs the same row, so one waits for the other. Lock order: `users`, then `tickets`. |
+| Tickets | A comment, an inventory link, or a priority change arrives as the ticket is archived or cancelled | Lock the ticket row with `FOR SHARE`, check the status is not `CLOSED` or `CANCELLED`, then insert. The archive or cancel update needs exclusive access, so it waits for the insert or comes first and makes the check fail. |
+| Tickets | Batch archive overlaps another batch or a cancel | Each ticket is archived in its own transaction through the status gate. A ticket already moved is skipped. Running the same batch twice is safe. |
+| Tickets | A follow-up is opened as the earlier ticket changes | No lock is needed. A ticket that is `RESOLVED` or `CLOSED` never goes back, so the permission to follow it cannot be lost. The foreign key rejects a ticket that does not exist. |
+| Users and roles | Grant, revoke, replace, or disable at once, including two managers on the same user | Lock the target user's row first, then check the user is usable and the actor has authority, then change. The second request waits and sees the first one's result. |
+| Users and roles | The last administrator is removed twice at once | After the user row, lock the `ADMIN` row in `roles`, apply the change, and count usable holders, as under Administrator protection. |
+| Users and roles | The same role is granted twice | `UK(user_id, role_id)` rejects the second, and the program treats it as already granted. |
+| Users and roles | A role is granted while it is deleted | Deleting locks the role row and removes the grants. The grant's foreign key check needs a shared lock on the role row, so one waits for the other, and a grant after the delete fails. This order differs from the grant path, so a deadlock is possible, and the retry rule covers it. |
+| Authentication | Two wrong passwords at once | `UPDATE users SET failed_login_count = failed_login_count + 1 ...` is atomic, and the lock time is worked out from the new value in the same transaction, so both attempts count. |
+| Authentication | An email code is submitted twice at once | Consume it with `UPDATE ... SET consumed_at = ? WHERE id = ? AND consumed_at IS NULL AND expires_at > ? AND attempts < 5`. Only one request updates a row. Wrong entries increase `attempts` atomically. |
+| Authentication | A new code is requested while an older one is used | Inserting the new code and consuming the older ones is one transaction, so only the latest code works. Two requests at the same moment may both pass the 60-second check and both send a code. That is harmless, because only the latest code works. |
+| Authentication | Two sign-ups with the same username or email | The unique constraints reject the second. |
+| Authentication | Two instances start with no administrator | The startup creation locks the `ADMIN` row in `roles`, re-checks for a usable administrator, then creates one. The second instance finds it and does nothing. |
+
+A new or changed write path states in this document, before it is built, what it reads, which of the four protections covers it, and where it falls in the lock order.
 
 ## Operating Parameters
 
@@ -423,6 +576,7 @@ These values belong in application configuration, not in the database. The datab
 | Wait between retries | 50 ms, then 150 ms, each with a small random delay | Prevents conflicting requests from retrying at the same moment |
 | Login lock steps | 5 failures: 1 minute; 10: 5 minutes; 15: 15 minutes; 20: until midnight | Slows guessing while giving a person who mistyped a quick way back |
 | Failure count reset | Midnight in Sydney time (`Australia/Sydney`), configurable | A new day starts clean, on the clock the users live by |
+| Unresolved tickets per person | 99 | A person cannot hoard work. It counts tickets assigned to them that are `OPEN` or `IN_PROGRESS`, and it applies to taking a ticket and to assignment by a manager or an administrator. |
 | Email code | 6 digits, valid 10 minutes, 5 wrong entries, resend after 60 seconds | Long enough to be inconvenient to guess, short enough to be quick to use |
 
 Retry only after the previous transaction has been fully rolled back, and run the retry in a new transaction.
@@ -458,7 +612,7 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | `orders.idempotency_key` | `VARCHAR(128)` |
 | Status, type, and priority fields, `roles.code` | `VARCHAR(32)`, restricted to the allowed values |
 | `tickets.title` | `VARCHAR(200)` |
-| `orders.status_reason`, `inventory_transactions.reason`, `ticket_assignment_history.reason` | `VARCHAR(255)` |
+| `orders.status_reason`, `inventory_transactions.reason`, `ticket_assignment_history.reason`, `tickets.cancel_reason` | `VARCHAR(255)` |
 | `remark` fields | `VARCHAR(500)` |
 | `operation_logs.ip_address` | `VARCHAR(45)` |
 | `operation_logs.action`, `operation_logs.target_type` | `VARCHAR(64)` |
@@ -480,7 +634,7 @@ Times are stored in UTC. `DATETIME` carries no time zone, and the defaults for `
 
 ## Initial Migration
 
-The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 13 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
+The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 14 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
 
 The first application of this migration is done by Flyway, when the backend is connected to Flyway. Do not apply it to `opsflow` by hand, so that Flyway's schema history exists from the start. Experiments use a temporary database.
 
@@ -500,7 +654,7 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 
 The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows.
 
-Latest full run (2026-10-22): 66 checks passed, 0 failed. The previous full run (2026-10-14, MySQL 8.4.9) had 62. The new checks cover 13 tables, the defaults of `users.must_change_password` and `users.failed_login_count`, the allowed purposes of `email_verification_codes`, insert and update on that table for the application account, and the refusal of deleting from it. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards.
+Latest full run (2026-10-23, MySQL 8.4): 94 checks passed, 0 failed. The previous full run (2026-10-22) had 66, and the one before it (2026-10-14, MySQL 8.4.9) had 62. The new checks cover 14 tables; the manual stock types and their rule that a reason and an operator are required (`WRITE_OFF`, and the four manual types without a reason, with a blank reason, or without an operator); linking several inventory records to one ticket and refusing duplicate or missing links; the ticket statuses (`CANCELLED` and `CLOSED` accepted, no `REOPENED`), the follow-up link and its foreign keys, and `closed_by` and `cancelled_by`; and the application account's privileges on `ticket_inventory`. Earlier checks cover the defaults of `users.must_change_password` and `users.failed_login_count`, the allowed purposes of `email_verification_codes`, and the application account's rights on that table. Races were repeated 4 to 12 rounds each. An earlier 24-round stress run of the same races also passed, before the comment-correction checks were added. The temporary database and accounts were dropped afterwards. The ticket rules, the manual stock changes, and the concurrency rules of the other modules have no race checks yet; they come with the code (T-17, T-34).
 
 | Area | What the run shows |
 | --- | --- |
@@ -525,14 +679,16 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Use numeric `id` values as primary keys and separate unique fields for business identifiers.
 - Index foreign-key columns and fields used by frequent queries, including `orders(status, reserved_until)` for the timeout job.
 - Apply unique constraints to business identifiers such as usernames, role codes, product SKUs, and order numbers.
-- Apply composite unique constraints to `user_roles(user_id, role_id)`, `order_items(order_id, product_id)`, `orders(user_id, idempotency_key)`, and `inventory_transactions(order_id, inventory_id, type)`. Create each as one composite key and never as separate unique keys on its columns. The physical ERD writes each one in the key column, for example `UK(user_id, idempotency_key)`.
+- Apply composite unique constraints to `user_roles(user_id, role_id)`, `order_items(order_id, product_id)`, `orders(user_id, idempotency_key)`, `inventory_transactions(order_id, inventory_id, type)`, and `ticket_inventory(ticket_id, inventory_id)`. Create each as one composite key and never as separate unique keys on its columns. The physical ERD writes each one in the key column, for example `UK(user_id, idempotency_key)`.
 - Require quantities to be greater than zero, stock quantities to be greater than or equal to zero, and monetary values to be non-negative.
-- On `inventory_transactions`, require `quantity > 0`, require the four snapshot fields to be greater than or equal to zero, and require that `order_id` is present exactly when `type` is `RESERVE`, `CONFIRM`, or `RELEASE`. Enforce these with `CHECK` constraints and validate them in the service layer.
+- On `inventory_transactions`, require `quantity > 0`, require the four snapshot fields to be greater than or equal to zero, require that `order_id` is present exactly when `type` is `RESERVE`, `CONFIRM`, or `RELEASE`, and require `operator_id` and a non-blank `reason` for `RESTOCK`, `WRITE_OFF`, `ADJUST_IN`, and `ADJUST_OUT`. Enforce these with `CHECK` constraints and validate them in the service layer.
 - Use fixed-precision decimals for money.
 - Keep transaction prices and product snapshots in `order_items` unchanged after order creation, and do not edit or delete order items after the order is created.
 - Place order creation, order-item creation, stock reservation, and reservation transactions in the same transaction boundary. Do the same for confirm and release.
-- Treat inventory transactions, ticket assignment history, ticket comments, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) and [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql).
+- Treat inventory transactions, ticket assignment history, ticket comments, ticket inventory links, and operation logs as append-only trace data. Enforce this with privileges as well as in the service layer: after the first migration is applied, the application account gets only `SELECT` and `INSERT` on these tables, and on `order_items`, which is frozen. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) and [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql).
 - Use controlled status values. Enforce valid state transitions in the service layer, and enforce the order status gate with the conditional update described above.
+- Enforce the ticket status transitions, and the fields each one must fill, in the service layer only: an assignee for `IN_PROGRESS`, a resolution for `RESOLVED`, `closed_by` and `closed_at` for `CLOSED`, and a reason, `cancelled_by`, and `cancelled_at` for `CANCELLED`. The database checks only the allowed status values and the foreign keys, so a service-layer bug can leave a ticket without a resolution. This was chosen on purpose; the service layer and its tests must not skip these rules (T-33).
+- A ticket follows at most one earlier ticket, set only when the ticket is created. The foreign key `follows_ticket_id` rejects a missing ticket. The rule that the earlier ticket is `RESOLVED` or `CLOSED` is enforced in the service layer.
 - Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions`, `ticket_comments`, and `order_items`, must include at least a creation timestamp.
 - Refuse role grants to users who are not usable accounts (`status` is not `ACTIVE`, or `deleted` is true) in the service layer, because no foreign key can. Count a user's roles in a permission check only when the user is a usable account. Set `status` to `DISABLED` when a user is soft-deleted. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
 - Never change `roles.code` after creation, and never delete the `ADMIN` role. When a role is deleted, delete its `user_roles` rows and write a `ROLE_REVOKED` row for each in the same transaction, then write `ROLE_DELETED`. Write `ROLE_CREATED`, `ROLE_UPDATED`, or `ROLE_DELETED` to `operation_logs` in the same transaction as every change to `roles`.
@@ -540,7 +696,7 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Treat `ADMIN` and `MANAGER` as protected roles: never delete them and never change their `code`. Let only `ADMIN` create, update, or delete roles, and appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`.
 - Create the first administrator at startup from environment variables only when no usable `ADMIN` exists, with `must_change_password` true. Never write the initial password to a file.
 - Lock an account after repeated wrong passwords on the schedule in Login security and account recovery, and refuse attempts without checking the password while it is locked. Store email codes hashed, and let the application account insert and update `email_verification_codes` but never delete. On every request, load the account and its roles from the database, and refuse a token issued before `users.password_changed_at`.
-- Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, and `operation_logs` must not delete or null out history rows.
+- Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, `ticket_inventory`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution
 
