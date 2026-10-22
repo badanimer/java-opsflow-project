@@ -195,7 +195,7 @@ A ticket is never reopened. If the problem comes back or continues, a new ticket
 
 | From | To | Who | Must have | Also sets |
 | --- | --- | --- | --- | --- |
-| `OPEN` | `IN_PROGRESS` | The assignee, `MANAGER`, `ADMIN` | An assignee. A person takes an unassigned ticket, or is assigned one. | |
+| `OPEN` | `IN_PROGRESS` | The assignee, `MANAGER`, `ADMIN` | An assignee. A person takes an unassigned ticket, or is assigned one. The assignee must have fewer than 99 tickets in progress. | |
 | `IN_PROGRESS` | `OPEN` | `MANAGER`, `ADMIN` | Happens when the assignee is removed, because `IN_PROGRESS` needs an assignee | Clears `assignee_id` and writes a `ticket_assignment_history` row |
 | `IN_PROGRESS` | `RESOLVED` | The assignee, `MANAGER`, `ADMIN` | A non-blank `resolution` | `resolved_by`, `resolved_at` |
 | `RESOLVED` | `CLOSED` | `MANAGER`, `ADMIN` | | `closed_by`, `closed_at` |
@@ -215,7 +215,21 @@ An **eligible assignee** is a usable account (`status` is `ACTIVE` and `deleted`
 - a person takes an unassigned `OPEN` ticket;
 - a `MANAGER` or an `ADMIN` assigns or reassigns a ticket to someone.
 
-Further basic limits: the ticket must be in a status that allows the change (`OPEN` for taking, `OPEN` or `IN_PROGRESS` for assigning), a person cannot take a ticket that already has an assignee, and every person who acts on a ticket must be a usable account, as for every action. A person may hold at most 99 unresolved tickets at once: tickets assigned to them whose status is `OPEN` or `IN_PROGRESS`. A `RESOLVED` ticket no longer counts. At the limit they cannot take another ticket, and a `MANAGER` or an `ADMIN` cannot assign or reassign one to them. The limit is an operating parameter. The count is made under an exclusive lock on the new assignee's user row, so two simultaneous assignments cannot both pass it.
+Further basic limits: the ticket must be in a status that allows the change (`OPEN` for taking, `OPEN` or `IN_PROGRESS` for assigning), a person cannot take a ticket that already has an assignee, and every person who acts on a ticket must be a usable account, as for every action. Two limits apply to every role that works on tickets, and they are independent of each other. See Ticket limits.
+
+#### Ticket limits
+
+Each person has two limits of 99, counted separately. Both are operating parameters.
+
+| Limit | What is counted | What it stops |
+| --- | --- | --- |
+| Open tickets created | Tickets the person created that are `OPEN` now | Creating another ticket, including a follow-up. A person with 99 open tickets they created cannot create a 100th until some of them are taken or ended. |
+| Tickets in progress | Tickets assigned to the person that are `IN_PROGRESS` now | Taking an unassigned ticket, being assigned a ticket by a `MANAGER` or an `ADMIN`, starting work on a ticket (`OPEN` to `IN_PROGRESS`), and being given an `IN_PROGRESS` ticket by reassignment |
+
+- The two counts do not touch each other. A ticket someone created and another person is working on counts against the worker's in-progress limit, and no longer against the creator's open limit.
+- A reassignment of an `IN_PROGRESS` ticket counts as taking in work for the new assignee, even though the ticket's status does not change, because only its assignee changes. If the new assignee is already at 99, it is refused. The previous assignee's count falls by one.
+- Tickets that are `RESOLVED`, `CLOSED`, or `CANCELLED` count towards neither limit. Tickets the system creates by itself count towards no one's open limit.
+- Each count is made inside the transaction, under an exclusive lock on that person's user row, so two simultaneous requests cannot both pass it (see Concurrency by Module).
 
 #### Reassigning a ticket
 
@@ -225,7 +239,7 @@ A reassignment is valid only when all of these hold, checked inside one transact
 
 - the actor is a usable `MANAGER` or `ADMIN`;
 - the ticket is `OPEN` or `IN_PROGRESS`. A `RESOLVED`, `CLOSED`, or `CANCELLED` ticket cannot be reassigned;
-- the new assignee is an eligible assignee, is not the current assignee, and holds fewer than 99 unresolved tickets;
+- the new assignee is an eligible assignee, is not the current assignee, and has fewer than 99 tickets in progress (a ticket moved in counts as in progress);
 - the actor saw the current assignee. The request carries the assignee shown on the screen, and under the ticket row lock it is compared with the real one. If someone changed it in the meantime, the request is refused and the screen is reloaded;
 - a reason is given. The service layer requires it to be non-blank, so that every change of hands can be explained later.
 
@@ -547,7 +561,8 @@ Order and inventory concurrency is specified under Order and Inventory Flow. Thi
 | Tickets | Two people take the same unassigned ticket | `UPDATE ... SET assignee_id = ? WHERE id = ? AND assignee_id IS NULL AND status = 'OPEN'`. Zero rows updated means someone else got it first. |
 | Tickets | Two status changes, such as archive and cancel, at once | Every transition is a conditional update on the current status, so only one succeeds. The other sees zero rows, reads the ticket, and reports its current state. |
 | Tickets | Two managers reassign the same ticket, or a reassignment meets a cancel or a resolve | Lock the ticket row, check the status is `OPEN` or `IN_PROGRESS`, and compare the current assignee with the one the manager saw on the screen. If it differs, refuse with "ticket changed, please reload", so one reassignment cannot silently overwrite another. Then update `assignee_id` and insert the `ticket_assignment_history` row, all in one transaction. |
-| Tickets | A ticket is taken or assigned while the new assignee's account is disabled, loses its role, or is soft-deleted, or two tickets are given to a person at 98 | Before changing the assignee, lock the new assignee's user row with `FOR UPDATE`, re-check that they are an eligible assignee, and count their unresolved tickets (assigned to them and `OPEN` or `IN_PROGRESS`). Refuse at 99. The exclusive lock makes two simultaneous assignments to the same person wait for each other, so the second one sees the first and cannot slip past the limit. Disabling a user or changing roles needs the same row, so one waits for the other. Lock order: `users`, then `tickets`. |
+| Tickets | A ticket is taken, assigned, started, or moved in while the person's account is disabled, loses its role, or is soft-deleted, or two tickets reach a person at 98 in progress | Before the change, lock that person's user row with `FOR UPDATE`, re-check that they are an eligible assignee, and count the tickets assigned to them that are `IN_PROGRESS`. Refuse at 99. The exclusive lock makes two simultaneous requests for the same person wait for each other, so the second one sees the first and cannot slip past the limit. Disabling a user or changing roles needs the same row, so one waits for the other. Lock order: `users`, then `tickets`. |
+| Tickets | Two tickets are created at once by a person at 98 open | Lock the creator's user row with `FOR UPDATE`, count the tickets they created that are `OPEN`, refuse at 99, then insert the ticket, all in one transaction. Creations by the same person wait for each other, and creations by different people do not. Lock order: `users`, then `tickets`. |
 | Tickets | A comment, an inventory link, or a priority change arrives as the ticket is archived or cancelled | Lock the ticket row with `FOR SHARE`, check the status is not `CLOSED` or `CANCELLED`, then insert. The archive or cancel update needs exclusive access, so it waits for the insert or comes first and makes the check fail. |
 | Tickets | Batch archive overlaps another batch or a cancel | Each ticket is archived in its own transaction through the status gate. A ticket already moved is skipped. Running the same batch twice is safe. |
 | Tickets | A follow-up is opened as the earlier ticket changes | No lock is needed. A ticket that is `RESOLVED` or `CLOSED` never goes back, so the permission to follow it cannot be lost. The foreign key rejects a ticket that does not exist. |
@@ -576,7 +591,8 @@ These values belong in application configuration, not in the database. The datab
 | Wait between retries | 50 ms, then 150 ms, each with a small random delay | Prevents conflicting requests from retrying at the same moment |
 | Login lock steps | 5 failures: 1 minute; 10: 5 minutes; 15: 15 minutes; 20: until midnight | Slows guessing while giving a person who mistyped a quick way back |
 | Failure count reset | Midnight in Sydney time (`Australia/Sydney`), configurable | A new day starts clean, on the clock the users live by |
-| Unresolved tickets per person | 99 | A person cannot hoard work. It counts tickets assigned to them that are `OPEN` or `IN_PROGRESS`, and it applies to taking a ticket and to assignment by a manager or an administrator. |
+| Open tickets created per person | 99 | A person cannot flood the board with tickets. It counts tickets the person created that are `OPEN`, and it applies to creating a ticket. |
+| Tickets in progress per person | 99 | A person cannot hoard work. It counts tickets assigned to the person that are `IN_PROGRESS`, and it applies to taking, assigning, starting, and receiving a ticket by reassignment. |
 | Email code | 6 digits, valid 10 minutes, 5 wrong entries, resend after 60 seconds | Long enough to be inconvenient to guess, short enough to be quick to use |
 
 Retry only after the previous transaction has been fully rolled back, and run the retry in a new transaction.
