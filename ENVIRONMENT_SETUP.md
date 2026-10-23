@@ -119,7 +119,7 @@ Privileges can only be granted on tables that exist, so the `opsflow_app` grants
 
 | Tables | `opsflow_app` can |
 |---|---|
-| `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, `ticket_inventory`, `operation_logs` (append-only) | read and insert |
+| `inventory_transactions`, `ticket_assignment_history`, `ticket_comments`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `operation_logs` (append-only) | read and insert |
 | `order_items` (frozen after the order is created) | read and insert |
 | `users`, `roles`, `products`, `inventory`, `orders`, `tickets`, `email_verification_codes` | read, insert, and update |
 | `user_roles` | read and insert |

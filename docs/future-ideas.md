@@ -28,3 +28,10 @@ This file keeps rough ideas for features that can be added after OpsFlow is comp
 - **Why it might help:** the first version has no notification system, because the flow is simple and each person is expected to know the next step. A to-do list would be the first reminder mechanism, and it would work well together with the approval module above.
 - **Roles:** all roles that work in the system. The content differs by role.
 - **Examples, not decided:** an `OPERATOR` sees the tickets they hold and the orders waiting for them. A `MANAGER` or an `ADMIN` sees the approvals waiting for them and the tickets waiting to be archived.
+
+### Tags for warehouse items and products
+
+- **What:** a tag system for warehouse items and products. A `MANAGER` or an `ADMIN` attaches short labels to an item, and a user can search and filter by them.
+- **Why it might help:** the first version finds an item only by its name. Tags would let people group and find items without a fixed category or a fixed unit, and they are lighter than a category tree.
+- **Roles:** `MANAGER` and `ADMIN` set tags. Every role that can see the product page can search by them.
+- **Where it came from:** requested by the owner while the products part was designed. Categories, units of measure, and low-stock alerts were set aside for the first version and are not recorded here, because the owner has not approved them as ideas.

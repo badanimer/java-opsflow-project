@@ -189,7 +189,7 @@ function Run-Parallel {
     if (-not $NoRetry) {
         for ($i = 0; $i -lt $Specs.Count; $i++) {
             $n = 0
-            while (((Result $results[$i]) -eq 'RETRYABLE') -and ($n -lt 2)) {
+            while (((Result $results[$i]) -like 'RETRYABLE*') -and ($n -lt 2)) {
                 $n++; $script:retries++
                 $results[$i] = Run-Sql $Specs[$i].User $Specs[$i].Pass $Specs[$i].Sql
             }
@@ -264,32 +264,37 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     # -----------------------------------------------------------------------------------------
     Section 'Structure'
     # -----------------------------------------------------------------------------------------
-    Check '14 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '14')
+    Check '16 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '16')
     Check 'ticket_comments has no updated_at (append-only)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='ticket_comments' AND column_name='updated_at';") -eq '0')
     Check 'order_items has no updated_at (frozen)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='order_items' AND column_name='updated_at';") -eq '0')
+    Check 'inventory has no locked_quantity column and orders has no status, reservation, or cancellation columns (an order is final)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND ((table_name='inventory' AND column_name='locked_quantity') OR (table_name='orders' AND column_name IN ('status','reserved_until','finished_at','status_reason','cancel_reason','cancelled_by','cancelled_at')));") -eq '0')
     Check 'inventory has no version column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='inventory' AND column_name='version';") -eq '0')
     $coll = Scalar "SELECT CONCAT('RESULT=', GROUP_CONCAT(CONCAT(table_name, '.', column_name, '=', collation_name) ORDER BY table_name, column_name)) FROM information_schema.columns WHERE table_schema='$DB' AND column_name IN ('order_no','ticket_no','idempotency_key');"
     Check 'order_no, ticket_no, idempotency_key use utf8mb4_0900_bin' ((($coll -split ',').Count -eq 3) -and (-not ($coll -match 'ai_ci'))) $coll
 
     $null = As-Admin "CALL seed(5);"
-    $r = As-Admin "INSERT INTO orders(order_no,user_id,reserved_until) VALUES ('ORD-aaa',1,NOW(3)),('ORD-AAA',1,NOW(3));"
+    $r = As-Admin "INSERT INTO orders(order_no,user_id) VALUES ('ORD-aaa',1),('ORD-AAA',1);"
     Check 'order_no is case-sensitive (ORD-aaa and ORD-AAA both accepted)' (Allowed $r)
-    $r = As-Admin "INSERT INTO orders(order_no,user_id,reserved_until) VALUES ('ORD-aaa',1,NOW(3));"
+    $r = As-Admin "INSERT INTO orders(order_no,user_id) VALUES ('ORD-aaa',1);"
     Check 'identical order_no is still rejected' (Dup $r)
-    $r = As-Admin "INSERT INTO orders(order_no,user_id,idempotency_key,reserved_until) VALUES ('ORD-k1',1,'Abc',NOW(3)),('ORD-k2',1,'abc',NOW(3));"
+    $r = As-Admin "INSERT INTO orders(order_no,user_id,idempotency_key) VALUES ('ORD-k1',1,'Abc'),('ORD-k2',1,'abc');"
     Check 'idempotency keys Abc and abc are different for one user' (Allowed $r)
-    $r = As-Admin "INSERT INTO orders(order_no,user_id,idempotency_key,reserved_until) VALUES ('ORD-k3',1,'abc',NOW(3));"
+    $r = As-Admin "INSERT INTO orders(order_no,user_id,idempotency_key) VALUES ('ORD-k3',1,'abc');"
     Check 'the same key for the same user is rejected' (Dup $r)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-a',1,'OTHER','MANUAL','t','d'),('TKT-A',1,'OTHER','MANUAL','t','d');"
-    Check 'ticket_no is case-sensitive (TKT-a and TKT-A both accepted)' (Allowed $r)
-    $null = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,content) SELECT id,1,'orig' FROM tickets WHERE ticket_no='TKT-a';"
-    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix' FROM tickets t JOIN ticket_comments c ON c.ticket_id=t.id WHERE t.ticket_no='TKT-a' AND c.content='orig';"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTAAAA1',1,'OTHER','MANUAL','t','d'),('TKTAAAA2',1,'OTHER','MANUAL','t','d');"
+    Check 'two different ticket numbers of 8 characters are accepted' (Allowed $r)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTSHORT',1,'OTHER','MANUAL','t','d'),('SHORT',1,'OTHER','MANUAL','t','d');"
+    Check 'a ticket number that is not 8 characters is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('tktlower',1,'OTHER','MANUAL','t','d');"
+    Check 'a ticket number with lower-case letters is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $null = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,content) SELECT id,1,'orig' FROM tickets WHERE ticket_no='TKTAAAA1';"
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix' FROM tickets t JOIN ticket_comments c ON c.ticket_id=t.id WHERE t.ticket_no='TKTAAAA1' AND c.content='orig';"
     Check 'a correction comment can point at a comment of the same ticket' (Allowed $r)
-    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix again' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKT-a' AND c.content='orig';"
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix again' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKTAAAA1' AND c.content='orig';"
     Check 'a comment can be corrected more than once' (Allowed $r)
-    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'wrong ticket' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKT-A';"
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'wrong ticket' FROM tickets t JOIN ticket_comments c ON c.content='orig' WHERE t.ticket_no='TKTAAAA2';"
     Check 'a correction pointing at another ticket comment is rejected by the database' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
-    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT id,1,999999,'missing' FROM tickets WHERE ticket_no='TKT-a';"
+    $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT id,1,999999,'missing' FROM tickets WHERE ticket_no='TKTAAAA1';"
     Check 'a correction pointing at a missing comment is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
     $r = As-Admin "DELETE FROM ticket_comments WHERE content='orig';"
     Check 'a corrected comment cannot be deleted while a correction points at it' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
@@ -300,62 +305,128 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'users.is_system defaults to FALSE' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='is_system';") -eq '0')
     Check 'tickets has no priority column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='tickets' AND column_name='priority';") -eq '0')
     Check 'tickets has the indexes for the open count, the order lookup, the archive job, and the system-first lists' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND table_name='tickets' AND index_name IN ('idx_tickets_created_status','idx_tickets_order_status','idx_tickets_status_resolved','idx_tickets_status_source_created','idx_tickets_status_source_closed','idx_tickets_status_source_cancelled');") -eq '6')
-    Check 'orders and operation_logs have their list indexes' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND index_name IN ('idx_orders_status_created','idx_operation_logs_created');") -eq '2')
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-src',1,'OTHER','MAYBE','t','d');"
+    Check 'orders and operation_logs have their list indexes' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND index_name IN ('idx_orders_created','idx_operation_logs_created');") -eq '2')
+    Check 'the warehouse and product indexes for the catalog and the product page exist, and the unused date index is gone' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND index_name IN ('uk_inventory_name_active','idx_products_status_name','idx_inventory_name','idx_inventory_created');") -eq '2')
+    $null = As-Admin "INSERT INTO inventory(id,sku,name,created_by) VALUES (20,'TESTSK20','Item 20',1),(21,'TESTSK21','Item 21',1);"
+    $r = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('TESTSK20','same sku again',1);"
+    Check 'two warehouse items cannot share a SKU' (Dup $r)
+    $r = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('TESTSK22','no creator',999999);"
+    Check 'a warehouse item needs a real user as its creator' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('SHORT','short sku',1);"
+    Check 'a SKU that is not 8 characters is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('lowercas','lower case sku',1);"
+    Check 'a SKU with lower-case letters is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('TESTSK23','item 20',1);"
+    Check 'two warehouse items cannot share a name, whatever the case' (Dup $r)
+    $r = As-Admin "UPDATE inventory SET deleted_at=NOW(3), deleted_by=1, available_quantity=0 WHERE id=20;"
+    $r2 = As-Admin "INSERT INTO inventory(sku,name,created_by) VALUES ('TESTSK24','Item 20',1);"
+    Check 'the name of a deleted item can be used again' ((Allowed $r) -and (Allowed $r2)) ((Short-Err $r.Err) + ' ' + (Short-Err $r2.Err))
+    $r = As-Admin "UPDATE inventory SET deleted_at=NOW(3) WHERE id=21;"
+    Check 'a deleted item must carry both the time and the user' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $null = As-Admin "UPDATE inventory SET available_quantity=3 WHERE id=21;"
+    $r = As-Admin "UPDATE inventory SET deleted_at=NOW(3), deleted_by=1 WHERE id=21;"
+    Check 'an item that still shows stock can be marked deleted, because the stock no longer matters' (Allowed $r) (Short-Err $r.Err)
+    $null = As-Admin "UPDATE inventory SET deleted_at=NULL, deleted_by=NULL, available_quantity=0 WHERE id=21;"
+    $r = As-Admin "INSERT INTO inventory_item_events(inventory_id,action,sku,name,quantity,operator_id) VALUES (21,'CREATED','TESTSK21','Item 21',0,1),(21,'DELETED','TESTSK21','Item 21',3,1);"
+    Check 'an item event records the item, the SKU, the name, the quantity, and the user' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM inventory_item_events WHERE inventory_id=21;") -eq '2')) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO inventory_item_events(inventory_id,action,sku,name,quantity,operator_id) VALUES (21,'MOVED','TESTSK21','Item 21',0,1);"
+    Check 'an item event with an unknown action is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO inventory_item_events(inventory_id,action,sku,name,quantity,operator_id) VALUES (21,'CREATED','TESTSK21','Item 21',-1,1);"
+    Check 'an item event with a negative quantity is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "DELETE FROM inventory WHERE id=21;"
+    Check 'a warehouse item with events cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (20,'Item 20',4.50,'LISTED',NOW(3),1);"
+    Check 'an item can be listed as a product' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (20,'Item 20 again',4.50,'LISTED',NOW(3),1);"
+    Check 'an item has at most one product' (Dup $r)
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (999999,'x',1.00,'LISTED',NOW(3),1);"
+    Check 'a product needs an existing warehouse item' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (21,'x',-1.00,'LISTED',NOW(3),1);"
+    Check 'a negative price is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (21,'x',1.00,'ACTIVE',NOW(3),1);"
+    Check 'a product status other than LISTED or UNLISTED is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by,delisted_at,delisted_by) VALUES (21,'x',1.00,'LISTED',NOW(3),1,NOW(3),1);"
+    Check 'a LISTED product cannot carry delisting fields' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (21,'x',1.00,'UNLISTED',NOW(3),1);"
+    Check 'an UNLISTED product must carry its delisting fields' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "UPDATE products SET status='UNLISTED', delisted_at=NOW(3), delisted_by=1 WHERE inventory_id=20;"
+    Check 'a product can be delisted with a time and a user' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO product_listing_events(product_id,inventory_id,action,name,price,operator_id) SELECT id,inventory_id,'DELISTED',name,price,1 FROM products WHERE inventory_id=20;"
+    Check 'a listing event records the product, the item, the name, the price, and the user' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM product_listing_events WHERE action='DELISTED' AND inventory_id=20 AND price=4.50;") -eq '1')) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO product_listing_events(product_id,inventory_id,action,name,price,operator_id) SELECT id,inventory_id,'HIDDEN',name,price,1 FROM products WHERE inventory_id=20;"
+    Check 'a listing event with an unknown action is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "DELETE FROM products WHERE inventory_id=20;"
+    Check 'a product with listing events cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTSRC01',1,'OTHER','MAYBE','t','d');"
     Check 'a ticket source other than SYSTEM or MANUAL is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-sys',1,'OTHER','SYSTEM','t','d');"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTSYS01',1,'OTHER','SYSTEM','t','d');"
     Check 'a ticket with source SYSTEM is accepted' (Allowed $r) (Short-Err $r.Err)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-nosrc',1,'OTHER',NULL,'t','d');"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTNOSRC',1,'OTHER',NULL,'t','d');"
     Check 'a ticket without a source is rejected' ($r.Code -ne 0)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-oe1',1,'ORDER_EXCEPTION','MANUAL','t','d');"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTOE001',1,'ORDER_EXCEPTION','MANUAL','t','d');"
     Check 'an ORDER_EXCEPTION ticket without an order is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-    $null = As-Admin "INSERT INTO orders(id,order_no,user_id,status,reserved_until) VALUES (200,'ORD-oe',1,'CREATED',NOW(3));"
-    $r = As-Admin "INSERT INTO tickets(ticket_no,order_id,created_by,type,source,title,description) VALUES ('TKT-oe2',200,1,'ORDER_EXCEPTION','SYSTEM','t','d');"
+    $null = As-Admin "INSERT INTO orders(id,order_no,user_id) VALUES (200,'ORD-oe',1);"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,order_id,created_by,type,source,title,description) VALUES ('TKTOE002',200,1,'ORDER_EXCEPTION','SYSTEM','t','d');"
     Check 'an ORDER_EXCEPTION ticket that names its order is accepted' (Allowed $r) (Short-Err $r.Err)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-oe3',1,'INVENTORY_EXCEPTION','MANUAL','t','d');"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTOE003',1,'INVENTORY_EXCEPTION','MANUAL','t','d');"
     Check 'only an ORDER_EXCEPTION ticket needs an order' (Allowed $r) (Short-Err $r.Err)
     $r = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('x@example.com','OTHER','h',NOW(3));"
     Check 'email_verification_codes rejects an unknown purpose' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-batch',1,'INVENTORY_EXCEPTION','MANUAL','batch','several products');"
-    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,i.id FROM tickets t, inventory i WHERE t.ticket_no='TKT-batch' AND i.id IN (1,2,3);"
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTBATCH',1,'INVENTORY_EXCEPTION','MANUAL','batch','several products');"
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,i.id FROM tickets t, inventory i WHERE t.ticket_no='TKTBATCH' AND i.id IN (1,2,3);"
     Check 'one ticket can cover several inventory records' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM ticket_inventory;") -eq '3')) (Short-Err $r.Err)
-    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,1 FROM tickets t WHERE t.ticket_no='TKT-batch';"
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,1 FROM tickets t WHERE t.ticket_no='TKTBATCH';"
     Check 'the same inventory record cannot be linked to a ticket twice' (Dup $r)
-    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,999999 FROM tickets t WHERE t.ticket_no='TKT-batch';"
+    $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,999999 FROM tickets t WHERE t.ticket_no='TKTBATCH';"
     Check 'a link to a missing inventory record is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
-    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-batch';"
+    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKTBATCH';"
     Check 'a ticket with linked inventory records cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
-    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-first',1,'OTHER','MANUAL','first','first problem');"
-    $r = As-Admin "UPDATE tickets SET status='CANCELLED', cancel_reason='opened by mistake', cancelled_by=1, cancelled_at=NOW(3) WHERE ticket_no='TKT-first';"
-    Check 'a ticket can be CANCELLED with a reason, a canceller, and a time' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', status, '|', cancel_reason) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CANCELLED|opened by mistake')) (Short-Err $r.Err)
-    $r = As-Admin "UPDATE tickets SET status='REOPENED' WHERE ticket_no='TKT-first';"
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTFIRST',1,'OTHER','MANUAL','first','first problem');"
+    $r = As-Admin "UPDATE tickets SET status='CANCELLED', cancel_reason='opened by mistake', cancelled_by=1, cancelled_at=NOW(3) WHERE ticket_no='TKTFIRST';"
+    Check 'a ticket can be CANCELLED with a reason, a canceller, and a time' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', status, '|', cancel_reason) FROM tickets WHERE ticket_no='TKTFIRST';") -eq 'CANCELLED|opened by mistake')) (Short-Err $r.Err)
+    $r = As-Admin "UPDATE tickets SET status='REOPENED' WHERE ticket_no='TKTFIRST';"
     Check 'there is no REOPENED status' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-    $null = As-Admin "UPDATE tickets SET status='CLOSED', closed_by=1, closed_at=NOW(3) WHERE ticket_no='TKT-first';"
-    Check 'a ticket can be CLOSED with a closer and a time' ((Scalar "SELECT CONCAT('RESULT=', status, '|', closed_by) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CLOSED|1')
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) SELECT 'TKT-second',1,'OTHER','MANUAL','second','continues the first',id FROM tickets WHERE ticket_no='TKT-first';"
-    Check 'a ticket can follow an earlier ticket' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM tickets f JOIN tickets p ON p.id=f.follows_ticket_id WHERE f.ticket_no='TKT-second' AND p.ticket_no='TKT-first';") -eq '1')) (Short-Err $r.Err)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) VALUES ('TKT-third',1,'OTHER','MANUAL','third','missing',999999);"
+    $null = As-Admin "UPDATE tickets SET status='CLOSED', closed_by=1, closed_at=NOW(3) WHERE ticket_no='TKTFIRST';"
+    Check 'a ticket can be CLOSED with a closer and a time' ((Scalar "SELECT CONCAT('RESULT=', status, '|', closed_by) FROM tickets WHERE ticket_no='TKTFIRST';") -eq 'CLOSED|1')
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) SELECT 'TKTSECND',1,'OTHER','MANUAL','second','continues the first',id FROM tickets WHERE ticket_no='TKTFIRST';"
+    Check 'a ticket can follow an earlier ticket' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM tickets f JOIN tickets p ON p.id=f.follows_ticket_id WHERE f.ticket_no='TKTSECND' AND p.ticket_no='TKTFIRST';") -eq '1')) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) VALUES ('TKTTHIRD',1,'OTHER','MANUAL','third','missing',999999);"
     Check 'following a ticket that does not exist is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
-    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-first';"
+    $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKTFIRST';"
     Check 'a ticket that has a follow-up cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
-    $r = As-Admin "UPDATE tickets SET closed_by=999999 WHERE ticket_no='TKT-second';"
+    $r = As-Admin "UPDATE tickets SET closed_by=999999 WHERE ticket_no='TKTSECND';"
     Check 'closed_by must be an existing user' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
-    $r = As-Admin "UPDATE tickets SET cancelled_by=999999 WHERE ticket_no='TKT-second';"
+    $r = As-Admin "UPDATE tickets SET cancelled_by=999999 WHERE ticket_no='TKTSECND';"
     Check 'cancelled_by must be an existing user' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
-    $itx = "INSERT INTO inventory_transactions(inventory_id,operator_id,type,quantity,available_before,available_after,locked_before,locked_after,reason) "
-    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,8,0,0,'damaged in storage');")
+    $itx = "INSERT INTO inventory_transactions(inventory_id,operator_id,type,quantity,available_before,available_after,reason) "
+    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,8,'damaged in storage');")
     Check 'a WRITE_OFF with a reason and an operator is accepted' (Allowed $r) (Short-Err $r.Err)
-    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,12,0,0,'wrong direction');")
+    $r = As-Admin ($itx + "VALUES (1,1,'WRITE_OFF',2,10,12,'wrong direction');")
     Check 'a WRITE_OFF that raises stock is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
     foreach ($ty in 'RESTOCK','WRITE_OFF','ADJUST_IN','ADJUST_OUT') {
         $after = if ($ty -in 'RESTOCK','ADJUST_IN') { 12 } else { 8 }
-        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,0,0,NULL);")
+        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,NULL);")
         Check "$ty without a reason is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,0,0,'   ');")
+        $r = As-Admin ($itx + "VALUES (1,1,'$ty',2,10,$after,'   ');")
         Check "$ty with a blank reason is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-        $r = As-Admin ($itx + "VALUES (1,NULL,'$ty',2,10,$after,0,0,'no operator');")
-        Check "$ty without an operator is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+        $r = As-Admin ($itx + "VALUES (1,NULL,'$ty',2,10,$after,'no operator');")
+        Check "$ty without an operator is rejected" (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1048'))
     }
+
+    # Orders are final, and a sale is the only order transaction.
+    $null = As-Admin "INSERT INTO orders(id,order_no,user_id) VALUES (201,'ORD-st2',1),(202,'ORD-st3',1),(203,'ORD-st4',1);"
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id,reason) ') + "VALUES (1,1,'RETURN',2,10,12,202,'give back');")
+    Check 'RETURN is not a transaction type (an order is never cancelled)' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id) ') + "VALUES (1,1,'SALE',2,10,8,NULL);")
+    Check 'a SALE without an order is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id) ') + "VALUES (1,1,'SALE',2,10,12,202);")
+    Check 'a SALE that raises stock is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id) ') + "VALUES (1,1,'SALE',2,10,8,202);")
+    Check 'a SALE with its order and no reason is accepted' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id) ') + "VALUES (1,1,'SALE',2,8,6,202);")
+    Check 'the same order cannot be sold twice from one item' (Dup $r)
+    $r = As-Admin ($itx.Replace(',reason) ', ',order_id,reason) ') + "VALUES (1,1,'RESTOCK',2,10,12,203,'with an order');")
+    Check 'a manual stock type cannot name an order' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
 
     # -----------------------------------------------------------------------------------------
     Section 'Per-table privileges (db/admin/restrict-app-privileges.sql)'
@@ -370,19 +441,20 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'privilege script runs' (Allowed $r) (Short-Err $r.Err)
 
     $null = As-Admin ("CALL seed(5); INSERT INTO roles(id,code,name) VALUES (1,'R','Role'); INSERT INTO user_roles(user_id,role_id) VALUES (1,1); " +
-        "INSERT INTO orders(id,order_no,user_id,status,reserved_until) VALUES (100,'ORD-p',1,'CREATED',NOW(3)); " +
+        "INSERT INTO orders(id,order_no,user_id) VALUES (100,'ORD-p',1); " +
         "INSERT INTO order_items(order_id,product_id,product_sku,product_name,unit_price,quantity,subtotal) VALUES (100,1,'P1','Widget',10.00,1,10.00); " +
-        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after,reason,operator_id) VALUES (1,'RESTOCK',1,5,6,0,0,'initial',1); " +
-        "INSERT INTO tickets(id,ticket_no,created_by,type,source,title,description) VALUES (100,'TKT-p',1,'OTHER','MANUAL','t','d'); " +
+        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,reason,operator_id) VALUES (1,'RESTOCK',1,5,6,'initial',1); " +
+        "INSERT INTO tickets(id,ticket_no,created_by,type,source,title,description) VALUES (100,'TKTPRIV1',1,'OTHER','MANUAL','t','d'); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,NULL,2,1); " +
         "INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'c'); " +
-        "INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,1); " +        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
+        "INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,1); " +
+        "INSERT INTO product_listing_events(product_id,inventory_id,action,name,price,operator_id) VALUES (1,3,'LISTED','Widget',10.00,1); " +        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
         "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('a@example.com','REGISTER','h',NOW(3));")
 
-    Check 'app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes)' (Allowed (As-App "UPDATE email_verification_codes SET attempts=attempts+1 WHERE email='a@example.com'; UPDATE users SET failed_login_count=1, last_failed_login_at=NOW(3), locked_until=NOW(3), password_changed_at=NOW(3) WHERE id=1; UPDATE users SET status='ACTIVE' WHERE id=1; UPDATE roles SET name='R2' WHERE id=1; UPDATE products SET name='W2' WHERE id=1; UPDATE inventory SET sold_quantity=sold_quantity WHERE id=1; UPDATE orders SET remark='x' WHERE id=100; UPDATE tickets SET status='IN_PROGRESS' WHERE id=100;"))
-    Check 'app: insert into every table it writes' (Allowed (As-App ("INSERT INTO users(username,password_hash,email) VALUES ('n1','x','n1@example.com'); INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'second'); INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,2); " +
+    Check 'app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes), including the soft delete of an item' (Allowed (As-App "UPDATE inventory SET available_quantity=0, deleted_at=NOW(3), deleted_by=1 WHERE id=2; UPDATE inventory SET deleted_at=NULL, deleted_by=NULL WHERE id=2; UPDATE email_verification_codes SET attempts=attempts+1 WHERE email='a@example.com'; UPDATE users SET failed_login_count=1, last_failed_login_at=NOW(3), locked_until=NOW(3), password_changed_at=NOW(3) WHERE id=1; UPDATE users SET status='ACTIVE' WHERE id=1; UPDATE roles SET name='R2' WHERE id=1; UPDATE products SET name='W2' WHERE id=1; UPDATE inventory SET sold_quantity=sold_quantity WHERE id=1; UPDATE orders SET remark='x' WHERE id=100; UPDATE tickets SET status='IN_PROGRESS' WHERE id=100;"))
+    Check 'app: insert into every table it writes' (Allowed (As-App ("INSERT INTO users(username,password_hash,email) VALUES ('n1','x','n1@example.com'); INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'second'); INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,2); INSERT INTO inventory(id,sku,name,created_by) VALUES (30,'NEWSKU30','New item',1); INSERT INTO products(inventory_id,name,price,status,listed_at,listed_by) VALUES (30,'New item',1.00,'LISTED',NOW(3),1); INSERT INTO product_listing_events(product_id,inventory_id,action,name,price,operator_id) VALUES (1,3,'DELISTED','Widget',10.00,1); INSERT INTO inventory_item_events(inventory_id,action,sku,name,quantity,operator_id) VALUES (30,'CREATED','NEWSKU30','New item',0,1); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,2,3,1); INSERT INTO operation_logs(action,target_type,target_id) VALUES ('B','ORDER',100); " +
-        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after,reason,operator_id) VALUES (1,'RESTOCK',1,6,7,0,0,'delivery',1); INSERT INTO user_roles(user_id,role_id) VALUES (2,1); INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('b@example.com','RESET_PASSWORD','h',NOW(3));")))
+        "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,reason,operator_id) VALUES (1,'RESTOCK',1,6,7,'delivery',1); INSERT INTO user_roles(user_id,role_id) VALUES (2,1); INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('b@example.com','RESET_PASSWORD','h',NOW(3));")))
     Check 'app: SELECT ... FOR UPDATE on inventory' (Allowed (As-App "START TRANSACTION; SELECT id FROM inventory WHERE id=1 FOR UPDATE; COMMIT;"))
     $refusals = @(
         @('UPDATE inventory_transactions', "UPDATE inventory_transactions SET reason='x';"),
@@ -392,7 +464,11 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('UPDATE ticket_comments', "UPDATE ticket_comments SET content='edited';"),
         @('DELETE ticket_comments', "DELETE FROM ticket_comments;"),
         @('UPDATE ticket_inventory', "UPDATE ticket_inventory SET inventory_id=2;"),
-        @('DELETE ticket_inventory', "DELETE FROM ticket_inventory;"),        @('UPDATE operation_logs', "UPDATE operation_logs SET remark='x';"),
+        @('DELETE ticket_inventory', "DELETE FROM ticket_inventory;"),
+        @('UPDATE product_listing_events', "UPDATE product_listing_events SET name='x';"),
+        @('DELETE product_listing_events', "DELETE FROM product_listing_events;"),
+        @('UPDATE inventory_item_events', "UPDATE inventory_item_events SET name='x';"),
+        @('DELETE inventory_item_events', "DELETE FROM inventory_item_events;"),        @('UPDATE operation_logs', "UPDATE operation_logs SET remark='x';"),
         @('DELETE operation_logs', "DELETE FROM operation_logs;"),
         @('UPDATE order_items (frozen)', "UPDATE order_items SET quantity=9;"),
         @('DELETE order_items', "DELETE FROM order_items;"),
@@ -422,73 +498,50 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $item4q = '[{"product_id":1,"qty":4}]'
     $pairItems = '[{"product_id":1,"qty":1},{"product_id":2,"qty":1}]'
 
-    # S1. Confirm and cancel at the same time.
-    $bad = 0; $confirmWon = 0; $cancelWon = 0
-    for ($r = 1; $r -le $Rounds; $r++) {
-        $o = Result (As-Admin "CALL seed(10); CALL create_order(1,'ORD-s1-$r',NULL,'$items2',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")
-        if ($o -notmatch '^CREATED,(\d+)$') { $bad++; continue }
-        $id = $Matches[1]
-        $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL confirm_order($id,NULL,@r); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL cancel_order($id,'CANCELLED','USER_CANCEL',NULL,@r); SELECT CONCAT('RESULT=',@r);" })
-        $a = Result $res[0]; $b = Result $res[1]
-        $st = Scalar ("SELECT CONCAT('RESULT=', o.status, '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='CONFIRM'), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', " +
-            "i1.available_quantity, ',', i1.locked_quantity, ',', i1.sold_quantity, '|', i2.available_quantity, ',', i2.locked_quantity, ',', i2.sold_quantity) " +
-            "FROM orders o, inventory i1, inventory i2 WHERE o.id=$id AND i1.id=3 AND i2.id=2;")
-        $expect = ''
-        if ($st -like 'COMPLETED|*') { $expect = 'COMPLETED|2|0|7,0,3|8,0,2'; $confirmWon++ }
-        elseif ($st -like 'CANCELLED|*') { $expect = 'CANCELLED|0|2|10,0,0|10,0,0'; $cancelWon++ }
-        $loserOk = ($a -like 'ALREADY_*') -or ($b -like 'ALREADY_*')
-        $winnerOk = ($a -eq 'COMPLETED') -or ($b -eq 'CANCELLED')
-        $bothWon = ($a -eq 'COMPLETED') -and ($b -eq 'CANCELLED')
-        if (($st -ne $expect) -or (-not $loserOk) -or (-not $winnerOk) -or $bothWon) { $bad++ }
-    }
-    Check 'confirm racing cancel: exactly one wins, stock and transactions always consistent' ($bad -eq 0) "$Rounds rounds, confirm won $confirmWon, cancel won $cancelWon, bad $bad"
-
     # S2. Repeated submission.
     $bad = 0
     for ($r = 1; $r -le $Rounds; $r++) {
         $null = As-Admin "CALL seed(10);"
         $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-$r-a','K1','$item2q',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-$r-b','K1','$item2q',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" })
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-$r-a','K1','$item2q',@r,@o); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-$r-b','K1','$item2q',@r,@o); SELECT CONCAT('RESULT=',@r);" })
         $a = Result $res[0]; $b = Result $res[1]
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders WHERE idempotency_key='K1'), '|', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RESERVE'));"
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders WHERE idempotency_key='K1'), '|', (SELECT CONCAT(available_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='SALE'));"
         $pair = @($a, $b) | Sort-Object
-        if (($st -ne '1|8,2|1') -or (($pair -join ',') -ne 'CREATED,DUPLICATE')) { $bad++ }
+        if (($st -ne '1|8,2|1') -or (($pair -join ',') -ne 'COMPLETED,DUPLICATE')) { $bad++ }
     }
-    Check 'repeated submission: one order, stock reserved once' ($bad -eq 0) "$Rounds rounds, bad $bad"
+    Check 'repeated submission: one order, stock deducted once' ($bad -eq 0) "$Rounds rounds, bad $bad"
     $null = As-Admin "CALL seed(10);"
     $res = Run-Parallel @(
-        @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-x1','K2','$item1',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" },
-        @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(2,'ORD-s2-x2','K2','$item1',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" })
-    Check 'the same key from two different users creates two orders' (((Result $res[0]) -eq 'CREATED') -and ((Result $res[1]) -eq 'CREATED'))
+        @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s2-x1','K2','$item1',@r,@o); SELECT CONCAT('RESULT=',@r);" },
+        @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(2,'ORD-s2-x2','K2','$item1',@r,@o); SELECT CONCAT('RESULT=',@r);" })
+    Check 'the same key from two different users creates two orders' (((Result $res[0]) -eq 'COMPLETED') -and ((Result $res[1]) -eq 'COMPLETED'))
 
     # S3. Multi-item order with one item short.
     $itemsShort = '[{"product_id":1,"qty":2},{"product_id":2,"qty":3},{"product_id":3,"qty":1}]'
-    $null = As-Admin "CALL seed(10); UPDATE inventory SET available_quantity=1 WHERE product_id=2;"
-    $res = Result (As-App "CALL create_order(1,'ORD-s3',NULL,'$itemsShort',1800,@r,@o); SELECT CONCAT('RESULT=',@r);")
-    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT COUNT(*) FROM order_items), '|', (SELECT COUNT(*) FROM inventory_transactions), '|', (SELECT GROUP_CONCAT(available_quantity ORDER BY id) FROM inventory), '|', (SELECT SUM(locked_quantity) FROM inventory));"
+    $null = As-Admin "CALL seed(10); UPDATE inventory SET available_quantity=1 WHERE id=2;"
+    $res = Result (As-App "CALL create_order(1,'ORD-s3',NULL,'$itemsShort',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT COUNT(*) FROM order_items), '|', (SELECT COUNT(*) FROM inventory_transactions), '|', (SELECT GROUP_CONCAT(available_quantity ORDER BY id) FROM inventory), '|', (SELECT SUM(sold_quantity) FROM inventory));"
     Check 'one item short: whole order rolled back, no order, no stock change, no transaction' (($res -eq 'OUT_OF_STOCK') -and ($st -eq '0|0|0|10,1,10|0')) "$res / $st"
 
     $bad = 0
     for ($r = 1; $r -le $Rounds; $r++) {
-        $null = As-Admin "CALL seed(10); UPDATE inventory SET available_quantity=1 WHERE product_id=2;"
+        $null = As-Admin "CALL seed(10); UPDATE inventory SET available_quantity=1 WHERE id=2;"
         $specs = @()
         for ($i = 1; $i -le 5; $i++) {
             $u = (($i - 1) % 3) + 1
-            $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL create_order($u,'ORD-s3-$r-$i',NULL,'$pairItems',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" }
+            $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL create_order($u,'ORD-s3-$r-$i',NULL,'$pairItems',@r,@o); SELECT CONCAT('RESULT=',@r);" }
         }
         $res = Run-Parallel $specs
-        $created = @($res | Where-Object { (Result $_) -eq 'CREATED' }).Count
+        $created = @($res | Where-Object { (Result $_) -eq 'COMPLETED' }).Count
         $oos = @($res | Where-Object { (Result $_) -eq 'OUT_OF_STOCK' }).Count
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=2), '|', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions));"
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT CONCAT(available_quantity,',',sold_quantity) FROM inventory WHERE id=2), '|', (SELECT CONCAT(available_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions));"
         if (($created -ne 1) -or ($oos -ne 4) -or ($st -ne '1|0,1|9,1|2')) { $bad++ }
     }
     Check 'five buyers race for the last unit: one wins, four see out of stock, nothing half-done' ($bad -eq 0) "$Rounds rounds, bad $bad"
 
-    # S4. Many reservations on one stock row: no oversell, and an unbroken snapshot chain.
-    $chainSql = "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM (SELECT available_before ab, locked_before lb, LAG(available_after) OVER (ORDER BY id) pa, LAG(locked_after) OVER (ORDER BY id) pl FROM inventory_transactions WHERE inventory_id=3) t WHERE pa IS NOT NULL AND (ab <> pa OR lb <> pl)));"
+    # S4. Many sales on one stock row: no oversell, and an unbroken snapshot chain.
+    $chainSql = "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM (SELECT available_before ab, LAG(available_after) OVER (ORDER BY id) pa FROM inventory_transactions WHERE inventory_id=3) t WHERE pa IS NOT NULL AND ab <> pa));"
     $bad = 0
     $rounds4 = [Math]::Max(3, [int]($Rounds / 2))
     for ($r = 1; $r -le $rounds4; $r++) {
@@ -496,11 +549,11 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         $specs = @()
         for ($i = 1; $i -le 10; $i++) {
             $u = (($i - 1) % 3) + 1
-            $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL create_order($u,'ORD-s4-$r-$i',NULL,'$item3q',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" }
+            $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL create_order($u,'ORD-s4-$r-$i',NULL,'$item3q',@r,@o); SELECT CONCAT('RESULT=',@r);" }
         }
         $res = Run-Parallel $specs
-        $created = @($res | Where-Object { (Result $_) -eq 'CREATED' }).Count
-        $st = Scalar "SELECT CONCAT('RESULT=', available_quantity, ',', locked_quantity, '|', (SELECT COUNT(*) FROM inventory_transactions WHERE inventory_id=3 AND type='RESERVE'), '|', (SELECT available_before FROM inventory_transactions WHERE inventory_id=3 ORDER BY id LIMIT 1), '|', (SELECT available_after FROM inventory_transactions WHERE inventory_id=3 ORDER BY id DESC LIMIT 1)) FROM inventory WHERE id=3;"
+        $created = @($res | Where-Object { (Result $_) -eq 'COMPLETED' }).Count
+        $st = Scalar "SELECT CONCAT('RESULT=', available_quantity, ',', sold_quantity, '|', (SELECT COUNT(*) FROM inventory_transactions WHERE inventory_id=3 AND type='SALE'), '|', (SELECT available_before FROM inventory_transactions WHERE inventory_id=3 ORDER BY id LIMIT 1), '|', (SELECT available_after FROM inventory_transactions WHERE inventory_id=3 ORDER BY id DESC LIMIT 1)) FROM inventory WHERE id=3;"
         $broken = Scalar $chainSql
         if (($created -ne 6) -or ($st -ne '2,18|6|20|2') -or ($broken -ne '0')) { $bad++ }
     }
@@ -508,91 +561,190 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
 
     # Negative control: the same race with an unlocked read must break the chain.
     $null = As-Admin "CALL seed(20);"
-    $ids = Scalar "INSERT INTO orders(order_no,user_id,status,reserved_until) VALUES ('C1',1,'CREATED',NOW(3)),('C2',1,'CREATED',NOW(3)),('C3',1,'CREATED',NOW(3)),('C4',1,'CREATED',NOW(3)),('C5',1,'CREATED',NOW(3)),('C6',1,'CREATED',NOW(3)); SELECT CONCAT('RESULT=', GROUP_CONCAT(id)) FROM orders;"
+    $ids = Scalar "INSERT INTO orders(order_no,user_id) VALUES ('C1',1),('C2',1),('C3',1),('C4',1),('C5',1),('C6',1); SELECT CONCAT('RESULT=', GROUP_CONCAT(id)) FROM orders;"
     $specs = @()
-    foreach ($oid in ($ids -split ',')) { $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL reserve_unsafe($oid,3,3);" } }
+    foreach ($oid in ($ids -split ',')) { $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL sale_unsafe($oid,3,3);" } }
     $null = Run-Parallel $specs -NoRetry
     $broken = [int](Scalar $chainSql)
     Check 'negative control: reading stock without a lock DOES break the snapshot chain' ($broken -gt 0) "broken links: $broken"
 
-    # S5. Timeout and expired confirmation.
-    $bad = 0
     $rounds5 = [Math]::Max(3, [int]($Rounds / 3))
-    for ($r = 1; $r -le $rounds5; $r++) {
-        $null = As-Admin ("CALL seed(10); CALL create_order(1,'ORD-s5-$r-1',NULL,'$item1',-30,@r,@o); CALL create_order(1,'ORD-s5-$r-2',NULL,'$item1',-30,@r,@o); " +
-            "CALL create_order(2,'ORD-s5-$r-3',NULL,'$item1',-30,@r,@o); CALL create_order(2,'ORD-s5-$r-4',NULL,'$item1',1800,@r,@o);")
-        $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL timeout_job(100,@n); SELECT CONCAT('RESULT=',@n);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL timeout_job(100,@n); SELECT CONCAT('RESULT=',@n);" }) -NoRetry
-        $n = 0
-        foreach ($x in $res) { $v = Result $x; if ($v -match '^\d+$') { $n += [int]$v } else { $n = -999 } }
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders WHERE status='CANCELLED' AND status_reason='RESERVATION_TIMEOUT'), '|', (SELECT COUNT(*) FROM orders WHERE status='CREATED'), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3));"
-        if (($n -ne 3) -or ($st -ne '3|1|3|9,1')) { $bad++ }
-    }
-    Check 'two timeout jobs at once: each expired order cancelled and released exactly once, live order untouched' ($bad -eq 0) "$rounds5 rounds, bad $bad"
 
-    $null = As-Admin ("CALL seed(10); CALL create_order(1,'ORD-s5e',NULL,'$item2q',-5,@r,@o); CALL create_order(1,'ORD-s5l',NULL,'$item3q',1800,@r,@o);")
-    $ids = Scalar "SELECT CONCAT('RESULT=', (SELECT id FROM orders WHERE order_no='ORD-s5e'), ',', (SELECT id FROM orders WHERE order_no='ORD-s5l'));"
-    $eid, $lid = $ids -split ','
-    $c1 = Result (As-App "CALL confirm_order($eid,NULL,@r); SELECT CONCAT('RESULT=',@r);")
-    $c2 = Result (As-App "CALL confirm_order($eid,NULL,@r); SELECT CONCAT('RESULT=',@r);")
-    $c3 = Result (As-App "CALL confirm_order(999999,NULL,@r); SELECT CONCAT('RESULT=',@r);")
-    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'));"
-    Check 'confirming an expired order cancels it and releases the stock at once' (($c1 -eq 'EXPIRED_CANCELLED') -and ($c2 -eq 'ALREADY_CANCELLED') -and ($st -eq '7,3,0|1')) "$c1 / $c2 / $st"
-    Check 'confirming an unknown order reports not found' ($c3 -eq 'NOT_FOUND') $c3
-    $res = Run-Parallel @(
-        @{ User = $APP; Pass = $appPw; Sql = "CALL confirm_order($lid,NULL,@r); SELECT CONCAT('RESULT=',@r);" },
-        @{ User = $APP; Pass = $appPw; Sql = "CALL confirm_order($lid,NULL,@r); SELECT CONCAT('RESULT=',@r);" })
-    $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
-    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='CONFIRM'));"
-    Check 'two confirmations at once: one completes, the other sees it done, stock deducted once' ((($pair -join ',') -eq 'ALREADY_COMPLETED,COMPLETED') -and ($st -eq '7,0,3|1')) "$($pair -join ',') / $st"
-    $c4 = Result (As-App "CALL cancel_order($lid,'CANCELLED','late',NULL,@r); SELECT CONCAT('RESULT=',@r);")
-    Check 'cancelling a completed order is refused' ($c4 -eq 'ALREADY_COMPLETED') $c4
+    # S5c. Listing, delisting, and ordering under a product. Written for v1.7 and not run yet.
+    $itemChanged = '[{"product_id":1,"qty":1,"price":9.99}]'
+    $itemSame = '[{"product_id":1,"qty":1,"price":10.00,"name":"Widget"}]'
+    $itemZero = '[{"product_id":1,"qty":0}]'
+    $itemHuge = '[{"product_id":1,"qty":10000}]'
+
+    $null = As-Admin "CALL seed(10); INSERT INTO tickets(ticket_no,created_by,type,source,title,description,status) VALUES ('TKTRES01',1,'OTHER','MANUAL','r','d','RESOLVED'),('TKTCLS01',1,'OTHER','MANUAL','c','d','CLOSED'),('TKTOPN01',1,'OTHER','MANUAL','o','d','OPEN'),('TKTCAN01',1,'OTHER','MANUAL','x','d','CANCELLED');"
+    $f1 = Result (As-App "CALL create_ticket('FOLLOW01',1,'[3]','TKTRES01',@r); SELECT CONCAT('RESULT=',@r);")
+    $f2 = Result (As-App "CALL create_ticket('FOLLOW02',1,'[]','TKTCLS01',@r); SELECT CONCAT('RESULT=',@r);")
+    $f3 = Result (As-App "CALL create_ticket('FOLLOW03',1,'[]','TKTOPN01',@r); SELECT CONCAT('RESULT=',@r);")
+    $f4 = Result (As-App "CALL create_ticket('FOLLOW04',1,'[]','TKTCAN01',@r); SELECT CONCAT('RESULT=',@r);")
+    $f5 = Result (As-App "CALL create_ticket('FOLLOW05',1,'[3]','NOSUCH01',@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT GROUP_CONCAT(CONCAT(f.ticket_no,'>',p.ticket_no) ORDER BY f.id) FROM tickets f JOIN tickets p ON p.id=f.follows_ticket_id), '|', (SELECT COUNT(*) FROM tickets WHERE ticket_no LIKE 'FOLLOW%'), '|', (SELECT COUNT(*) FROM ticket_inventory));"
+    Check 'a ticket can be opened as a follow-up by the number of a RESOLVED or CLOSED ticket; an unknown number or an unfinished or cancelled ticket is refused with nothing written' (($f1 -eq 'CREATED') -and ($f2 -eq 'CREATED') -and ($f3 -eq 'FOLLOW_NOT_ALLOWED') -and ($f4 -eq 'FOLLOW_NOT_ALLOWED') -and ($f5 -eq 'FOLLOW_NOT_FOUND') -and ($st -eq 'FOLLOW01>TKTRES01,FOLLOW02>TKTCLS01|2|1')) "$f1 / $f2 / $f3 / $f4 / $f5 / $st"
 
     $bad = 0
     for ($r = 1; $r -le $rounds5; $r++) {
-        $oid = (Result (As-Admin "CALL seed(10); CALL create_order(1,'ORD-s5c-$r',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+        $null = As-Admin "CALL seed(10); INSERT INTO inventory(id,sku,name,created_by) VALUES (10,'EXTRA001','Extra item',1);"
         $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL cancel_order($oid,'CANCELLED','a',NULL,@r); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL cancel_order($oid,'CANCELLED','b',NULL,@r); SELECT CONCAT('RESULT=',@r);" })
+            @{ User = $APP; Pass = $appPw; Sql = "CALL list_product(10,7.00,NULL,1,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL list_product(10,8.00,NULL,2,@r); SELECT CONCAT('RESULT=',@r);" })
         $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'));"
-        if ((($pair -join ',') -ne 'ALREADY_CANCELLED,CANCELLED') -or ($st -ne '10,0|1')) { $bad++ }
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM products WHERE inventory_id=10), '|', (SELECT COUNT(*) FROM product_listing_events WHERE inventory_id=10 AND action='LISTED'), '|', (SELECT status FROM products WHERE inventory_id=10));"
+        if ((($pair -join ',') -ne 'ALREADY_LISTED,LISTED') -or ($st -ne '1|1|LISTED')) { $bad++ }
     }
-    Check 'two cancellations at once: stock released once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+    Check 'two managers list the same item at once: one product, one listing event' ($bad -eq 0) "$rounds5 rounds, bad $bad"
 
-    # S5b. The exception path: a ticket is opened for an order that went wrong.
+    $null = As-Admin "CALL seed(10); INSERT INTO inventory(id,sku,name,created_by) VALUES (10,'EXTRA001','Extra item',1);"
+    $a = Result (As-App "CALL list_product(10,7.00,NULL,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $prodId = Scalar "SELECT CONCAT('RESULT=', id) FROM products WHERE inventory_id=10;"
+    $b = Result (As-App "CALL delist_product($prodId,1,3,@r,@n); SELECT CONCAT('RESULT=',@r);")
+    $c = Result (As-App "CALL list_product(10,9.50,'Renamed item',2,@r); SELECT CONCAT('RESULT=',@r);")
+    $d = Result (As-App "CALL list_product(10,9.50,NULL,2,@r); SELECT CONCAT('RESULT=',@r);")
+    $e = Result (As-App "CALL list_product(9999,1.00,NULL,2,@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM products WHERE inventory_id=10), '|', (SELECT id FROM products WHERE inventory_id=10), '|', (SELECT CONCAT(status,',',price,',',name) FROM products WHERE inventory_id=10), '|', (SELECT GROUP_CONCAT(action ORDER BY id) FROM product_listing_events WHERE inventory_id=10));"
+    Check 'listing again after a delisting keeps the product id, takes the new price and name, and records every step' (($a -eq 'LISTED') -and ($b -eq 'DELISTED') -and ($c -eq 'LISTED') -and ($d -eq 'ALREADY_LISTED') -and ($e -eq 'NOT_FOUND') -and ($st -eq "1|$prodId|LISTED,9.50,Renamed item|LISTED,DELISTED,LISTED")) "$a / $b / $c / $d / $e / $st"
+
+    $null = As-Admin "CALL seed(10);"
+    $o1 = Result (As-App "CALL create_order(1,'ORD-pc',NULL,'$itemChanged',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $o2 = Result (As-App "CALL create_order(1,'ORD-ps',NULL,'$itemSame',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $o3 = Result (As-App "CALL create_order(1,'ORD-q0',NULL,'$itemZero',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $o4 = Result (As-App "CALL create_order(1,'ORD-qh',NULL,'$itemHuge',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $null = As-App "CALL delist_product(1,1,3,@r,@n);"
+    $o5 = Result (As-App "CALL create_order(1,'ORD-dl',NULL,'$item1',@r,@o); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT CONCAT(available_quantity,',',sold_quantity) FROM inventory WHERE id=3));"
+    Check 'an order is refused when the price changed, the product is delisted, or the quantity is not valid, and it writes nothing' (($o1 -eq 'PRODUCT_CHANGED') -and ($o2 -eq 'COMPLETED') -and ($o3 -eq 'INVALID_QUANTITY') -and ($o4 -eq 'INVALID_QUANTITY') -and ($o5 -eq 'PRODUCT_DELISTED') -and ($st -eq '1|9,1')) "$o1 / $o2 / $o3 / $o4 / $o5 / $st"
+
     $bad = 0
     for ($r = 1; $r -le $rounds5; $r++) {
-        $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-ex-$r',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+        $null = As-Admin "CALL seed(20);"
+        $specs = @()
+        for ($i = 1; $i -le 5; $i++) {
+            $u = (($i - 1) % 3) + 1
+            $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL create_order($u,'ORD-pd-$r-$i',NULL,'$item1',@r,@o); SELECT CONCAT('RESULT=',@r);" }
+        }
+        $specs += @{ User = $APP; Pass = $appPw; Sql = "CALL delist_product(1,1,3,@r,@n); SELECT CONCAT('RESULT=',@r);" }
+        $res = Run-Parallel $specs
+        $made = @($res[0..4] | Where-Object { (Result $_) -eq 'COMPLETED' }).Count
+        $refused = @($res[0..4] | Where-Object { (Result $_) -eq 'PRODUCT_DELISTED' }).Count
+        $dl = Result $res[5]
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT sold_quantity FROM inventory WHERE id=3), '|', (SELECT status FROM products WHERE id=1), '|', (SELECT COUNT(*) FROM orders o JOIN products p ON p.id=1 WHERE o.created_at > p.delisted_at));"
+        if (($dl -ne 'DELISTED') -or (($made + $refused) -ne 5) -or ($st -ne "$made|$made|UNLISTED|0")) { $bad++ }
+    }
+    Check 'five orders racing a delisting: each is completed or refused, and none is created after the delisting' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    $ticketSql = "INSERT INTO tickets(id,ticket_no,created_by,type,source,title,description,status,assignee_id) VALUES (1,'TKTDEL01',1,'INVENTORY_EXCEPTION','MANUAL','open','d','OPEN',NULL),(2,'TKTDEL02',1,'INVENTORY_EXCEPTION','MANUAL','in progress','d','IN_PROGRESS',2),(3,'TKTDEL03',1,'INVENTORY_EXCEPTION','MANUAL','resolved','d','RESOLVED',2),(4,'TKTDEL04',1,'INVENTORY_EXCEPTION','MANUAL','other product','d','OPEN',NULL); INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (1,3),(2,3),(3,3),(4,2);"
+    $null = As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; $ticketSql"
+    $x = Result (As-App "CALL delist_product(1,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT GROUP_CONCAT(CONCAT(id,':',status) ORDER BY id) FROM tickets), '|', (SELECT COUNT(*) FROM tickets WHERE cancel_reason='PRODUCT_DELISTED:1' AND cancelled_by=3 AND cancelled_at IS NOT NULL));"
+    Check 'delisting cancels the open and in-progress tickets of the product and leaves the others alone' (($x -eq 'DELISTED|2') -and ($st -eq '1:CANCELLED,2:CANCELLED,3:RESOLVED,4:OPEN|2')) "$x / $st"
+
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $null = As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; $ticketSql"
         $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-ex-$r-a',3,1,@r); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-ex-$r-b',3,1,@r); SELECT CONCAT('RESULT=',@r);" })
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delist_product(1,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delist_product(1,2,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" })
         $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', (SELECT COUNT(*) FROM tickets WHERE order_id=$oid AND source='SYSTEM'), '|', (SELECT status FROM orders WHERE id=$oid), '|', (SELECT status_reason LIKE 'EXCEPTION_TICKET:TKT-ex-$r-%' FROM orders WHERE id=$oid));"
-        if ((($pair -join ',') -ne 'ALREADY_HANDLED,OPENED_RELEASED') -or ($st -ne '10,0|1|1|CANCELLED|1')) { $bad++ }
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM product_listing_events WHERE action='DELISTED'), '|', (SELECT COUNT(*) FROM tickets WHERE status='CANCELLED'));"
+        if ((($pair -join ',') -ne 'ALREADY_DELISTED|0,DELISTED|2') -or ($st -ne '1|2')) { $bad++ }
     }
-    Check 'two exception paths for one order at once: one ticket, one cancellation, stock released once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+    Check 'two delistings at once: one wins, one delisting event, each ticket cancelled once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
 
-    $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-ex-u',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
-    $x = Result (As-App "CALL open_exception_ticket($oid,'TKT-ex-u',3,0,@r); SELECT CONCAT('RESULT=',@r);")
-    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', (SELECT type FROM tickets WHERE order_id=$oid), '|', (SELECT status FROM orders WHERE id=$oid));"
-    Check 'when the records disagree the order is stopped, a ticket is opened, and the stock is left as found' (($x -eq 'OPENED_STOCK_UNTOUCHED') -and ($st -eq '6,4|0|INVENTORY_EXCEPTION|CANCELLED')) "$x / $st"
+    # S5d. Adding and deleting warehouse items, and opening a ticket on items. Written for v1.7 and not run yet.
+    $null = As-Admin "CALL seed(10);"
+    $c1 = Result (As-App "CALL create_item('NEWITEM1','Brand new item',25,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $c2 = Result (As-App "CALL create_item('NEWITEM2','Empty item',0,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $c3 = Result (As-App "CALL create_item('NEWITEM3','brand NEW item',5,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $c4 = Result (As-App "CALL create_item('NEWITEM1','Another name',5,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $c5 = Result (As-App "CALL create_item('NEWITEM5','Negative item',-1,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $c6 = Result (As-App "CALL create_item('NEWITEM6','Huge item',1000000,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM inventory WHERE sku LIKE 'NEWITEM%'), '|', (SELECT available_quantity FROM inventory WHERE sku='NEWITEM1'), '|', (SELECT COUNT(*) FROM inventory_transactions t JOIN inventory i ON i.id=t.inventory_id WHERE i.sku LIKE 'NEWITEM%' AND t.type='RESTOCK' AND t.reason='initial stock' AND t.available_before=0 AND t.available_after=25), '|', (SELECT GROUP_CONCAT(CONCAT(action,':',quantity) ORDER BY id) FROM inventory_item_events WHERE sku LIKE 'NEWITEM%'));"
+    Check 'adding an item: the starting stock is recorded as a restock, a repeated name or SKU and a bad quantity are refused, and each addition has an event' (($c1 -eq 'CREATED') -and ($c2 -eq 'CREATED') -and ($c3 -eq 'NAME_EXISTS') -and ($c4 -eq 'SKU_EXISTS') -and ($c5 -eq 'INVALID_QUANTITY') -and ($c6 -eq 'INVALID_QUANTITY') -and ($st -eq '2|25|1|CREATED:25,CREATED:0')) "$c1 / $c2 / $c3 / $c4 / $c5 / $c6 / $st"
 
     $bad = 0
     for ($r = 1; $r -le $rounds5; $r++) {
-        $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-exc-$r',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+        $null = As-Admin "CALL seed(10);"
         $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL confirm_order($oid,NULL,@r); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-exc-$r',3,1,@r); SELECT CONCAT('RESULT=',@r);" })
-        $cf = Result $res[0]; $ex = Result $res[1]
-        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM tickets WHERE order_id=$oid));"
-        $okA = ($cf -eq 'COMPLETED') -and ($ex -eq 'ALREADY_HANDLED') -and ($st -eq '6,0,4|0')
-        $okB = ($cf -eq 'ALREADY_CANCELLED') -and ($ex -eq 'OPENED_RELEASED') -and ($st -eq '10,0,0|1')
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_item('RACEAAA1','Same name',4,1,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_item('RACEBBB1','Same name',6,2,@r); SELECT CONCAT('RESULT=',@r);" })
+        $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM inventory WHERE name='Same name'), '|', (SELECT COUNT(*) FROM inventory_item_events WHERE name='Same name'), '|', (SELECT COUNT(*) FROM inventory_transactions t JOIN inventory i ON i.id=t.inventory_id WHERE i.name='Same name'));"
+        if ((($pair -join ',') -ne 'CREATED,NAME_EXISTS') -or ($st -ne '1|1|1')) { $bad++ }
+    }
+    Check 'two managers add an item with the same name at once: one item, one event, one starting restock' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    $null = As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; $ticketSql"
+    $d1 = Result (As-App "CALL delete_item(3,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);")
+    $d2 = Result (As-App "CALL delete_item(3,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);")
+    $d3 = Result (As-App "CALL delete_item(9999,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);")
+    $d4 = Result (As-App "CALL list_product(3,5.00,NULL,1,@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',IF(deleted_at IS NULL,'live','deleted')) FROM inventory WHERE id=3), '|', (SELECT status FROM products WHERE inventory_id=3), '|', (SELECT GROUP_CONCAT(CONCAT(id,':',status) ORDER BY id) FROM tickets), '|', (SELECT COUNT(*) FROM tickets WHERE cancel_reason='ITEM_DELETED:3'), '|', (SELECT GROUP_CONCAT(action ORDER BY id) FROM product_listing_events WHERE inventory_id=3), '|', (SELECT GROUP_CONCAT(CONCAT(action,':',quantity) ORDER BY id) FROM inventory_item_events WHERE inventory_id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE inventory_id=3));"
+    $reuse = Result (As-App "CALL create_item('REUSE001','Widget item',0,1,@r); SELECT CONCAT('RESULT=',@r);")
+    Check 'deleting an item delists its product, cancels the open tickets linked to it, leaves its stock alone, records the event, and frees its name' (($d1 -eq 'DELETED|2') -and ($d2 -eq 'ALREADY_DELETED|0') -and ($d3 -eq 'NOT_FOUND|0') -and ($d4 -eq 'NOT_FOUND') -and ($reuse -eq 'CREATED') -and ($st -eq '10,deleted|UNLISTED|1:CANCELLED,2:CANCELLED,3:RESOLVED,4:OPEN|2|DELISTED|DELETED:10|0')) "$d1 / $d2 / $d3 / $d4 / $reuse / $st"
+
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $null = As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; $ticketSql"
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delete_item(3,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delete_item(3,2,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" })
+        $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM inventory_item_events WHERE action='DELETED'), '|', (SELECT COUNT(*) FROM inventory_transactions), '|', (SELECT COUNT(*) FROM tickets WHERE status='CANCELLED'), '|', (SELECT COUNT(*) FROM product_listing_events WHERE action='DELISTED'));"
+        if ((($pair -join ',') -ne 'ALREADY_DELETED|0,DELETED|2') -or ($st -ne '1|0|2|1')) { $bad++ }
+    }
+    Check 'two deletions of the same item at once: one wins, one event, each ticket cancelled once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $null = As-Admin "CALL seed(10);"
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-dr-$r',NULL,'$item1',@r,@o); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delete_item(3,1,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" })
+        $pair = (Result $res[0]) + ',' + (Result $res[1])
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM orders), '|', (SELECT CONCAT(available_quantity,',',sold_quantity,',',IF(deleted_at IS NULL,'live','deleted')) FROM inventory WHERE id=3), '|', (SELECT status FROM products WHERE id=1));"
+        $okA = ($pair -eq 'COMPLETED,DELETED|0') -and ($st -eq '1|9,1,deleted|UNLISTED')
+        $okB = ($pair -eq 'PRODUCT_DELISTED,DELETED|0') -and ($st -eq '0|10,0,deleted|UNLISTED')
         if (-not ($okA -or $okB)) { $bad++ }
     }
-    Check 'a confirmation racing the exception path: exactly one wins, and a ticket exists only if the order was stopped' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+    Check 'an order racing the deletion of its item: either the order is completed and then the item is deleted, or the item is deleted and the order is refused' ($bad -eq 0) "$rounds5 rounds, bad $bad"
 
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $null = As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3;"
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_ticket('TKTR$('{0:0000}' -f $r)',1,'[3]',NULL,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delete_item(3,2,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" })
+        $pair = (Result $res[0]) + ',' + (Result $res[1])
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT COUNT(*) FROM tickets), '|', (SELECT COUNT(*) FROM ticket_inventory), '|', (SELECT COUNT(*) FROM tickets WHERE status='OPEN'), '|', (SELECT COUNT(*) FROM tickets WHERE cancel_reason='ITEM_DELETED:3'));"
+        $okA = ($pair -eq 'CREATED,DELETED|1') -and ($st -eq '1|1|0|1')
+        $okB = ($pair -eq 'ITEM_GONE,DELETED|0') -and ($st -eq '0|0|0|0')
+        if (-not ($okA -or $okB)) { $bad++ }
+    }
+    Check 'a ticket opened on an item racing its deletion: either the ticket is opened and then cancelled, or it is refused, and no open ticket stays linked to a deleted item' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    $null = As-Admin "CALL seed(10); UPDATE inventory SET available_quantity=0, deleted_at=NOW(3), deleted_by=1 WHERE id=1;"
+    $t1 = Result (As-App "CALL create_ticket('TKTN0001',1,'[]',NULL,@r); SELECT CONCAT('RESULT=',@r);")
+    $t2 = Result (As-App "CALL create_ticket('TKTN0002',1,'[3,2]',NULL,@r); SELECT CONCAT('RESULT=',@r);")
+    $t3 = Result (As-App "CALL create_ticket('TKTGONE1',1,'[2,1]',NULL,@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT GROUP_CONCAT(ticket_no ORDER BY id) FROM tickets), '|', (SELECT COUNT(*) FROM ticket_inventory));"
+    Check 'a ticket can be opened on no items or on several, and one deleted item refuses the whole ticket with nothing written' (($t1 -eq 'CREATED') -and ($t2 -eq 'CREATED') -and ($t3 -eq 'ITEM_GONE') -and ($st -eq 'TKTN0001,TKTN0002|2')) "$t1 / $t2 / $t3 / $st"
+
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $null = As-Admin "CALL seed(10); INSERT INTO inventory(id,sku,name,created_by) VALUES (10,'EXTRA001','Extra item',1);"
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL list_product(10,7.00,NULL,1,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL delete_item(10,2,3,@r,@n); SELECT CONCAT('RESULT=',@r,'|',@n);" })
+        $pair = (Result $res[0]) + ',' + (Result $res[1])
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT IF(deleted_at IS NULL,'live','deleted') FROM inventory WHERE id=10), '|', (SELECT COALESCE(MAX(status),'none') FROM products WHERE inventory_id=10));"
+        $okA = ($pair -eq 'LISTED,DELETED|0') -and ($st -eq 'deleted|UNLISTED')
+        $okB = ($pair -eq 'NOT_FOUND,DELETED|0') -and ($st -eq 'deleted|none')
+        if (-not ($okA -or $okB)) { $bad++ }
+    }
+    Check 'listing an item racing its deletion: the item is never left deleted with a LISTED product' ($bad -eq 0) "$rounds5 rounds, bad $bad"
     # S6. Deadlocks and lock waits.
     $null = As-Admin "CALL seed(10);"
     $sa = "START TRANSACTION;`nINSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','T',1);`nSELECT id FROM inventory WHERE id=1 FOR UPDATE;`nDO SLEEP(1.5);`nSELECT id FROM inventory WHERE id=2 FOR UPDATE;`nCOMMIT;`nSELECT 'RESULT=COMMITTED';"
@@ -614,9 +766,9 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     for ($r = 1; $r -le $Rounds; $r++) {
         $null = As-Admin "CALL seed(1000);"
         $res = Run-Parallel @(
-            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s6-$r-a',NULL,'$fwd',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" },
-            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(2,'ORD-s6-$r-b',NULL,'$rev',1800,@r,@o); SELECT CONCAT('RESULT=',@r);" })
-        if (((Result $res[0]) -ne 'CREATED') -or ((Result $res[1]) -ne 'CREATED')) { $bad++ }
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(1,'ORD-s6-$r-a',NULL,'$fwd',@r,@o); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL create_order(2,'ORD-s6-$r-b',NULL,'$rev',@r,@o); SELECT CONCAT('RESULT=',@r);" })
+        if (((Result $res[0]) -ne 'COMPLETED') -or ((Result $res[1]) -ne 'COMPLETED')) { $bad++ }
     }
     Check 'orders listing items in opposite order never deadlock (locks are taken by ascending inventory id)' (($bad -eq 0) -and ($script:retries -eq 0)) "$Rounds rounds, retries needed $($script:retries), failed $bad"
 
