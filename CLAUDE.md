@@ -18,12 +18,13 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 | --- | --- |
 | Project overview, documentation structure, Project Log | [README.md](README.md) |
 | Open tasks and undecided questions | [docs/project-todo.md](docs/project-todo.md) |
+| Ideas for features after the program is complete. Add one only after the owner approves it. | [docs/future-ideas.md](docs/future-ideas.md) |
 | The current database design: tables, fields, order and inventory flow, concurrency rules, privileges, verification results | [docs/database/database-design.md](docs/database/database-design.md) |
 | What changed in each iteration, why, and which decisions were made | [docs/iterations/](docs/iterations/), one file per version |
 | Which documents must be updated together | [docs/documentation-sync-rules.md](docs/documentation-sync-rules.md) |
 | The executable schema | [db/migration/](db/migration/) |
 | Privileges for the application account, run once after the first migration | [db/admin/](db/admin/) |
-| The temporary-database check of the schema, privileges, and concurrency rules | [db/verification/](db/verification/) |
+| The temporary-database check of the schema, privileges, and concurrency rules, and the log of every test | [db/verification/](db/verification/), the log is [concurrency-tests.md](db/verification/concurrency-tests.md) |
 | Local setup: MySQL accounts, environment variables, services, follow-up tasks | [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) |
 | Diagrams: Simplified ERD, Physical ERD, Business Process Flowchart (Figma boards, not in git) | The Design Diagrams table in [docs/database/database-design.md](docs/database/database-design.md) |
 | Learning material (English and Chinese) | [opsflow_learning_docs_en/](opsflow_learning_docs_en/) and [汉化说明书/](汉化说明书/) |

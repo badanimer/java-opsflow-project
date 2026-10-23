@@ -280,7 +280,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'idempotency keys Abc and abc are different for one user' (Allowed $r)
     $r = As-Admin "INSERT INTO orders(order_no,user_id,idempotency_key,reserved_until) VALUES ('ORD-k3',1,'abc',NOW(3));"
     Check 'the same key for the same user is rejected' (Dup $r)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-a',1,'OTHER','LOW','t','d'),('TKT-A',1,'OTHER','LOW','t','d');"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-a',1,'OTHER','MANUAL','t','d'),('TKT-A',1,'OTHER','MANUAL','t','d');"
     Check 'ticket_no is case-sensitive (TKT-a and TKT-A both accepted)' (Allowed $r)
     $null = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,content) SELECT id,1,'orig' FROM tickets WHERE ticket_no='TKT-a';"
     $r = As-Admin "INSERT INTO ticket_comments(ticket_id,user_id,corrects_comment_id,content) SELECT t.id,1,c.id,'fix' FROM tickets t JOIN ticket_comments c ON c.ticket_id=t.id WHERE t.ticket_no='TKT-a' AND c.content='orig';"
@@ -297,9 +297,26 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'usernames keep the case-insensitive rule (Alice vs alice rejected)' (Dup $r)
     Check 'users.must_change_password defaults to FALSE' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='must_change_password';") -eq '0')
     Check 'users.failed_login_count defaults to 0' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='failed_login_count';") -eq '0')
+    Check 'users.is_system defaults to FALSE' ((Scalar "SELECT CONCAT('RESULT=', COLUMN_DEFAULT) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='users' AND column_name='is_system';") -eq '0')
+    Check 'tickets has no priority column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='tickets' AND column_name='priority';") -eq '0')
+    Check 'tickets has the indexes for the open count, the order lookup, the archive job, and the system-first lists' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND table_name='tickets' AND index_name IN ('idx_tickets_created_status','idx_tickets_order_status','idx_tickets_status_resolved','idx_tickets_status_source_created','idx_tickets_status_source_closed','idx_tickets_status_source_cancelled');") -eq '6')
+    Check 'orders and operation_logs have their list indexes' ((Scalar "SELECT CONCAT('RESULT=', COUNT(DISTINCT index_name)) FROM information_schema.statistics WHERE table_schema='$DB' AND index_name IN ('idx_orders_status_created','idx_operation_logs_created');") -eq '2')
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-src',1,'OTHER','MAYBE','t','d');"
+    Check 'a ticket source other than SYSTEM or MANUAL is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-sys',1,'OTHER','SYSTEM','t','d');"
+    Check 'a ticket with source SYSTEM is accepted' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-nosrc',1,'OTHER',NULL,'t','d');"
+    Check 'a ticket without a source is rejected' ($r.Code -ne 0)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-oe1',1,'ORDER_EXCEPTION','MANUAL','t','d');"
+    Check 'an ORDER_EXCEPTION ticket without an order is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $null = As-Admin "INSERT INTO orders(id,order_no,user_id,status,reserved_until) VALUES (200,'ORD-oe',1,'CREATED',NOW(3));"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,order_id,created_by,type,source,title,description) VALUES ('TKT-oe2',200,1,'ORDER_EXCEPTION','SYSTEM','t','d');"
+    Check 'an ORDER_EXCEPTION ticket that names its order is accepted' (Allowed $r) (Short-Err $r.Err)
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-oe3',1,'INVENTORY_EXCEPTION','MANUAL','t','d');"
+    Check 'only an ORDER_EXCEPTION ticket needs an order' (Allowed $r) (Short-Err $r.Err)
     $r = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('x@example.com','OTHER','h',NOW(3));"
     Check 'email_verification_codes rejects an unknown purpose' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
-    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-batch',1,'INVENTORY_EXCEPTION','HIGH','batch','several products');"
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-batch',1,'INVENTORY_EXCEPTION','MANUAL','batch','several products');"
     $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,i.id FROM tickets t, inventory i WHERE t.ticket_no='TKT-batch' AND i.id IN (1,2,3);"
     Check 'one ticket can cover several inventory records' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM ticket_inventory;") -eq '3')) (Short-Err $r.Err)
     $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,1 FROM tickets t WHERE t.ticket_no='TKT-batch';"
@@ -308,16 +325,16 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'a link to a missing inventory record is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
     $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-batch';"
     Check 'a ticket with linked inventory records cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
-    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description) VALUES ('TKT-first',1,'OTHER','LOW','first','first problem');"
+    $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKT-first',1,'OTHER','MANUAL','first','first problem');"
     $r = As-Admin "UPDATE tickets SET status='CANCELLED', cancel_reason='opened by mistake', cancelled_by=1, cancelled_at=NOW(3) WHERE ticket_no='TKT-first';"
     Check 'a ticket can be CANCELLED with a reason, a canceller, and a time' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', status, '|', cancel_reason) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CANCELLED|opened by mistake')) (Short-Err $r.Err)
     $r = As-Admin "UPDATE tickets SET status='REOPENED' WHERE ticket_no='TKT-first';"
     Check 'there is no REOPENED status' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
     $null = As-Admin "UPDATE tickets SET status='CLOSED', closed_by=1, closed_at=NOW(3) WHERE ticket_no='TKT-first';"
     Check 'a ticket can be CLOSED with a closer and a time' ((Scalar "SELECT CONCAT('RESULT=', status, '|', closed_by) FROM tickets WHERE ticket_no='TKT-first';") -eq 'CLOSED|1')
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description,follows_ticket_id) SELECT 'TKT-second',1,'OTHER','LOW','second','continues the first',id FROM tickets WHERE ticket_no='TKT-first';"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) SELECT 'TKT-second',1,'OTHER','MANUAL','second','continues the first',id FROM tickets WHERE ticket_no='TKT-first';"
     Check 'a ticket can follow an earlier ticket' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM tickets f JOIN tickets p ON p.id=f.follows_ticket_id WHERE f.ticket_no='TKT-second' AND p.ticket_no='TKT-first';") -eq '1')) (Short-Err $r.Err)
-    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,priority,title,description,follows_ticket_id) VALUES ('TKT-third',1,'OTHER','LOW','third','missing',999999);"
+    $r = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description,follows_ticket_id) VALUES ('TKT-third',1,'OTHER','MANUAL','third','missing',999999);"
     Check 'following a ticket that does not exist is rejected' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1452'))
     $r = As-Admin "DELETE FROM tickets WHERE ticket_no='TKT-first';"
     Check 'a ticket that has a follow-up cannot be deleted' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 1451'))
@@ -356,7 +373,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         "INSERT INTO orders(id,order_no,user_id,status,reserved_until) VALUES (100,'ORD-p',1,'CREATED',NOW(3)); " +
         "INSERT INTO order_items(order_id,product_id,product_sku,product_name,unit_price,quantity,subtotal) VALUES (100,1,'P1','Widget',10.00,1,10.00); " +
         "INSERT INTO inventory_transactions(inventory_id,type,quantity,available_before,available_after,locked_before,locked_after,reason,operator_id) VALUES (1,'RESTOCK',1,5,6,0,0,'initial',1); " +
-        "INSERT INTO tickets(id,ticket_no,created_by,type,priority,title,description) VALUES (100,'TKT-p',1,'OTHER','LOW','t','d'); " +
+        "INSERT INTO tickets(id,ticket_no,created_by,type,source,title,description) VALUES (100,'TKT-p',1,'OTHER','MANUAL','t','d'); " +
         "INSERT INTO ticket_assignment_history(ticket_id,from_user_id,to_user_id,changed_by) VALUES (100,NULL,2,1); " +
         "INSERT INTO ticket_comments(ticket_id,user_id,content) VALUES (100,1,'c'); " +
         "INSERT INTO ticket_inventory(ticket_id,inventory_id) VALUES (100,1); " +        "INSERT INTO operation_logs(action,target_type,target_id) VALUES ('A','ORDER',100); " +
@@ -543,6 +560,38 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         if ((($pair -join ',') -ne 'ALREADY_CANCELLED,CANCELLED') -or ($st -ne '10,0|1')) { $bad++ }
     }
     Check 'two cancellations at once: stock released once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    # S5b. The exception path: a ticket is opened for an order that went wrong.
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-ex-$r',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-ex-$r-a',3,1,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-ex-$r-b',3,1,@r); SELECT CONCAT('RESULT=',@r);" })
+        $pair = @((Result $res[0]), (Result $res[1])) | Sort-Object
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', (SELECT COUNT(*) FROM tickets WHERE order_id=$oid AND source='SYSTEM'), '|', (SELECT status FROM orders WHERE id=$oid), '|', (SELECT status_reason LIKE 'EXCEPTION_TICKET:TKT-ex-$r-%' FROM orders WHERE id=$oid));"
+        if ((($pair -join ',') -ne 'ALREADY_HANDLED,OPENED_RELEASED') -or ($st -ne '10,0|1|1|CANCELLED|1')) { $bad++ }
+    }
+    Check 'two exception paths for one order at once: one ticket, one cancellation, stock released once' ($bad -eq 0) "$rounds5 rounds, bad $bad"
+
+    $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-ex-u',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+    $x = Result (As-App "CALL open_exception_ticket($oid,'TKT-ex-u',3,0,@r); SELECT CONCAT('RESULT=',@r);")
+    $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM inventory_transactions WHERE type='RELEASE'), '|', (SELECT type FROM tickets WHERE order_id=$oid), '|', (SELECT status FROM orders WHERE id=$oid));"
+    Check 'when the records disagree the order is stopped, a ticket is opened, and the stock is left as found' (($x -eq 'OPENED_STOCK_UNTOUCHED') -and ($st -eq '6,4|0|INVENTORY_EXCEPTION|CANCELLED')) "$x / $st"
+
+    $bad = 0
+    for ($r = 1; $r -le $rounds5; $r++) {
+        $oid = (Result (As-Admin "CALL seed(10); UPDATE users SET is_system=1 WHERE id=3; CALL create_order(1,'ORD-exc-$r',NULL,'$item4q',1800,@r,@o); SELECT CONCAT('RESULT=',@r,',',@o);")) -replace '^CREATED,', ''
+        $res = Run-Parallel @(
+            @{ User = $APP; Pass = $appPw; Sql = "CALL confirm_order($oid,NULL,@r); SELECT CONCAT('RESULT=',@r);" },
+            @{ User = $APP; Pass = $appPw; Sql = "CALL open_exception_ticket($oid,'TKT-exc-$r',3,1,@r); SELECT CONCAT('RESULT=',@r);" })
+        $cf = Result $res[0]; $ex = Result $res[1]
+        $st = Scalar "SELECT CONCAT('RESULT=', (SELECT CONCAT(available_quantity,',',locked_quantity,',',sold_quantity) FROM inventory WHERE id=3), '|', (SELECT COUNT(*) FROM tickets WHERE order_id=$oid));"
+        $okA = ($cf -eq 'COMPLETED') -and ($ex -eq 'ALREADY_HANDLED') -and ($st -eq '6,0,4|0')
+        $okB = ($cf -eq 'ALREADY_CANCELLED') -and ($ex -eq 'OPENED_RELEASED') -and ($st -eq '10,0,0|1')
+        if (-not ($okA -or $okB)) { $bad++ }
+    }
+    Check 'a confirmation racing the exception path: exactly one wins, and a ticket exists only if the order was stopped' ($bad -eq 0) "$rounds5 rounds, bad $bad"
 
     # S6. Deadlocks and lock waits.
     $null = As-Admin "CALL seed(10);"

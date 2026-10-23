@@ -319,6 +319,62 @@ proc: BEGIN
     SET p_result = p_status;
 END//
 
+-- The exception path: the program opens a ticket for an order that went wrong. In one
+-- transaction it stops the order through the status gate (CREATED to CANCELLED, with the
+-- ticket number in the reason), opens the ticket as the SYSTEM user, and, when p_release is 1,
+-- releases the reserved stock. p_release is 0 when the stock and order records disagree: the
+-- stock is then left as found for the person who handles the ticket. When the gate finds the
+-- order already handled, nothing is written, so one order never gets two tickets.
+-- p_result: OPENED_RELEASED, OPENED_STOCK_UNTOUCHED, ALREADY_HANDLED, NOT_FOUND, INCONSISTENT,
+-- RETRYABLE, or ERROR.
+CREATE PROCEDURE open_exception_ticket(
+    IN p_order_id BIGINT, IN p_ticket_no VARCHAR(64), IN p_system_user BIGINT, IN p_release TINYINT,
+    OUT p_result VARCHAR(32)) SQL SECURITY INVOKER
+proc: BEGIN
+    DECLARE v_status VARCHAR(32) DEFAULT NULL;
+    DECLARE v_ok TINYINT DEFAULT 1;
+    DECLARE EXIT HANDLER FOR 1213, 1205
+    BEGIN
+        ROLLBACK;
+        SET p_result = 'RETRYABLE';
+    END;
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        SET p_result = 'ERROR';
+    END;
+
+    START TRANSACTION;
+    -- Status gate on the order.
+    UPDATE orders
+    SET status = 'CANCELLED', finished_at = NOW(3), status_reason = CONCAT('EXCEPTION_TICKET:', p_ticket_no)
+    WHERE id = p_order_id AND status = 'CREATED';
+
+    IF ROW_COUNT() = 0 THEN
+        SELECT status INTO v_status FROM orders WHERE id = p_order_id;
+        ROLLBACK;
+        IF v_status IS NULL THEN SET p_result = 'NOT_FOUND'; ELSE SET p_result = 'ALREADY_HANDLED'; END IF;
+        LEAVE proc;
+    END IF;
+
+    INSERT INTO tickets (ticket_no, order_id, created_by, type, source, title, description)
+    VALUES (p_ticket_no, p_order_id, p_system_user,
+            IF(p_release = 1, 'ORDER_EXCEPTION', 'INVENTORY_EXCEPTION'), 'SYSTEM',
+            CONCAT('Exception on order ', p_order_id), 'Opened by the program, with the order and the problem recorded.');
+
+    IF p_release = 1 THEN
+        CALL lock_and_check(p_order_id, 'RELEASE', v_ok);
+        IF v_ok = 0 THEN
+            ROLLBACK;
+            SET p_result = 'INCONSISTENT';
+            LEAVE proc;
+        END IF;
+        CALL apply_stock_move(p_order_id, 'RELEASE', NULL);
+    END IF;
+    COMMIT;
+    IF p_release = 1 THEN SET p_result = 'OPENED_RELEASED'; ELSE SET p_result = 'OPENED_STOCK_UNTOUCHED'; END IF;
+END//
+
 -- Cancels up to p_batch expired orders, each in its own transaction.
 CREATE PROCEDURE timeout_job(IN p_batch INT, OUT p_cancelled INT) SQL SECURITY INVOKER
 BEGIN

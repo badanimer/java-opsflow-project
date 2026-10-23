@@ -19,6 +19,10 @@
 -- Identity and access
 -- ---------------------------------------------------------------------------
 
+-- is_system marks the one built-in SYSTEM identity, which is recorded as the creator of
+-- tickets the program opens by itself and as the one who acts for the program on tickets.
+-- It is never a person: it has no role, cannot log in, and cannot be edited, disabled, or
+-- deleted. A seed migration creates it; this migration creates structure only.
 CREATE TABLE users (
     id                   BIGINT       NOT NULL AUTO_INCREMENT,
     username             VARCHAR(64)  NOT NULL,
@@ -28,6 +32,7 @@ CREATE TABLE users (
     email                VARCHAR(254) NOT NULL,
     status               VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     deleted              BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_system            BOOLEAN      NOT NULL DEFAULT FALSE,
     last_login_at        DATETIME(3)  NULL,
     failed_login_count   INT          NOT NULL DEFAULT 0,
     last_failed_login_at DATETIME(3)  NULL,
@@ -151,6 +156,7 @@ CREATE TABLE orders (
     -- Serves the reservation timeout job.
     KEY idx_orders_status_reserved_until (status, reserved_until),
     KEY idx_orders_user_created (user_id, created_at),
+    KEY idx_orders_status_created (status, created_at),
     CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_orders_status CHECK (status IN ('CREATED', 'COMPLETED', 'CANCELLED', 'FAILED')),
     CONSTRAINT chk_orders_total_amount CHECK (total_amount >= 0),
@@ -240,10 +246,21 @@ CREATE TABLE inventory_transactions (
 -- ---------------------------------------------------------------------------
 
 -- Status flow (enforced in the service layer, not by CHECK constraints):
---   OPEN -> IN_PROGRESS -> RESOLVED -> CLOSED (CLOSED means archived), and
+--   OPEN is the pool of tickets nobody holds, and it never has an assignee.
+--   Taking or being assigned a ticket makes it IN_PROGRESS at once, with the assignee.
+--   IN_PROGRESS -> OPEN when the assignee is released or the assignee account is no longer usable.
+--   IN_PROGRESS -> RESOLVED -> CLOSED (CLOSED means archived), and
 --   OPEN or IN_PROGRESS -> CANCELLED. A ticket is never reopened. CLOSED and CANCELLED are final.
+-- There is no priority. source says where a ticket came from, SYSTEM or MANUAL. It is set when
+-- the ticket is created and never changed. A SYSTEM ticket is one the program opened, and its
+-- created_by is the SYSTEM user (users.is_system). The service layer keeps the two in step,
+-- because a CHECK cannot look at another table. The screen may use it, for example for the
+-- background colour. An ORDER_EXCEPTION ticket must name its order.
+-- The ticket lists show SYSTEM tickets before MANUAL ones, then the chosen time order, so
+-- their indexes lead with status and source. idx_tickets_status_resolved serves the archive job.
 -- follows_ticket_id marks a new ticket as the continuation of an earlier one. It is set when
--- the ticket is created and never changed.
+-- the ticket is created and never changed. ticket_inventory links are written only when the
+-- ticket is created, in the same transaction.
 CREATE TABLE tickets (
     id                BIGINT       NOT NULL AUTO_INCREMENT,
     ticket_no         VARCHAR(64)  COLLATE utf8mb4_0900_bin NOT NULL,
@@ -255,7 +272,7 @@ CREATE TABLE tickets (
     closed_by         BIGINT       NULL,
     cancelled_by      BIGINT       NULL,
     type              VARCHAR(32)  NOT NULL,
-    priority          VARCHAR(32)  NOT NULL,
+    source            VARCHAR(16)  NOT NULL,
     status            VARCHAR(32)  NOT NULL DEFAULT 'OPEN',
     title             VARCHAR(200) NOT NULL,
     description       TEXT         NOT NULL,
@@ -268,14 +285,17 @@ CREATE TABLE tickets (
     updated_at        DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     CONSTRAINT uk_tickets_ticket_no UNIQUE (ticket_no),
-    KEY idx_tickets_order (order_id),
+    KEY idx_tickets_order_status (order_id, status),
     KEY idx_tickets_follows (follows_ticket_id),
-    KEY idx_tickets_created_by (created_by),
+    KEY idx_tickets_created_status (created_by, status),
     KEY idx_tickets_assignee_status (assignee_id, status),
     KEY idx_tickets_resolved_by (resolved_by),
     KEY idx_tickets_closed_by (closed_by),
     KEY idx_tickets_cancelled_by (cancelled_by),
-    KEY idx_tickets_status_priority (status, priority),
+    KEY idx_tickets_status_resolved (status, resolved_at),
+    KEY idx_tickets_status_source_created (status, source, created_at),
+    KEY idx_tickets_status_source_closed (status, source, closed_at),
+    KEY idx_tickets_status_source_cancelled (status, source, cancelled_at),
     CONSTRAINT fk_tickets_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_follows FOREIGN KEY (follows_ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -284,7 +304,8 @@ CREATE TABLE tickets (
     CONSTRAINT fk_tickets_closed_by FOREIGN KEY (closed_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_tickets_type CHECK (type IN ('ORDER_EXCEPTION', 'INVENTORY_EXCEPTION', 'OTHER')),
-    CONSTRAINT chk_tickets_priority CHECK (priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
+    CONSTRAINT chk_tickets_source CHECK (source IN ('SYSTEM', 'MANUAL')),
+    CONSTRAINT chk_tickets_order_required CHECK (type <> 'ORDER_EXCEPTION' OR order_id IS NOT NULL),
     CONSTRAINT chk_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'CANCELLED'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
@@ -333,8 +354,9 @@ CREATE TABLE ticket_comments (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- Append-only. The stock records a ticket is about, so one ticket can cover a batch of
--- products. A ticket may have none (for example an order or a general ticket). A link added
--- by mistake is explained in a comment, not removed.
+-- products. A ticket may have none (for example an order or a general ticket). Links are
+-- written only when the ticket is created, in the same transaction, and never added later:
+-- a new problem is a new ticket, or a follow-up ticket when it relates to an earlier one.
 CREATE TABLE ticket_inventory (
     id           BIGINT      NOT NULL AUTO_INCREMENT,
     ticket_id    BIGINT      NOT NULL,
@@ -367,5 +389,6 @@ CREATE TABLE operation_logs (
     PRIMARY KEY (id),
     KEY idx_operation_logs_target (target_type, target_id),
     KEY idx_operation_logs_operator_created (operator_id, created_at),
+    KEY idx_operation_logs_created (created_at),
     CONSTRAINT fk_operation_logs_operator FOREIGN KEY (operator_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
