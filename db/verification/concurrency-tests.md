@@ -20,19 +20,17 @@ The check names in this file are the names the script prints, so a line in the r
 
 ## Latest run
 
-**2026-10-27, MySQL 8.4: 151 passed, 0 failed.** Races were repeated 4 to 12 rounds each. This is the run of the v1.8 script before the last change below.
-
-**The script changed again after that run** (the ticket names an order number instead of an order id, and four time indexes were added): one check was added, three checks were renamed, and the next full run should report 152 checks: A 2, B 89, C 31, D 30. The counts in the table that follows are those of the last real run.
+**2026-10-27, MySQL 8.4: 152 passed, 0 failed.** Races were repeated 4 to 12 rounds each. This is the run of the final v1.8 script.
 
 | Block | Checks |
 | --- | --- |
 | A. Setup | 2 |
-| B. Structure | 88 |
+| B. Structure | 89 |
 | C. Privileges | 31 |
 | D. Concurrency | 30 |
-| Total | 151 |
+| Total | 152 |
 
-The first runs of v1.8 reported 150 passed and 1 failed: the check of the collation of the order, ticket, and idempotency numbers still expected three columns, and `order_attempts.order_no` is the fourth. The check was wrong, not the design, and now expects four.
+The runs before it found two wrong checks, both in the test and not in the design: the check of the binary collation of the order, ticket, and idempotency numbers expected a column count that grew twice (`order_attempts.order_no`, then `tickets.order_no`), and now expects five. Two runs were also started at the same time by mistake, and one removed the temporary database and accounts of the other; their failures were caused by that and were discarded. The runs must not overlap.
 How the count grew:
 
 | Date | Checks | What was added |
@@ -43,7 +41,7 @@ How the count grew:
 | 2026-10-23 | 97 | `users.is_system`, no `priority` column, and the three ticket indexes (v1.6) |
 | 2026-10-23 | 103 | `tickets.source`, and the order required on an `ORDER_EXCEPTION` ticket (v1.6) |
 | 2026-10-23 | 107 | The list indexes and the three exception path races (v1.6) |
-| 2026-10-27 | 152 expected, not yet run | v1.8, third round: the ticket column `order_id` became `order_no`, and four time indexes were added for the logs of all products and all items. One check added (the four time indexes), three renamed (the three ticket-and-order-number checks), and the collation check now expects five columns, because `tickets.order_no` uses the binary collation too. A run of this version found that check still expecting four; it was fixed afterwards and has not been run again |
+| 2026-10-27 | 152 | v1.8, third round: the ticket column `order_id` became `order_no`, and four time indexes were added for the logs of all products and all items. One check added (the four time indexes), three renamed (the three ticket-and-order-number checks), and the collation check now expects five columns, because `tickets.order_no` uses the binary collation too |
 | 2026-10-27 | 151 | v1.8: 9 checks removed (the five comment-correction checks, `ticket_comments has no updated_at`, the update and delete refusals on `ticket_comments`, and the default of `users.must_change_password`) and 11 added (5 on the constraints of `order_attempts`, 2 on its append-only privileges, 2 on the recording of attempts, the two reserved `users` columns, and the index of the item log). Four checks changed: the table count is 16, the order list index is gone, and the repeated-submission and delisting-race checks also count the attempt rows |
 | 2026-10-24 | 149 | v1.7: the warehouse-first schema, products, listing and delisting, adding and deleting items, tickets on items, and orders that complete at once and are final. The confirmation, timeout, expired-confirmation, cancellation, and exception path tests (10 checks) were removed, because those flows no longer exist, and 52 checks were added, among them the 8-character ticket number and the follow-up by number. See the iteration file |
 
@@ -56,7 +54,7 @@ Two bugs of the tests themselves were found and fixed by the first runs of v1.7,
 | `migration V1 applies cleanly` | The migration runs without error on an empty MySQL 8.4 database |
 | `verification procedures load` | The stored procedures of the fixtures compile |
 
-## Block B. Structure (89 checks after the second run of v1.8; 88 in the last real run)
+## Block B. Structure (89 checks)
 
 These are single-session checks of what the database enforces by itself. Design rules: Field Specifications, Initial Constraints, and the sections on products, orders, and tickets in the design document.
 
