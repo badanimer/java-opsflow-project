@@ -1,4 +1,4 @@
--- Executable specification of the order and inventory flows in
+﻿-- Executable specification of the order and inventory flows in
 -- docs/database/database-design.md (database design v1.7).
 --
 -- These procedures exist only to verify the design against a real MySQL server with
@@ -19,13 +19,12 @@ CREATE PROCEDURE reset_data() SQL SECURITY INVOKER
 BEGIN
     DELETE FROM operation_logs;
     DELETE FROM email_verification_codes;
-    DELETE FROM ticket_comments WHERE corrects_comment_id IS NOT NULL;
-    DELETE FROM ticket_comments;
     DELETE FROM ticket_assignment_history;
     DELETE FROM ticket_inventory;
     DELETE FROM tickets WHERE follows_ticket_id IS NOT NULL;
     DELETE FROM tickets;
     DELETE FROM inventory_transactions;
+    DELETE FROM order_attempts;
     DELETE FROM order_items;
     DELETE FROM orders;
     DELETE FROM product_listing_events;
@@ -166,6 +165,27 @@ BEGIN
 END//
 
 -- ---------------------------------------------------------------------------------------
+-- Order attempt log
+-- ---------------------------------------------------------------------------------------
+
+-- Records a refused attempt: one row for each product line, with the result and nothing deducted.
+-- It runs in a short transaction of its own, after the order transaction has rolled back, so it holds
+-- no lock of the order. A line whose product does not exist cannot be recorded (no foreign key to
+-- point at) and is skipped. A failure here never changes the result the caller reports.
+CREATE PROCEDURE log_attempt_failure(
+    IN p_user BIGINT, IN p_order_no VARCHAR(64), IN p_items JSON, IN p_result VARCHAR(32)) SQL SECURITY INVOKER
+BEGIN
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; END;
+    START TRANSACTION;
+    INSERT INTO order_attempts (order_no, user_id, product_id, quantity, result, stock_deducted)
+    SELECT p_order_no, p_user, p.id, COALESCE(MAX(jt.qty), 0), p_result, 0
+    FROM JSON_TABLE(p_items, '$[*]' COLUMNS (product_id BIGINT PATH '$.product_id', qty INT PATH '$.qty')) jt
+    JOIN products p ON p.id = jt.product_id
+    GROUP BY p.id;
+    COMMIT;
+END//
+
+-- ---------------------------------------------------------------------------------------
 -- Create order
 -- ---------------------------------------------------------------------------------------
 
@@ -175,6 +195,9 @@ END//
 -- the name the user saw, as "price" and "name".
 -- p_result: COMPLETED, DUPLICATE, PRODUCT_DELISTED, PRODUCT_CHANGED, INVALID_QUANTITY, OUT_OF_STOCK,
 -- RETRYABLE (deadlock or lock wait timeout, the whole transaction rolled back), or ERROR.
+-- Every attempt that reaches a result of its own is recorded in order_attempts: a completed one in the
+-- order transaction, a refused one in a short transaction after the rollback. A DUPLICATE adds no row,
+-- and RETRYABLE and ERROR add none either (the application records BUSY after its last retry).
 CREATE PROCEDURE create_order(
     IN p_user BIGINT, IN p_order_no VARCHAR(64), IN p_key VARCHAR(128), IN p_items JSON,
     OUT p_result VARCHAR(32), OUT p_order_id BIGINT) SQL SECURITY INVOKER
@@ -229,6 +252,7 @@ proc: BEGIN
     CALL check_products(p_items, v_check);
     IF v_check <> 'OK' THEN
         ROLLBACK;
+        CALL log_attempt_failure(p_user, p_order_no, p_items, v_check);
         SET p_result = v_check;
         SET p_order_id = NULL;
         LEAVE proc;
@@ -259,12 +283,17 @@ proc: BEGIN
     CALL lock_and_check(p_order_id, v_ok);
     IF v_ok = 0 THEN
         ROLLBACK;
+        CALL log_attempt_failure(p_user, p_order_no, p_items, 'OUT_OF_STOCK');
         SET p_result = 'OUT_OF_STOCK';
         SET p_order_id = NULL;
         LEAVE proc;
     END IF;
 
     CALL apply_stock_move(p_order_id, p_user);
+    -- The completed attempt is written in the transaction of the order.
+    INSERT INTO order_attempts (order_no, user_id, product_id, order_id, quantity, result, stock_deducted)
+    SELECT p_order_no, p_user, product_id, p_order_id, quantity, 'COMPLETED', quantity
+    FROM order_items WHERE order_id = p_order_id;
     COMMIT;
     SET p_result = 'COMPLETED';
 END//

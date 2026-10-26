@@ -1,4 +1,4 @@
--- OpsFlow initial schema (database design v1.2)
+﻿-- OpsFlow initial schema (database design v1.2)
 --
 -- Source of truth: docs/database/database-design.md
 -- Target: MySQL 8.0.16 or later (CHECK constraints are enforced from 8.0.16).
@@ -28,9 +28,10 @@ CREATE TABLE users (
     id                   BIGINT       NOT NULL AUTO_INCREMENT,
     username             VARCHAR(64)  NOT NULL,
     password_hash        VARCHAR(255) NOT NULL,
-    must_change_password BOOLEAN      NOT NULL DEFAULT FALSE,
     password_changed_at  DATETIME(3)  NULL,
     email                VARCHAR(254) NOT NULL,
+    username_changed_at  DATETIME(3)  NULL,
+    email_changed_at     DATETIME(3)  NULL,
     status               VARCHAR(32)  NOT NULL DEFAULT 'ACTIVE',
     deleted              BOOLEAN      NOT NULL DEFAULT FALSE,
     is_system            BOOLEAN      NOT NULL DEFAULT FALSE,
@@ -149,6 +150,7 @@ CREATE TABLE inventory_item_events (
     created_at   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     KEY idx_item_events_inventory_created (inventory_id, created_at),
+    KEY idx_item_events_created (created_at),
     KEY idx_item_events_operator (operator_id),
     CONSTRAINT fk_item_events_inventory FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_item_events_operator FOREIGN KEY (operator_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -203,6 +205,7 @@ CREATE TABLE product_listing_events (
     created_at   DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     KEY idx_product_events_product_created (product_id, created_at),
+    KEY idx_product_events_created (created_at),
     KEY idx_product_events_inventory (inventory_id),
     KEY idx_product_events_operator (operator_id),
     CONSTRAINT fk_product_events_product FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -242,7 +245,6 @@ CREATE TABLE orders (
     -- Unique per user, not global. Rows without a key are not constrained.
     CONSTRAINT uk_orders_user_idempotency UNIQUE (user_id, idempotency_key),
     KEY idx_orders_user_created (user_id, created_at),
-    KEY idx_orders_created (created_at),
     CONSTRAINT fk_orders_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_orders_total_amount CHECK (total_amount >= 0),
     CONSTRAINT chk_orders_item_count CHECK (item_count >= 0)
@@ -272,6 +274,41 @@ CREATE TABLE order_items (
     CONSTRAINT chk_order_items_subtotal CHECK (subtotal >= 0 AND subtotal = unit_price * quantity)
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
+-- Append-only record of every attempt to place an order, successful or not: who, when, which
+-- product, how many, the result, and how much stock was deducted. One row for each product line of
+-- an attempt. Every attempt has an order number, and a completed attempt carries the number of its
+-- order. A completed row is written in the transaction of the order; a refused row is written in a
+-- short transaction of its own after the order transaction rolled back, so a refusal leaves a record
+-- and nothing else. quantity is the quantity as sent when it is a whole number that fits the column,
+-- and 0 otherwise, so INVALID_QUANTITY rows may hold any value. A repeated submission with the same
+-- idempotency key returns the original order and adds no row.
+CREATE TABLE order_attempts (
+    id             BIGINT       NOT NULL AUTO_INCREMENT,
+    order_no       VARCHAR(64)  COLLATE utf8mb4_0900_bin NOT NULL,
+    user_id        BIGINT       NOT NULL,
+    product_id     BIGINT       NOT NULL,
+    order_id       BIGINT       NULL,
+    quantity       INT          NOT NULL,
+    result         VARCHAR(32)  NOT NULL,
+    stock_deducted INT          NOT NULL DEFAULT 0,
+    created_at     DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    CONSTRAINT uk_order_attempts_order_no_product UNIQUE (order_no, product_id),
+    KEY idx_order_attempts_product_created (product_id, created_at),
+    KEY idx_order_attempts_user_created (user_id, created_at),
+    KEY idx_order_attempts_order (order_id),
+    KEY idx_order_attempts_created (created_at),
+    CONSTRAINT fk_order_attempts_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_order_attempts_product FOREIGN KEY (product_id) REFERENCES products (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_order_attempts_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT chk_order_attempts_result CHECK (result IN ('COMPLETED', 'PRODUCT_DELISTED', 'PRODUCT_CHANGED', 'OUT_OF_STOCK', 'INVALID_QUANTITY', 'BUSY')),
+    -- A completed attempt has its order and deducted exactly what it ordered. A refused attempt has
+    -- no order and deducted nothing.
+    CONSTRAINT chk_order_attempts_outcome CHECK (
+        (result = 'COMPLETED' AND order_id IS NOT NULL AND quantity > 0 AND stock_deducted = quantity)
+        OR (result <> 'COMPLETED' AND order_id IS NULL AND stock_deducted = 0))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 -- Append-only. order_id is required for SALE and must be empty for the other types.
 -- The unique key does not apply to rows with an empty order_id, so repeated restocks are
 -- allowed, while one order can be sold once per item. The snapshots must agree
@@ -291,6 +328,7 @@ CREATE TABLE inventory_transactions (
     PRIMARY KEY (id),
     CONSTRAINT uk_inventory_tx_order_inventory_type UNIQUE (order_id, inventory_id, type),
     KEY idx_inventory_tx_inventory_created (inventory_id, created_at),
+    KEY idx_inventory_tx_created (created_at),
     KEY idx_inventory_tx_operator (operator_id),
     CONSTRAINT fk_inventory_tx_inventory FOREIGN KEY (inventory_id) REFERENCES inventory (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_inventory_tx_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -331,7 +369,11 @@ CREATE TABLE inventory_transactions (
 -- the ticket is created and never changed. A SYSTEM ticket is one the program opened, and its
 -- created_by is the SYSTEM user (users.is_system). The service layer keeps the two in step,
 -- because a CHECK cannot look at another table. The screen may use it, for example for the
--- background colour. An ORDER_EXCEPTION ticket must name its order.
+-- background colour. An ORDER_EXCEPTION ticket must name an order number, which is the number of an
+-- order attempt in order_attempts, a placed order or a refused one. order_no is a plain column and not a
+-- foreign key, because the number is shared by the product lines of an attempt and so is not unique
+-- there; the service layer checks that the attempt exists when the ticket is created, and attempts
+-- are append-only and never deleted.
 -- The ticket lists show SYSTEM tickets before MANUAL ones, then the chosen time order, so
 -- their indexes lead with status and source. idx_tickets_status_resolved serves the archive job.
 -- follows_ticket_id marks a new ticket as the continuation of an earlier one. It is set when
@@ -340,7 +382,7 @@ CREATE TABLE inventory_transactions (
 CREATE TABLE tickets (
     id                BIGINT       NOT NULL AUTO_INCREMENT,
     ticket_no         CHAR(8)      COLLATE utf8mb4_0900_bin NOT NULL,
-    order_id          BIGINT       NULL,
+    order_no          VARCHAR(64)  COLLATE utf8mb4_0900_bin NULL,
     follows_ticket_id BIGINT       NULL,
     created_by        BIGINT       NOT NULL,
     assignee_id       BIGINT       NULL,
@@ -362,7 +404,7 @@ CREATE TABLE tickets (
     PRIMARY KEY (id),
     CONSTRAINT uk_tickets_ticket_no UNIQUE (ticket_no),
     CONSTRAINT chk_tickets_ticket_no CHECK (REGEXP_LIKE(ticket_no, '^[A-Z0-9]{8}$', 'c')),
-    KEY idx_tickets_order_status (order_id, status),
+    KEY idx_tickets_order_status (order_no, status),
     KEY idx_tickets_follows (follows_ticket_id),
     KEY idx_tickets_created_status (created_by, status),
     KEY idx_tickets_assignee_status (assignee_id, status),
@@ -373,7 +415,6 @@ CREATE TABLE tickets (
     KEY idx_tickets_status_source_created (status, source, created_at),
     KEY idx_tickets_status_source_closed (status, source, closed_at),
     KEY idx_tickets_status_source_cancelled (status, source, cancelled_at),
-    CONSTRAINT fk_tickets_order FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_follows FOREIGN KEY (follows_ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_created_by FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT fk_tickets_assignee FOREIGN KEY (assignee_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
@@ -382,7 +423,7 @@ CREATE TABLE tickets (
     CONSTRAINT fk_tickets_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT chk_tickets_type CHECK (type IN ('ORDER_EXCEPTION', 'INVENTORY_EXCEPTION', 'OTHER')),
     CONSTRAINT chk_tickets_source CHECK (source IN ('SYSTEM', 'MANUAL')),
-    CONSTRAINT chk_tickets_order_required CHECK (type <> 'ORDER_EXCEPTION' OR order_id IS NOT NULL),
+    CONSTRAINT chk_tickets_order_required CHECK (type <> 'ORDER_EXCEPTION' OR order_no IS NOT NULL),
     CONSTRAINT chk_tickets_status CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED', 'CANCELLED'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
@@ -409,26 +450,8 @@ CREATE TABLE ticket_assignment_history (
     CONSTRAINT chk_ticket_assignment_changed CHECK (NOT (from_user_id <=> to_user_id))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
--- Append-only: comments are never edited or deleted, so there is no updated_at. A mistake
--- is corrected by adding a new comment. corrects_comment_id points to the comment being
--- corrected. The composite foreign key (ticket_id, corrects_comment_id) makes the database
--- reject a correction that points at a comment of another ticket; it is not checked when
--- corrects_comment_id is empty.
-CREATE TABLE ticket_comments (
-    id                  BIGINT      NOT NULL AUTO_INCREMENT,
-    ticket_id           BIGINT      NOT NULL,
-    user_id             BIGINT      NOT NULL,
-    corrects_comment_id BIGINT      NULL,
-    content             TEXT        NOT NULL,
-    created_at          DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_ticket_comments_ticket_id (ticket_id, id),
-    KEY idx_ticket_comments_ticket_created (ticket_id, created_at),
-    KEY idx_ticket_comments_user (user_id),
-    CONSTRAINT fk_ticket_comments_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT fk_ticket_comments_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT fk_ticket_comments_corrects FOREIGN KEY (ticket_id, corrects_comment_id) REFERENCES ticket_comments (ticket_id, id) ON DELETE RESTRICT ON UPDATE RESTRICT
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+-- There is no comment table. Ticket comments are not part of the first version (see
+-- docs/future-ideas.md); the assignee records the outcome in tickets.resolution.
 
 -- Append-only. The stock records a ticket is about, so one ticket can cover a batch of
 -- products. A ticket may have none (for example an order or a general ticket). Links are

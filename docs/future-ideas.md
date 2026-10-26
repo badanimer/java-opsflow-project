@@ -27,7 +27,35 @@ This file keeps rough ideas for features that can be added after OpsFlow is comp
 - **What:** a to-do list that shows each identity what it needs to handle next, so that different roles are reminded of different things.
 - **Why it might help:** the first version has no notification system, because the flow is simple and each person is expected to know the next step. A to-do list would be the first reminder mechanism, and it would work well together with the approval module above.
 - **Roles:** all roles that work in the system. The content differs by role.
-- **Examples, not decided:** an `OPERATOR` sees the tickets they hold and the orders waiting for them. A `MANAGER` or an `ADMIN` sees the approvals waiting for them and the tickets waiting to be archived.
+- **Examples, not decided:** an `OPERATOR` sees the tickets they hold. A `MANAGER` or an `ADMIN` sees the approvals waiting for them and the tickets waiting to be archived.
+
+### Comments on tickets
+
+- **What:** a way for people to write notes on a ticket while it is worked on: investigation notes, questions, and corrections of earlier notes.
+- **Why it might help:** in the first version a ticket carries only its description and the resolution written at the end, so a handler cannot record progress or ask a question in the program.
+- **Roles:** the roles that work on tickets write; everyone who can see the ticket reads.
+- **Where it came from:** the owner removed comments from the first version. The comment table of the earlier design (append-only, with a correction pointing at the original note) was dropped from the schema, and would come back with a new migration.
+
+### Notification system
+
+- **What:** a way to tell a person that something concerns them, for example that a ticket they opened or held was cancelled by the system.
+- **Why it might help:** the first version has no notification, so a person finds out only by looking at the screen (Q-28).
+- **Roles:** all roles that work in the system.
+- **Where it came from:** requested by the owner. It would work together with the to-do list below.
+
+### A paging system
+
+- **What:** page numbers, a jump to a page, a total count, and a choice of page size on the lists.
+- **Why it might help:** the first version has two buttons, previous and next, with 10 rows a page, which is enough while the lists are short.
+- **Roles:** every role that reads a list.
+- **Where it came from:** requested by the owner while the page design was written.
+
+### A fuller user system
+
+- **What:** a richer account system on top of the first version: changing the username or the email address, a profile page, and similar account features.
+- **Why it might help:** in the first version a user cannot change the username or the email, and the only account change is a new password through Forgot password. Real use will probably want more.
+- **Roles:** every user for their own account; `ADMIN` and `MANAGER` for the accounts they manage.
+- **Where it came from:** requested by the owner while the account rules were reviewed. The database already reserves `users.username_changed_at` and `users.email_changed_at` for it.
 
 ### Tags for warehouse items and products
 

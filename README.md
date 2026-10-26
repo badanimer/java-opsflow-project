@@ -1,4 +1,4 @@
-# OpsFlow
+﻿# OpsFlow
 
 OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a realistic back-office system with transactional consistency, role-based access control, exception handling, and auditability.
 
@@ -18,6 +18,7 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 ## Documentation Structure
 
 - [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
+- [`docs/frontend`](docs/frontend/) contains the page design: which pages exist, who sees them, and what each one shows. It is a first version, and the visual design is not started.
 - [`db/migration`](db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
 - [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
 - [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification). The test log [`concurrency-tests.md`](db/verification/concurrency-tests.md) lists every test by block, with what it shows and what is not tested yet.
@@ -35,6 +36,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-10-26 | 1.0 | Frontend | First page design: the page map, what each role sees, and a first description of every page, including the stock page with its log, the ticket screens, the user page, and the audit log page. The owner's rough ideas were turned into rules for lists, search, and paging that the database answers | [frontend-v1.0.md](docs/iterations/frontend-v1.0.md) |
+| 2026-10-26 | 1.8 | Database | Cleaned the order part of every statement left from the old order lifecycle (an order is complete and final); defined the ticket screens and what each role sees on them; fixed the username and the email after sign-up and reserved two columns for a later change flow; defined item images; and stated that the open tickets of a disabled creator stay in the pool; then, from the page design, removed ticket comments, dropped the order list index, added `order_attempts` (every attempt to place an order is recorded, with its order number, whether or not it succeeds; the schema has 16 tables), split the log of an item into a warehouse log and a product log, made the first administrator a console command on the server (no forced password change), and defined ticket search, the user and audit pages, paging, and the order number on the ticket form | [database-v1.8.md](docs/iterations/database-v1.8.md) |
 | 2026-10-24 | 1.7 | Database | Put the warehouse first: `inventory` became the warehouse item and `products` an item put on sale, created at its first listing. Added `product_listing_events` and the rules for listing, delisting (which cancels the tickets of the product), the product page, and ordering from it; order creation now locks the product rows and checks the name and price the user saw; added the search and list indexes and the product concurrency rules; added `inventory_item_events` and the rules for adding a warehouse item (generated SKU, unique name, optional starting quantity) and deleting it softly, a single rule that every quantity must be valid, opening a ticket on chosen items, and an order that completes the moment it is placed (no reservation, confirmation, timeout, or exception path) that is final, with a wrong order corrected through a ticket | [database-v1.7.md](docs/iterations/database-v1.7.md) |
 | 2026-10-23 | 1.6 | Database | Replaced the ticket priority with `tickets.source` and a built-in SYSTEM identity (`users.is_system`) that opens and archives for the program; made `OPEN` a pool and taking a ticket start it at once; added releasing a ticket, returning the tickets of a disabled or deleted assignee, two limits of 99 per person, archiving after 7 days or when 99 are waiting, and a separate cancelled area; required an order on an `ORDER_EXCEPTION` ticket and had the program fill in the order and the problem on automatic tickets; wrote inventory links only at creation; defined the ticket log formats and three ticket indexes, ordered every ticket list with system tickets first, fixed a ticket's fields after creation, made the exception path stop the order and open the ticket together, and added the indexes for the ticket lists and the order and log lists | [database-v1.6.md](docs/iterations/database-v1.6.md) |
 | 2026-10-22 | 1.5 | Database | Added the `WRITE_OFF` stock type and defined manual stock changes: a required reason and operator on every manual change, and direct quantity setting for `MANAGER` and `ADMIN` only; added the table `ticket_inventory` so one ticket can cover a batch of products, wrote down when a ticket should be opened, defined the ticket status flow (no reopening, `CLOSED` as the archive, a new `CANCELLED` status) and follow-up tickets, added the Concurrency by Module section, and defined who may take and reassign a ticket | [database-v1.5.md](docs/iterations/database-v1.5.md) |
@@ -52,7 +55,7 @@ The initial system scope includes:
 - Transactional order creation with inventory deduction
 - Inventory transaction history
 - Exception-ticket assignment and reassignment history
-- Ticket comments and resolution tracking
+- Ticket resolution tracking
 - Auditable business operations
 
 ## Implementation Direction
