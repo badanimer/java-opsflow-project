@@ -115,9 +115,9 @@ The two pages that keep logs work the same way. The product page has the product
 
 1. **All records.** The View records button asks which of two kinds to read, then shows that kind for all products (or all items), newest first.
    - Product page: **listing records** (a product was listed or delisted) or **order records** (every attempt to order, placed or refused).
-   - Stock page: **item records** (an item was added or deleted) or **stock movements** (orders, stock in, write-offs, and manual corrections).
-2. **One chosen.** Inside that view, a searchable picker (see below) narrows the records to one product or item, and a range of days, from one day to another, narrows them by time.
-3. **The own log of one.** The View button on a row opens the log of that product or item alone, with both kinds of record in two parts. A delisted product and a deleted item are no longer rows on their pages, so their records are found through the first two ways.
+   - Stock page: **item records** (an item was added or deleted) or **stock movements** (orders, stock in, write-offs, and manual corrections), or the **Deleted items** module: a list of the deleted items, newest deletion first, with one box that searches by name or SKU. A row opens the own log of that item (item records, stock movements, and the listing and order records of its product, if it had one). It is the only place where a deleted item can be searched for.
+2. **One chosen.** Inside that view, a searchable picker (see below) narrows the records to one product or item, and a range of days, from one day to another, narrows them by time. The order records and the stock movements also have a box for one whole order number, which finds that order's lines or its stock movements. See [Finding by order number](../database/database-design.md#logs).
+3. **The own log of one.** The View button on a row opens the log of that product or item alone, with both kinds of record in two parts. A delisted product and a deleted item are no longer rows on their pages, and a deleted item is not offered by the picker either, so the records of a deleted item are found in the lists of all records and in the Deleted items module.
 
 **Columns:**
 
@@ -130,7 +130,7 @@ The two pages that keep logs work the same way. The product page has the product
 
 An operator who needs the number of an order that failed opens the order records, filters by the product and the day, and copies the number into the ticket form (see Create ticket). Every list is paged with two buttons, 10 rows a page.
 
-**The searchable picker.** One shared control is used wherever a screen asks for a product or an item. It is a dropdown list sorted alphabetically by name, with a scroll bar when it is long, and a text box in it that narrows the list as the person types. The product picker offers every product ever listed, and the item picker every item ever added, deleted ones marked and the SKU shown beside the name so that equal names can be told apart.
+**The searchable picker.** One shared control is used wherever a screen asks for a product or an item. It is a dropdown list sorted alphabetically by name, with a scroll bar when it is long, and a text box in it that narrows the list as the person types. The product picker offers every product ever listed except those of deleted items, and the item picker every item that is not deleted, with the SKU shown beside the name so that equal names can be told apart. A deleted item is offered nowhere.
 ### Ticket screens
 
 There is one screen for each stage, and each ticket carries a status label.
@@ -146,7 +146,7 @@ There is one screen for each stage, and each ticket carries a status label.
 - **A ticket that is taken leaves the pool** for every role at once, like a commission that someone accepted, and appears on the In progress screen.
 - **A list row** shows the ticket number, the type, the title, the creator, the creation time, and the status label. The rest is in the detail view.
 - **Order.** The newest first by default, switchable to the oldest first. Tickets opened by the system are always shown before tickets opened by a person.
-- **Search** (manager, administrator, viewer; not operator). Each screen searches only its own status. The filters are the kind (system or manual), the creator, the assignee, and a range of creation days, and a ticket can also be found by its number and nothing else. See [Ticket search](../database/database-design.md#ticket-search).
+- **Search** (manager, administrator, viewer; not operator). Each screen searches only its own status. The filters are the kind (system or manual), the creator, the assignee, and a range of creation days, and a ticket can also be found by its number, or by an order number it names, and nothing else. See [Ticket search](../database/database-design.md#ticket-search).
 - **What an operator sees:** the whole pool, and on the other screens only their own tickets, so an operator has no search. The operator has no archive screen. See [Ticket screens and who sees what](../database/database-design.md#ticket-screens-and-who-sees-what).
 
 ### Ticket detail
@@ -185,7 +185,7 @@ For managers and administrators. It lists only the users the viewer can manage: 
 
 ### Audit log page
 
-For managers and administrators. A read-only list of important actions, newest first, filtered by three independent things: the area or kind of action, the time, and the user. The details are decided later.
+For managers and administrators. The page opens on a menu of seven areas: Accounts, Roles and permissions, Tickets, Stock, Warehouse items, Products, and Orders. Choosing one shows a read-only list of its records, newest first, 10 to a page, filtered by three independent things: the action (only the actions of that area; for Orders, the result), the time, and the user. The Orders area shows the same records as the order records of the product log, so a role that cannot open the audit page, such as `VIEWER`, still finds them on the product page. A system action shows the user as System. See [Audit log page](../database/database-design.md#audit-log-page). How a row is laid out is decided later.
 
 ## Open Details
 
@@ -194,7 +194,7 @@ These are not designed yet. Each is a question for the UI design, or for the own
 - The visual design: layout, colour, components, and the navigation between pages.
 - Where the page for the log of one item opens (a dialog or a page), and what the dialog for changing a quantity looks like in detail.
 - How the user is picked in the ticket filters (a typed username is the first idea).
-- The look of the audit log filters, and how each log row is shown (Q-03, Q-29).
+- The look of the audit log filters, and how each log row is shown (Q-34).
 - The empty states and the error messages of each page.
 - How the choice between the two kinds of record, the picker, the day range, and the two parts of the own log are laid out.
 - Whether an operator can filter the order records by who ordered, to find their own orders faster.

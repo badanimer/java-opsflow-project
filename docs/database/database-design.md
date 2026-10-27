@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-10-27 | 1.9 | Decided the open database questions: an item with no stock cannot be listed (`NO_STOCK`); a deleted item still refuses manual stock changes, with the reason stated; every record is kept for ever except expired email codes, which a job deletes 24 hours after they expire (the application account gets `DELETE` on `email_verification_codes` only); and defined the log formats that were missing: stock logs, order records (`order_attempts` is the record), user and account logs (sign-up, status, soft delete, password reset, login lock), and the ticket number and batch id on archived tickets; added `order_attempts.product_name`, the name of the product at the time of an attempt; made a deleted item unavailable in the pickers, gave deleted items their own module in the warehouse log, defined the labels every audit row carries, added the search by order number, and redesigned the audit page as a menu of seven areas, with a `category` on every audit row | [database-v1.9.md](../iterations/database-v1.9.md) |
 | 2026-10-26 | 1.8 | Cleaned the order part of every statement left from the old order lifecycle (an order is complete and final, with no status and no cancellation); defined the ticket screens and what each role sees on them (an `OPERATOR` sees the pool, and only the tickets they hold or resolved); fixed the username and the email after sign-up and reserved `users.username_changed_at` and `users.email_changed_at`; defined item images (type, size, storage); and stated that the `OPEN` tickets of a disabled creator stay in the pool; removed ticket comments and their table (15 tables); dropped the order list index; defined the stock page and log, ticket search, the user and audit pages, paging, and the order number on the ticket form; and made the first administrator a console command on the server with a hidden password prompt (the forced password change and `users.must_change_password` are gone); added `order_attempts`, the record of every attempt to place an order, successful or not, with an order number for each (16 tables), and defined two logs, the product log (listing records and order records) and the warehouse log (item records and stock movements), each read as all records, one chosen, or the own log of one, with a shared searchable picker; and let a ticket name the number of any order attempt, a refused one included, so that a failed order can be reported | [database-v1.8.md](../iterations/database-v1.8.md) |
 | 2026-10-24 | 1.7 | Put the warehouse first: `inventory` became the warehouse item with its SKU, name, and optional image, and `products` became an item put on sale, created at its first listing and kept for ever. Added `product_listing_events` and the rules for listing, delisting (with the automatic cancellation of the tickets of the product), the product page, and ordering from it; order creation now locks the product rows with `FOR SHARE` and checks the name and price the user saw; added the search and list indexes and the concurrency rules for products; added `inventory_item_events` and the rules for adding a warehouse item (a generated 8-character SKU, a unique name, an optional starting quantity) and for deleting it softly; required every quantity to be valid; and defined how a person opens a ticket on chosen items; and made an order complete the moment it is placed and final, with no reservation, confirmation, timeout, status, cancellation, or exception path, and defined how a wrong order is corrected through a ticket | [database-v1.7.md](../iterations/database-v1.7.md) |
 | 2026-10-23 | 1.6 | Replaced the ticket priority with `tickets.source` and a built-in SYSTEM identity (`users.is_system`) that opens and archives for the program; made `OPEN` a pool and taking a ticket start it at once; added releasing a ticket, returning the tickets of a disabled or deleted assignee, two limits of 99 per person, archiving after 7 days or when 99 are waiting, and a separate cancelled area; required an order on an `ORDER_EXCEPTION` ticket and had the program fill in the order and the problem on automatic tickets; wrote inventory links only at creation; defined the ticket log formats and three ticket indexes, ordered every ticket list with system tickets first, fixed a ticket's fields after creation, made the exception path stop the order and open the ticket together, and added the indexes for the ticket lists and the order and log lists | [database-v1.6.md](../iterations/database-v1.6.md) |
@@ -113,14 +114,14 @@ The usual practice for a back-office system applies: the file is kept outside th
 - **Upload:** a `MANAGER` or an `ADMIN` uploads the image when adding an item, or when editing an item that is not listed. The service layer accepts JPEG, PNG, and WebP only, up to 2 MB. It checks the real file type from the first bytes of the file, not from the name or the type the browser sends, and it refuses anything else with a clear message.
 - **Storage:** the application renames the file to a random name (a UUID with the right extension) and never uses the name the person gave, which prevents path tricks and name clashes. In the first version the file is kept in a folder outside the web root that the application configures (`opsflow.image-dir`), and `inventory.image_url` holds the relative path, for example `items/3f2b8c1e....webp`. The storage can move to an object store later without changing the column, because the column holds a path and not a full address.
 - **Serving:** the application serves the file through a controlled endpoint, or a static mapping of that one folder, with the correct content type and a cache header. Only the product page and the item lists show images.
-- **Replacing and deleting:** a replaced image is not removed at once, and a deleted item keeps its image, because history refers to the item. Unreferenced files are cleaned up by a later job (Q-17).
+- **Replacing and deleting:** a replaced image is not removed at once, and a deleted item keeps its image, because history refers to the item. Image files are kept for ever, like every other record.
 - **Order of work:** the file is stored first and the row is written second, so a failed row insert leaves an unreferenced file and never a row that points to nothing.
 
 #### Listing and delisting
 
 - Only a `MANAGER` or an `ADMIN` lists or delists. Neither asks for a reason. Both are recorded.
 - **The catalog.** Pressing List opens a catalog of the warehouse items that are not listed now, meaning items that were never listed and items that were delisted. It can be searched by the name of the item, and by nothing else. Items that are listed or deleted are not offered, and the service layer refuses them anyway. Only an item that exists in the warehouse can be listed.
-- **Listing** asks for the price, which must be above zero, and shows the name, which starts as the name of the item and can be changed in the same dialog. In one transaction it creates the product the first time, or sets it to `LISTED` again, with the price, the name, `listed_at`, and `listed_by`, and it writes a `LISTED` row to `product_listing_events` and an `operation_logs` row. Listing does not need stock: an item with no stock can be listed, and an order for it fails with `OUT_OF_STOCK`.
+- **Listing** asks for the price, which must be above zero, and shows the name, which starts as the name of the item and can be changed in the same dialog. In one transaction it creates the product the first time, or sets it to `LISTED` again, with the price, the name, `listed_at`, and `listed_by`, and it writes a `LISTED` row to `product_listing_events` and an `operation_logs` row. **Listing needs stock:** under a shared lock on the `inventory` row the service layer checks that `available_quantity` is above zero, and an item with no stock is refused with `NO_STOCK`, because a product nobody can buy should not be on the page. The rule applies at the moment of listing only: a listed product whose stock later falls to zero stays listed, and an order for it fails with `OUT_OF_STOCK`.
 - **A listed product cannot be edited.** Its name and price are fixed. To change either, delist the product and list it again with the new values. Orders placed before keep the name and price they were placed under.
 - **Delisting** sets the product to `UNLISTED` with `delisted_at` and `delisted_by`, writes a `DELISTED` row to `product_listing_events`, and cancels the tickets of the product, all in one transaction. A delisted product leaves the product page at once.
 - **Tickets of the product.** Every ticket that is `OPEN` or `IN_PROGRESS` and linked through `ticket_inventory` to the warehouse item of the product is cancelled by the system, with the SYSTEM identity as the one who cancelled it and the reason `PRODUCT_DELISTED:` followed by the product id. A ticket that is already `RESOLVED`, `CLOSED`, or `CANCELLED` is left alone. A ticket opened after the delisting is not cancelled. Each cancellation is logged as `TICKET_CANCELLED`. A ticket that links several products is cancelled when any one of them is delisted, because such a ticket is opened by a person and the person can open a new one for the products that remain. The screen shows the cancelled ticket with a message built from the reason code, for example "Widget has been delisted, please open the ticket again". Because there is no notification system, the program cannot yet tell the person who opened the ticket or the one who holds it. How they should be reminded is open (Q-28, and the to-do list idea in [future-ideas.md](../future-ideas.md)).
@@ -178,7 +179,7 @@ People change stock by hand in three ways. All three change `available_quantity`
 - **Screen.** The inventory screen has one Modify button per warehouse item. An `OPERATOR` who presses it sees only a plus and a minus, plus a reason field. A `MANAGER` or `ADMIN` also gets a field to type the new quantity. Save is enabled only when the quantity has changed and the reason is filled in.
 - **Direct set.** The user types the new `available_quantity`. The request also carries the `available_quantity` the user saw. Inside the transaction the service layer locks the `inventory` row and compares it with the value seen. If they differ, someone else changed the stock in the meantime, and the request is refused with a "stock changed, please reload" result. If they match, the difference becomes the transaction quantity, and the type follows its sign.
 - **Write-off.** Under the same lock, `available_quantity >= q` must hold, otherwise the request is refused.
-- **A deleted item.** Under the same lock the service layer also checks that the item is not deleted, and refuses every manual change of a deleted item.
+- **A deleted item.** Under the same lock the service layer also checks that the item is not deleted, and refuses every manual change of a deleted item. For the person, a deleted item is gone from the warehouse: it cannot be stocked, ordered, listed, or linked, and adding it again means creating a new item and counting its stock by hand. The `inventory` row is kept only because orders, stock records, tickets, and events refer to it. This is different from delisting a product, which never touches the stock: the stock of an item and the product made from it only meet when an order is checked.
 - **One transaction.** Each manual change locks the `inventory` row, updates it, inserts the `inventory_transactions` row with exact snapshots, and writes `operation_logs`, all together. It follows the same lock order, retry, and deadlock rules as the order flows.
 
 ### Orders
@@ -187,7 +188,7 @@ People change stock by hand in three ways. All three change `available_quantity`
 | --- | --- |
 | `orders` | Stores order-level information such as the ordering user, order number, total amount, and item count. An order has no status: it is complete and final when it exists |
 | `order_items` | Stores the purchased product snapshot, quantity, and transaction price |
-| `order_attempts` | Append-only record of every attempt to place an order, successful or not: who, when, which product, how many, the result, and how much stock was deducted |
+| `order_attempts` | Append-only record of every attempt to place an order, successful or not: who, when, which product (by id and by the name it had at the time), how many, the result, and how much stock was deducted |
 
 A user can create many orders. Each order must contain one or more order items. Each `order_items` record references exactly one product, and an order contains at most one item per product (`UK(order_id, product_id)`).
 
@@ -220,7 +221,7 @@ Additional `orders` fields:
 
 An order is the record of a placement that succeeded. The attempts that did not succeed leave no order, but they are not lost: every attempt is recorded in `order_attempts`, so that the log of a product shows who tried to order what, when, and what came of it, whether or not stock was deducted.
 
-- **One row for each product line of an attempt:** the order number (shared by the lines of one attempt), the user, the product, the quantity, the result, the stock deducted, and the time. `order_id` is set only when the attempt completed. The product page orders one product at a time, so an attempt normally has one row.
+- **One row for each product line of an attempt:** the order number (shared by the lines of one attempt), the user, the product, the name of the product at the time of the attempt (`product_name`, read from the product row; the price is not kept, because a completed attempt has its order items and a refused one sold nothing), the quantity, the result, the stock deducted, and the time. `order_id` is set only when the attempt completed. The product page orders one product at a time, so an attempt normally has one row.
 - **The result** is `COMPLETED`, `PRODUCT_DELISTED`, `PRODUCT_CHANGED`, `OUT_OF_STOCK`, `INVALID_QUANTITY`, or `BUSY`. Every line of a refused attempt carries the result of the whole attempt. `NOT_ALLOWED` is not recorded, because the program refuses it before it looks at the order, and a repeated submission with the same idempotency key returns the original order and adds no row.
 - **The stock deducted** is the quantity for a completed row and 0 for a refused one. The database checks that a completed row has its order and deducted exactly what it ordered, and that a refused row has no order and deducted nothing (`chk_order_attempts_outcome`).
 - **The quantity** is stored as it was sent when it is a whole number that fits the column, and as 0 otherwise, so an `INVALID_QUANTITY` row may hold 0, a negative number, or a number above the limit.
@@ -408,9 +409,39 @@ A ticket has no comments in the first version. Nobody can write a note on a tick
 
 | Table | Responsibility |
 | --- | --- |
-| `operation_logs` | Records important business actions, actors, target objects, and relevant state changes |
+| `operation_logs` | Records important business actions, actors, target objects, and relevant state changes, each filed under one category for the audit page |
 
 The initial version uses a generic target reference. `target_type` and `target_id` identify an order, inventory record, ticket, or another business object. The application maintains this polymorphic relationship because it cannot be represented by one conventional foreign-key constraint. `before_data` and `after_data` store the changed state as JSON. `operator_id` is empty for system actions.
+
+#### Categories
+
+Every row of `operation_logs` has a `category`, the area the audit page files it under. The application sets it when it writes the row, from one table of actions kept in the code, so a row cannot be written without one: a new action must be added to the table, and a test fails when an action has no category. The database requires the value to be one of the six below (`chk_operation_logs_category`) and not empty.
+
+| Category | `category` | Actions |
+| --- | --- | --- |
+| Accounts | `ACCOUNT` | `USER_REGISTERED`, `USER_STATUS_CHANGED`, `USER_DELETED`, `PASSWORD_RESET`, `LOGIN_LOCKED` |
+| Roles and permissions | `ROLE` | `ROLE_GRANTED`, `ROLE_REVOKED`, `ROLE_CREATED`, `ROLE_UPDATED`, `ROLE_DELETED` |
+| Tickets | `TICKET` | `TICKET_CREATED`, `TICKET_ASSIGNED`, `TICKET_REASSIGNED`, `TICKET_RELEASED`, `TICKET_RESOLVED`, `TICKET_CLOSED`, `TICKET_CANCELLED` |
+| Stock | `STOCK` | `STOCK_RESTOCK`, `STOCK_WRITE_OFF`, `STOCK_ADJUSTED` |
+| Warehouse items | `ITEM` | `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` |
+| Products | `PRODUCT` | `PRODUCT_LISTED`, `PRODUCT_DELISTED` |
+
+Each row has exactly one category. An action that causes others writes each row under its own category: deleting an item writes `ITEM_DELETED`, a `PRODUCT_DELISTED` row if it had a listed product, and a `TICKET_CANCELLED` row for each ticket it cancels, and the reason in `remark` ties them together. Orders are the seventh area of the audit page but have no category: their record is `order_attempts`, and the audit page reads it directly (see Audit log page). `category` is separate from `target_type`: `target_type` says what kind of object the row points at, and `category` says where the row is filed.
+
+#### Labels in audit rows
+
+An audit row must read on its own, without a join, and must still read after the object is renamed or deleted. So every row carries a **label** in its JSON, written even when the label did not change: in `after_data`, or in `before_data` when the row has no `after_data` (a deletion). The label of each category:
+
+| Category | Label fields | Notes |
+| --- | --- | --- |
+| Accounts | `username` | On every row, not only on sign-up |
+| Roles and permissions | `roleCode`, and `username` of the user for a grant or a revocation | A role row about a user names both |
+| Tickets | `ticketNo` | On every ticket row. A row that names another user (the assignee, the previous assignee, the one who resolved or cancelled) also carries that user's `username`, for example `assigneeUsername` |
+| Stock | `sku` and `name` | Already on every stock row |
+| Warehouse items | `sku` and `name` | On every item row, including an update and a deletion |
+| Products | `name`, and the `sku` of its item | On every product row |
+
+`ticketNo`, `username`, and the other labels are copies taken at the time of the action, which is the point: the row shows what the object was called then. The labels are part of the formats below; the examples in the tables show the fields that changed and leave out a label where it would only repeat the target. The assignment history of tickets (taking, assigning, reassigning, releasing) is shown in the Tickets area of the audit page through the `TICKET_ASSIGNED`, `TICKET_REASSIGNED`, and `TICKET_RELEASED` rows, and on the ticket detail from `ticket_assignment_history`.
 
 #### Role management
 
@@ -487,14 +518,16 @@ A new user has no role and only an administrator or a manager can grant one, and
 - A login error never says whether the username exists.
 - The lock is per account only. Anyone who knows a username can lock that account, and its owner gets back in through password recovery. Limiting attempts per address belongs with Q-07.
 
+**Password rule.** A password is 8 to 24 characters and contains at least one letter and at least one digit. The same rule applies to sign-up and to the new password of a recovery. A new password may not equal the current one: the service layer compares it with the stored hash, so no password history is kept. Earlier passwords may be used again, and common weak passwords are not blocked. The API limit of 24 is checked before hashing, so the column length of `password_hash` does not matter.
+
 **Email codes.** Sign-up and password recovery both use a one-time code sent to the email address, stored in `email_verification_codes`.
 
 - A code has 6 digits and is stored hashed. It is valid for 10 minutes, accepts at most 5 wrong entries, and a new code for the same email and purpose cannot be requested within 60 seconds. Requesting a new code marks the earlier unused ones consumed, so only the latest code works. A correct entry sets `consumed_at`.
 - **Sign-up**: the user requests a code for an email address that is not in `users` (soft-deleted users count, because their values stay reserved), enters the code, and then the account is created with `status` `ACTIVE` and no role.
 - **Recovery**: the user requests a code for the email of an existing, not soft-deleted account, and enters it before choosing a new password. The response is the same whether or not the email is registered. The reset sets `password_hash` and `password_changed_at`, and clears the lock fields.
-- The application account may insert and update code rows but not delete them. Old rows are cleaned up later, when their volume makes it worth a privilege (Future Evolution).
+- **Cleanup.** A code is useless once it has expired, so a job of the application deletes every row whose `expires_at` is more than 24 hours in the past, once an hour (see Operating Parameters). The 24 hours keep a recent code for a support question such as "I never received the code". This is the only table whose rows the application deletes in its normal work, so the application account has `DELETE` on `email_verification_codes`, and on no other table until a feature needs it (see the role tables in the privilege script). The job deletes by `expires_at` only, and never touches a code that is still valid. Every other record in the database is kept for ever.
 
-**Token checks.** A login token carries only the user id and its issue time. On every request the service layer loads the user and the user's roles from the database. It refuses the request when the account is not a usable account, or when the token was issued before `users.password_changed_at`. So disabling an account, changing its roles, and resetting its password all take effect on the next request, and a stolen token stops working after a password reset. The token still has an expiry; its length is chosen when authentication is built.
+**Token checks.** A login token carries only the user id and its issue time. On every request the service layer loads the user and the user's roles from the database. It refuses the request when the account is not a usable account, or when the token was issued before `users.password_changed_at`. So disabling an account, changing its roles, and resetting its password all take effect on the next request, and a stolen token stops working after a password reset. The token expires 12 hours after it was issued, and there is no refresh token: the user logs in again. A long expiry is acceptable because every request checks the account.
 
 #### Administrator protection
 
@@ -536,7 +569,7 @@ Deleting a role also writes one `ROLE_REVOKED` row for each user who held it, in
 
 #### Ticket logs
 
-Every ticket action writes one `operation_logs` row in the same transaction as the change. `target_type` is `TICKET`, `target_id` is `tickets.id`, and `operator_id` is the acting user, or empty when the system acts, as for every system action. The reason goes in `remark`. `before_data` and `after_data` hold only the fields that changed. Every change of assignee also writes a `ticket_assignment_history` row.
+Every ticket action writes one `operation_logs` row in the same transaction as the change. `target_type` is `TICKET`, `target_id` is `tickets.id`, and `operator_id` is the acting user, or empty when the system acts, as for every system action. The reason goes in `remark`. `before_data` and `after_data` hold the fields that changed and the labels of Labels in audit rows (`ticketNo`, and the `username` of any user the row names). Every change of assignee also writes a `ticket_assignment_history` row.
 | Action | `action` | `before_data` | `after_data` |
 | --- | --- | --- | --- |
 | Open a ticket | `TICKET_CREATED` | Empty | `{"type": "INVENTORY_EXCEPTION", "source": "MANUAL", "createdBy": 7, "followsTicketId": null, "orderId": null, "inventoryIds": [3, 5]}`. The links are part of this row, because they are written with the ticket. |
@@ -544,14 +577,14 @@ Every ticket action writes one `operation_logs` row in the same transaction as t
 | Reassign | `TICKET_REASSIGNED` | `{"assigneeId": 9}` | `{"assigneeId": 12}`. `remark` is the reason. |
 | Release, remove the assignee, or the system returns the ticket | `TICKET_RELEASED` | `{"status": "IN_PROGRESS", "assigneeId": 9}` | `{"status": "OPEN"}`. `remark` is the reason, or the fixed reason of the system. |
 | Resolve | `TICKET_RESOLVED` | `{"status": "IN_PROGRESS"}` | `{"status": "RESOLVED", "resolvedBy": 9}`. The resolution text stays in `tickets.resolution`. |
-| Archive | `TICKET_CLOSED` | `{"status": "RESOLVED"}` | `{"status": "CLOSED", "closedBy": 4}`. `remark` is `manual`, `batch`, or `auto archive after 7 days`. |
+| Archive | `TICKET_CLOSED` | `{"status": "RESOLVED"}` | `{"status": "CLOSED", "ticketNo": "K7Q2M9XA", "closedBy": 4, "batchId": "…"}`. Each archived ticket has its own row with its ticket number, so the logs name every ticket archived and who archived it (`operator_id` is empty for the archive job). `batchId` is one random value shared by the rows of a batch archive or of one run of the job, and is absent for a single archive. `remark` is `manual`, `batch`, `auto archive after 7 days`, or `auto archive at 99 resolved`. |
 | Cancel | `TICKET_CANCELLED` | `{"status": "IN_PROGRESS"}` | `{"status": "CANCELLED", "cancelledBy": 9}`. `remark` is the reason. When the system cancels the tickets of a delisted product, `operator_id` is empty and `remark` is `PRODUCT_DELISTED:` and the product id. |
 
-These formats are a first version. They can change in detail when the audit screen is designed (Q-03).
+These formats can change in detail when the audit screen is designed (Q-34). Opening a ticket on an order attempt is part of `TICKET_CREATED` (`orderId`); a ticket that fails to open writes nothing, so a refused link leaves no log.
 
 #### Product logs
 
-Every action on a warehouse item or a product writes one `operation_logs` row in the same transaction as the change. Listing and delisting also write a `product_listing_events` row, and adding or deleting an item also writes an `inventory_item_events` row. `operator_id` is the acting user. These formats are a first version, like the ticket logs (Q-03).
+Every action on a warehouse item or a product writes one `operation_logs` row in the same transaction as the change. Listing and delisting also write a `product_listing_events` row, and adding or deleting an item also writes an `inventory_item_events` row. `operator_id` is the acting user.
 
 | Action | `action` | `target_type` | `before_data` | `after_data` |
 | --- | --- | --- | --- | --- |
@@ -562,6 +595,37 @@ Every action on a warehouse item or a product writes one `operation_logs` row in
 | Delist a product | `PRODUCT_DELISTED` | `PRODUCT` | `{"status": "LISTED"}` | `{"status": "UNLISTED", "cancelledTicketIds": [12, 15]}` |
 
 Each ticket cancelled by a delisting also writes its own `TICKET_CANCELLED` row, with an empty `operator_id` because the system acts, and `PRODUCT_DELISTED:` and the product id in `remark`. A deletion of an item does the same with `ITEM_DELETED:` and the `inventory` id, and when the item had a listed product it also writes a `PRODUCT_DELISTED` row, because the product is delisted in the same transaction.
+
+#### Stock logs
+
+Every manual stock change writes one `operation_logs` row in the same transaction as the change, besides its `inventory_transactions` row. `target_type` is `ITEM`, `target_id` is the `inventory` id, and `operator_id` is the acting user. The log answers who changed the stock, when, by how much, and why; `inventory_transactions` keeps the exact snapshots.
+
+| Operation | `action` | `before_data` | `after_data` |
+| --- | --- | --- | --- |
+| Stock in | `STOCK_RESTOCK` | `{"availableQuantity": 10}` | `{"availableQuantity": 15, "quantity": 5, "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 88}` |
+| Write-off | `STOCK_WRITE_OFF` | `{"availableQuantity": 15}` | `{"availableQuantity": 12, "quantity": 3, "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 89}` |
+| Set directly | `STOCK_ADJUSTED` | `{"availableQuantity": 12}` | `{"availableQuantity": 20, "quantity": 8, "direction": "IN", "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 90}` |
+
+`remark` holds the required reason. The SKU and the name are repeated so the row stays readable on its own. The starting quantity of a new item is part of `ITEM_CREATED` and also has its `RESTOCK` transaction, as before. A sale writes no stock log row: it is an order, and the order record is `order_attempts`.
+
+#### Order records
+
+An order needs no row in `operation_logs`. `order_attempts` is its record, with one row for each product line of every attempt, a refused attempt included: the ordering user (`user_id`), the time (`created_at`), the product (`product_id`), the quantity, the result, the stock deducted, and the order number, which is generated before the attempt starts so that a refused attempt can be reported in a ticket. A completed attempt also points to its order, whose `order_items` freeze the name and the price. Writing the same facts in `operation_logs` would only create two records that can disagree. They are read through the product log (see Logs).
+
+#### User and account logs
+
+Only an action that was carried out is logged. An action that is refused (not enough authority, an invalid value, a locked account) writes nothing. `target_type` is `USER` and `target_id` is the `users.id` the action is about, and `operator_id` is the user who did it, which is the user themself for sign-up and the password reset. There is no password change for a logged-in user, because there is no user page: the only way to change a password is Forgot password on the login page, which is the reset below. The `ip_address` of the request is stored when the web layer knows it. A password, a code, or a hash is never written to a log.
+
+| Operation | `action` | `before_data` | `after_data` |
+| --- | --- | --- | --- |
+| Sign-up completed | `USER_REGISTERED` | Empty | `{"username": "alice", "email": "a@example.com"}`; the new user is the operator |
+| Administrator created at the console | `USER_REGISTERED` | Empty | The same, with `operator_id` empty and `remark` `console` (the `ROLE_GRANTED` row follows, see First administrator) |
+| Disable or enable an account | `USER_STATUS_CHANGED` | `{"status": "ACTIVE"}` | `{"status": "DISABLED"}`. A disabling that returns the tickets of the user also writes the ticket rows. |
+| Soft-delete an account | `USER_DELETED` | `{"status": "ACTIVE", "deleted": false}` | `{"status": "DISABLED", "deleted": true}` |
+| Reset a password with an email code | `PASSWORD_RESET` | Empty | `{"passwordChangedAt": "…", "lockCleared": true}`; the operator is the user |
+| An account gets locked by failed logins | `LOGIN_LOCKED` | Empty | `{"failedAttempts": 10, "lockedUntil": "…"}`; `operator_id` is empty because nobody is logged in |
+
+A successful login and a single wrong password write no log row: they are frequent, and the failure count and the lock time are already kept on the user row. Role changes are logged under Role grant and revocation logs, and a changed username or email cannot happen. A user created by sign-up or at the console is the only way a `users` row appears, so these rows complete the history of the account.
 
 ## Relationship Summary
 
@@ -608,10 +672,10 @@ Each ticket cancelled by a delisting also writes its own `TICKET_CANCELLED` row,
    4. locks the `inventory` row of every item, reached through `products.inventory_id`, with `SELECT ... FOR UPDATE`, in ascending inventory id, and reads the current quantities;
    5. checks that `available_quantity >= q` for every item. If any item is short, the whole transaction rolls back and the caller receives an out-of-stock result. No order is created and no stock changes, even when other items in the same order had enough stock;
    6. for each item, decreases `available_quantity` and increases `sold_quantity` by `q`, and inserts a `SALE` row into `inventory_transactions` whose snapshots come from the values read in step 4 and whose operator is the ordering user;
-   7. inserts one `order_attempts` row for each product line, with the result `COMPLETED`, the order, and the stock deducted;
+   7. inserts one `order_attempts` row for each product line, with the product name from the order item, the result `COMPLETED`, the order, and the stock deducted;
    8. writes the required `operation_logs`.
 4. The transaction commits only when every step succeeds. The order is complete the moment it commits: nobody confirms it, and no timer runs over it.
-5. When the attempt is refused (step 3.1 or 3.5), the transaction rolls back and, after the rollback, a short transaction of its own inserts one `order_attempts` row for each product line with the reason and nothing deducted. After a deadlock or a lock wait the whole attempt is retried, and the row is written once, with `BUSY`, only if the last retry fails too. See Order attempts.
+5. When the attempt is refused (step 3.1 or 3.5), the transaction rolls back and, after the rollback, a short transaction of its own inserts one `order_attempts` row for each product line with the current name of the product, the reason, and nothing deducted. After a deadlock or a lock wait the whole attempt is retried, and the row is written once, with `BUSY`, only if the last retry fails too. See Order attempts.
 
 #### The order dialog
 
@@ -687,7 +751,17 @@ The program keeps two logs. The **product log** belongs to the product page and 
 
 1. **All records.** The **View records** button of the page asks which kind of record to read (the product page: listing records or order records; the stock page: item records or stock movements) and then shows that kind for all products or all items, newest first.
 2. **One chosen.** Inside that view a product (or item) picker narrows the records to one name (see The searchable picker). A range of days narrows them by time. Both filters can be used together.
-3. **The own log of one.** The View button on a row of the product page (or the stock page) opens the log of that single product (or item), with both kinds of record in two parts, newest first. A product that is delisted is no longer a row on the product page, and an item that is deleted is no longer a row on the stock page, so their records are read through the first two ways.
+3. **The own log of one.** The View button on a row of the product page (or the stock page) opens the log of that single product (or item), with both kinds of record in two parts, newest first. A product that is delisted is no longer a row on the product page, and an item that is deleted is no longer a row on the stock page, so their records are read through the first two ways, and the records of a deleted item also through the Deleted items module.
+
+**Deleted items.** The stock page has a third choice under View records, **Deleted items**, a module made to find an item that is gone from the warehouse. It lists the deleted items, newest deletion first, with the name, the SKU, the time of the deletion, and who deleted it, 10 to a page, with one text box that narrows the list by name or SKU. A row opens the own log of that item in four parts: its item records, its stock movements, and, if it ever had a product, the listing records and the order records of that product. This is the only place where a deleted item can be searched for, and the item and product pickers still do not offer it (see The searchable picker). The list reads the `inventory` rows whose `deleted_at` is set, ordered by `deleted_at` and then `id`, paged by key; the warehouse table is small and has no index for this list, and one is added only if it grows enough to need it. The module is read-only.
+
+**Finding by order number.** An order number is shown in the order records, in the stock movements of an order, and on a ticket, and each of these can be found by it. One text box takes one whole order number (the box turns it to lower case, because the numbers are lower case) and finds the exact match, with no other filter:
+
+- **Order records** (the product log and the Orders area of the audit page): every line of the attempt, through the unique key `(order_no, product_id)`.
+- **Stock movements** (the warehouse log): the `SALE` rows of the order, through the order (`orders.order_no`) and `inventory_transactions.order_id`. A refused attempt has no order, so it finds nothing here.
+- **Tickets** (the ticket search): the tickets that name the number, through `idx_tickets_order_status`.
+
+No new table, column, or index is needed.
 
 **What the records show.**
 
@@ -710,8 +784,8 @@ For a stock movement the amount is `+quantity` for `RESTOCK` and `ADJUST_IN` and
 
 Wherever a screen asks for a product or an item, it uses one shared control: a dropdown list that scrolls when it is long, sorted alphabetically by name, and a text box in it that narrows the list as the person types. It is the same for the product picker and the item picker, and it is the control that the ticket form and the filters reuse when they need to pick by name.
 
-- **The product picker** offers every product that was ever listed, delisted ones included, by its current name. When two products have the same name, the SKU of the item is shown beside the name.
-- **The item picker** offers every warehouse item, deleted ones included (marked as deleted), by its name and SKU.
+- **The product picker** offers every product that was ever listed, delisted ones included, by its current name, except the products of deleted items. When two products have the same name, the SKU of the item is shown beside the name.
+- **The item picker** offers every warehouse item that is not deleted, by its name and SKU. A deleted item is gone from the warehouse and is offered nowhere, so that the backend search does not return options the screen cannot show. The records of a deleted item stay in the database and in the lists of all records (the first reading of each log), and it is found by name only in the Deleted items module of the warehouse log.
 - The name search is a match on the text typed and is not an index search; the lists are small enough. The picker returns the id, and the log is read by that id.
 ### Ticket search
 
@@ -719,7 +793,7 @@ The ticket screens of `ADMIN`, `MANAGER`, and `VIEWER` can be searched. An `OPER
 
 - **Each screen searches only its own status.** A search on the pool finds only `OPEN` tickets, on the archive only `CLOSED` tickets, and so on. The statuses are never searched together.
 - **The filters** are the kind (`source`, `SYSTEM` or `MANUAL`), the creator, the assignee, and the creation day range (a range of days, read like the logs). They can be combined. The creator and the assignee are picked by username.
-- **The other way to search is by one ticket number**, and nothing else. There is no search by title or description.
+- **The other ways to search are by one ticket number, or by one order number** (the tickets that name it), and nothing else. There is no search by title or description.
 - The filters use the indexes of Initial Constraints: `(status, source, created_at)` for the kind and the time, `tickets(created_by, status)` for the creator, `tickets(assignee_id, status)` for the assignee, and the unique key for the number. The sort order of Ticket list order always applies.
 
 ### User page
@@ -734,7 +808,12 @@ The service layer filters the rows. The page lets the viewer grant and revoke ro
 
 ### Audit log page
 
-`ADMIN` and `MANAGER` can read `operation_logs`, newest first. Three independent filters can be combined: the area or action (read from `target_type` and `action`), the time (a range of days), and the user (`operator_id`). The details of the filters and of how each row is shown are decided later with Q-03 and Q-29. The indexes `(target_type, target_id)`, `(operator_id, created_at)`, and `(created_at)` exist. Nobody can edit or delete a row.
+`ADMIN` and `MANAGER` open the audit page to read the records of the background work: the work that is not production and the production work as well. The page is read-only and nobody can edit or delete a row. A role that cannot open it, such as `VIEWER`, still reads the order records on the product page and the stock records on the stock page, so an accountant with the `VIEWER` role sees the production records through those pages.
+
+- **A menu of seven areas.** The page opens on a menu with one entry for each area: Accounts, Roles and permissions, Tickets, Stock, Warehouse items, Products, and Orders. The first six read `operation_logs` filtered by `category` (see Categories). **Orders** reads `order_attempts`, the same records as the order records of the product log, so the order records are in two places and written once.
+- **A list for one area.** Choosing an area shows its records, newest first, 10 to a page with previous and next, paged by key. Three independent filters can be combined: the action (only the actions of that area), the time (a range of days in `Australia/Sydney`, turned into a UTC range), and the user (`operator_id`, or `user_id` for orders). For Orders the action filter is the result of the attempt (placed, delisted, changed, out of stock, invalid quantity, or busy). A system action shows the user as System.
+- **The indexes.** `operation_logs` is read through `(category, created_at)`, which also orders by `id`, and the user filter through `(operator_id, created_at)`. Orders are read through `idx_order_attempts_created` and `idx_order_attempts_user_created`. The index `(target_type, target_id)` finds the rows of one object.
+- **Each row shows itself.** Every row carries its labels (see Labels in audit rows), so it reads without a join. How a row is laid out is decided with the page design (Q-34).
 
 ### Account pages
 
@@ -761,6 +840,7 @@ Principles:
 | Inventory | Add an item to the warehouse (name, optional image, optional starting quantity; the SKU is generated), and edit the name or image of an item that is not listed | Yes | Yes | No | No |
 | Inventory | Delete an item (soft), with no reason asked | Yes | Yes | No | No |
 | Inventory | View the stock page and the warehouse log (item records and stock movements, all or of one item; see Logs) | Yes | Yes | Yes | Yes |
+| Inventory | Search the Deleted items module of the warehouse log (a read-only list of deleted items and the own log of one) | Yes | Yes | Yes | Yes |
 | Inventory | Stock in (`RESTOCK`), reason required | Yes | Yes | Yes | No |
 | Inventory | Write-off or stock out (`WRITE_OFF`), reason required | Yes | Yes | Yes | No |
 | Inventory | Set the quantity directly (`ADJUST_IN`, `ADJUST_OUT`), reason required | Yes | Yes | No | No |
@@ -776,7 +856,7 @@ Principles:
 | Tickets | Cancel an `OPEN` or `IN_PROGRESS` ticket, with a reason | Yes, any | Yes, any | Only their own (assigned to them, or created by them while `OPEN`) | No |
 | Tickets | Archive a `RESOLVED` ticket (move to `CLOSED`) at any time, singly or in a batch. The system also archives after 7 days. | Yes | Yes | No | No |
 | Tickets | Reopen a ticket | No one | No one | No one | No one |
-| Audit logs | View and filter by area or action, by time, and by user (see Audit log page) | Yes | Yes | No | No |
+| Audit logs | Open the audit page, choose one of its seven areas, and filter by action, time, and user (see Audit log page). The order records are also on the product page, which every role can read | Yes | Yes | No | No |
 | Audit logs | Edit or delete | No one | No one | No one | No one |
 | Users | View the user page, which lists only the users the viewer can manage (see User page) | All users | Users who hold neither `ADMIN` nor `MANAGER` | No | No |
 | Users | Change status, soft-delete | See Authority over roles and accounts | See Authority over roles and accounts | No | No |
@@ -812,7 +892,7 @@ Order and inventory concurrency is specified under Order and Inventory Flow. Thi
 | Warehouse items | Two managers delete the same item at once | The deletion locks the product row of the item, if any, and then the `inventory` row, and reads `deleted_at` under that lock. The second request waits, sees the item deleted, and reports it. The delisting, the cancellations, and the event are written once. Lock order: `products`, then `inventory`, and then the `tickets` it cancels (see the rows below). |
 | Warehouse items and orders | An order is placed as the item is deleted | An order reads its product rows with `FOR SHARE` before it writes. The deletion needs the product row exclusively, so one waits for the other. If the order commits first, it is complete and stays valid, and the deletion goes on to delist the product and mark the item deleted. If the deletion commits first, the product is `UNLISTED` and the order fails with `PRODUCT_DELISTED`. An order is never placed under an item after its deletion has committed. |
 | Warehouse items and tickets | A ticket is opened on an item as it is deleted | The ticket creation inserts the ticket and then locks each item with `FOR SHARE` and checks it is not deleted. The deletion takes the `inventory` row exclusively and only then cancels the open tickets linked to it, so it sees every ticket that committed before it. A creation that committed first is cancelled by the deletion. A creation that waits for the deletion sees the item deleted and is refused as `ITEM_CHANGED`. This is the one place where tickets are locked after `inventory`; it is safe because the only transaction that waits for a warehouse row while holding a ticket row is a creation, and its ticket row is new and invisible to the deletion. |
-| Warehouse items and products | A listing and a deletion of the same item at once | The listing checks that the item is not deleted under a shared lock on the `inventory` row, after the product row. The deletion re-reads the product row after it holds the `inventory` row, and rolls back and retries if a product appeared in between. The item is never left deleted with a `LISTED` product. |
+| Warehouse items and products | A listing and a deletion of the same item at once | The listing checks that the item is not deleted and has stock (`NO_STOCK` otherwise) under a shared lock on the `inventory` row, after the product row. A manual write-off needs the row exclusively, so it waits for the listing or the listing waits for it, and the listing never sees a quantity that is about to change. The deletion re-reads the product row after it holds the `inventory` row, and rolls back and retries if a product appeared in between. The item is never left deleted with a `LISTED` product. |
 | Warehouse items | An item is edited while it is listed or being listed, or after it was deleted | The edit locks the item's product row first, if there is one, and refuses when the product is `LISTED`. Only then does it lock the `inventory` row and change the name or image. Listing takes the product row first as well, so the two cannot interleave. Lock order: `products`, then `inventory`. |
 | Inventory | Manual changes and orders on the same stock | Row lock on `inventory`, as specified under Manual stock changes and Concurrency and duplicate protection. A manual change also checks under the lock that the item is not deleted, and a deletion needs the same lock, so one waits for the other. |
 | Orders | A repeated submission | The unique key `UK(user_id, idempotency_key)` and the row locks, as specified under Order and Inventory Flow. A repeated submission adds no row to `order_attempts`. |
@@ -859,6 +939,8 @@ These values belong in application configuration, not in the database.
 | Resolved tickets waiting before auto-archive | 99 in the whole system | When 99 `RESOLVED` tickets are waiting, the system archives all of them, so the waiting list stays short. |
 | Archive job interval | 1 minute | A simple schedule. The job checks the 7-day rule and the count of 99. |
 | Email code | 6 digits, valid 10 minutes, 5 wrong entries, resend after 60 seconds | Long enough to be inconvenient to guess, short enough to be quick to use |
+| Password length and token life | 8 to 24 characters with a letter and a digit; the token lasts 12 hours | The owner's rule, and a token that needs no refresh because each request checks the account |
+| Email code cleanup | Delete rows whose `expires_at` is more than 24 hours old, once an hour | Expired codes are of no use; the 24 hours leave a recent one for a support question. Nothing else is deleted. |
 
 Retry only after the previous transaction has been fully rolled back, and run the retry in a new transaction.
 
@@ -892,6 +974,7 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | `inventory.name`, `inventory_item_events.name`, `products.name`, `product_listing_events.name`, `order_items.product_name` | `VARCHAR(200)` |
 | `inventory.image_url` | `VARCHAR(500)`, optional. It holds a link or a path to the image, and the image itself is stored by the application. |
 | `orders.order_no`, `order_attempts.order_no` | `VARCHAR(64)` |
+| `order_attempts.product_name` | `VARCHAR(200)`, the same as `products.name` |
 | `tickets.ticket_no` | `CHAR(8)`, generated, `A-Z` and `0-9` only (`chk_tickets_ticket_no`) |
 | `orders.idempotency_key` | `VARCHAR(128)` |
 | Status and type fields, `order_attempts.result`, `roles.code` | `VARCHAR(32)`, restricted to the allowed values |
@@ -901,6 +984,7 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | `remark` fields | `VARCHAR(500)` |
 | `operation_logs.ip_address` | `VARCHAR(45)` |
 | `operation_logs.action`, `operation_logs.target_type` | `VARCHAR(64)` |
+| `operation_logs.category` | `VARCHAR(16)`, restricted to the six values under Categories |
 | Ticket descriptions, `tickets.resolution` | `TEXT` |
 | `operation_logs.before_data`, `after_data` | `JSON` |
 
@@ -938,7 +1022,7 @@ Beyond the rules listed in Initial Constraints, the migration adds these checks,
 
 The schema, the per-table privileges, and the order and inventory flows were verified against MySQL 8.4 in a temporary database, using [`db/verification/run-db-verification.ps1`](../../db/verification/run-db-verification.ps1). The flows in this document are written as stored procedures in [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), and several `mysql` sessions run them at the same moment, under the restricted application account, so the verification also proves that the per-table grants are enough for the flows. Every test is listed by block, with what it shows and what is not tested yet, in the test log [`concurrency-tests.md`](../../db/verification/concurrency-tests.md).
 
-Latest full run (2026-10-27, MySQL 8.4): 152 checks passed, 0 failed. The previous full run (2026-10-24) had 149. The run covers the 16 tables and their checks; the warehouse items (the generated SKU, the unique name among the items that are not deleted, the soft delete) and their events; products and listing events; the orders that complete at once and are final, with the `SALE` transaction rules (and no `RETURN` type); the record of every order attempt, completed or refused, with its constraints and its append-only privileges; the manual stock types and their reason and operator rules; the ticket structure; the privileges of the application account; and the races listed below. Races were repeated 4 to 12 rounds each. The temporary database and accounts were dropped afterwards. The ticket rules, the manual stock changes, and the concurrency rules of the other modules have no race checks yet; they come with the code (T-17, T-34). Since v1.7, nine checks were removed (the comment table and the flag `must_change_password` are gone, and the confirmation, timeout, and exception path checks of earlier versions belong to flows that no longer exist), and eleven were added for `order_attempts`, the two reserved `users` columns, and the index of the item log. The first run of the v1.8 script found one wrong check (it still expected three columns with the binary collation, and `order_attempts.order_no` is the fourth), which was fixed in the check. The final v1.8 script also covers the ticket column `order_no` and the four time indexes of the logs.
+Latest full run (2026-10-27, MySQL 8.4): 156 checks passed, 0 failed (v1.9; the previous run, v1.8, had 152). The previous full run (2026-10-24) had 149. The run covers the 16 tables and their checks; the warehouse items (the generated SKU, the unique name among the items that are not deleted, the soft delete) and their events; products and listing events; the orders that complete at once and are final, with the `SALE` transaction rules (and no `RETURN` type); the record of every order attempt, completed or refused, with its constraints and its append-only privileges; the manual stock types and their reason and operator rules; the ticket structure; the privileges of the application account; and the races listed below. Races were repeated 4 to 12 rounds each. The temporary database and accounts were dropped afterwards. The ticket rules, the manual stock changes, and the concurrency rules of the other modules have no race checks yet; they come with the code (T-17, T-34). Since v1.7, nine checks were removed (the comment table and the flag `must_change_password` are gone, and the confirmation, timeout, and exception path checks of earlier versions belong to flows that no longer exist), and eleven were added for `order_attempts`, the two reserved `users` columns, and the index of the item log. The first run of the v1.8 script found one wrong check (it still expected three columns with the binary collation, and `order_attempts.order_no` is the fourth), which was fixed in the check. The final v1.8 script also covers the ticket column `order_no` and the four time indexes of the logs.
 
 
 
@@ -989,7 +1073,7 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - Refuse any change that would leave no usable account holding `ADMIN`, after locking the `ADMIN` row in `roles`. A new user has no role until an administrator grants one.
 - Treat `ADMIN` and `MANAGER` as protected roles: never delete them and never change their `code`. Let only `ADMIN` create, update, or delete roles, and appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`.
 - Create the first administrator on the server with a console command that asks for the password with hidden input. Never write that password to a file, an environment variable, or a log.
-- Lock an account after repeated wrong passwords on the schedule in Login security and account recovery, and refuse attempts without checking the password while it is locked. Store email codes hashed, and let the application account insert and update `email_verification_codes` but never delete. On every request, load the account and its roles from the database, and refuse a token issued before `users.password_changed_at`.
+- Lock an account after repeated wrong passwords on the schedule in Login security and account recovery, and refuse attempts without checking the password while it is locked. Store email codes hashed, and let the application account insert, update, and delete `email_verification_codes`, the only table whose rows the application deletes in its normal work (expired codes only, see Email codes). On every request, load the account and its roles from the database, and refuse a token issued before `users.password_changed_at`.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, and `operation_logs` must not delete or null out history rows.
 
 ## Future Evolution
@@ -1000,6 +1084,6 @@ The initial model is intentionally limited to the current system scope. Extend i
 - Add a reservation step and a separate reservation table if orders ever need partial confirmation, partial release, or reservations that outlive their order. Orders complete at once today.
 - Add payment and refund entities and a payment-driven order status when financial processing enters the system boundary.
 - Add address, shipment, and package entities when fulfillment is implemented.
-- Partition or archive generic audit data when log volume and query patterns require it.
+- Partition or archive generic audit data when log volume and query patterns require it. Retention is decided: every record (logs, stock movements, order attempts, tickets and their history, events, images) is kept for ever, and only expired email codes are deleted.
 
 When a field or relationship changes, update the migration history, physical ERD, and this document together.

@@ -21,7 +21,8 @@ GRANT INSERT, UPDATE ON opsflow.products  TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.inventory TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.orders    TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.tickets   TO 'opsflow_app'@'localhost';
-GRANT INSERT, UPDATE ON opsflow.email_verification_codes TO 'opsflow_app'@'localhost';
+-- Expired email codes are deleted by a job (24 hours after expires_at), so this is the one table with DELETE.
+GRANT INSERT, UPDATE, DELETE ON opsflow.email_verification_codes TO 'opsflow_app'@'localhost';
 
 -- Append-only tables: read and insert only
 GRANT INSERT ON opsflow.inventory_transactions    TO 'opsflow_app'@'localhost';

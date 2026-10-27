@@ -275,7 +275,8 @@ CREATE TABLE order_items (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
 
 -- Append-only record of every attempt to place an order, successful or not: who, when, which
--- product, how many, the result, and how much stock was deducted. One row for each product line of
+-- product (product_name is its name at the time of the attempt, so the record stays readable if the
+-- product is later listed under another name), how many, the result, and how much stock was deducted. One row for each product line of
 -- an attempt. Every attempt has an order number, and a completed attempt carries the number of its
 -- order. A completed row is written in the transaction of the order; a refused row is written in a
 -- short transaction of its own after the order transaction rolled back, so a refusal leaves a record
@@ -287,6 +288,7 @@ CREATE TABLE order_attempts (
     order_no       VARCHAR(64)  COLLATE utf8mb4_0900_bin NOT NULL,
     user_id        BIGINT       NOT NULL,
     product_id     BIGINT       NOT NULL,
+    product_name   VARCHAR(200) NOT NULL,
     order_id       BIGINT       NULL,
     quantity       INT          NOT NULL,
     result         VARCHAR(32)  NOT NULL,
@@ -474,10 +476,13 @@ CREATE TABLE ticket_inventory (
 -- ---------------------------------------------------------------------------
 
 -- Append-only. (target_type, target_id) is a polymorphic reference maintained by the
--- application, so it has no foreign key. operator_id is empty for system actions.
+-- application, so it has no foreign key. operator_id is empty for system actions. category is the
+-- area the audit page files the row under; the application sets it from one table of actions, and
+-- orders have no category because their record is order_attempts.
 CREATE TABLE operation_logs (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     operator_id BIGINT       NULL,
+    category    VARCHAR(16)  NOT NULL,
     action      VARCHAR(64)  NOT NULL,
     target_type VARCHAR(64)  NOT NULL,
     target_id   BIGINT       NOT NULL,
@@ -489,6 +494,7 @@ CREATE TABLE operation_logs (
     PRIMARY KEY (id),
     KEY idx_operation_logs_target (target_type, target_id),
     KEY idx_operation_logs_operator_created (operator_id, created_at),
-    KEY idx_operation_logs_created (created_at),
-    CONSTRAINT fk_operation_logs_operator FOREIGN KEY (operator_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT
+    KEY idx_operation_logs_category_created (category, created_at),
+    CONSTRAINT fk_operation_logs_operator FOREIGN KEY (operator_id) REFERENCES users (id) ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT chk_operation_logs_category CHECK (category IN ('ACCOUNT', 'ROLE', 'TICKET', 'STOCK', 'ITEM', 'PRODUCT'))
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

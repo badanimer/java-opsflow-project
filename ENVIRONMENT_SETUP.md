@@ -121,7 +121,8 @@ Privileges can only be granted on tables that exist, so the `opsflow_app` grants
 |---|---|
 | `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, `operation_logs` (append-only) | read and insert |
 | `order_items` (frozen after the order is created) | read and insert |
-| `users`, `roles`, `products`, `inventory`, `orders`, `tickets`, `email_verification_codes` | read, insert, and update |
+| `users`, `roles`, `products`, `inventory`, `orders`, `tickets` | read, insert, and update |
+| `email_verification_codes` | read, insert, update, and delete (expired codes are deleted by a job) |
 | `user_roles` | read and insert |
 
 - Revoking a user's role deletes a `user_roles` row, and deleting a role deletes a `roles` row. When the permission management feature is built, add `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';` and `GRANT DELETE ON opsflow.roles TO 'opsflow_app'@'localhost';` for those two tables only.

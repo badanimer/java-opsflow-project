@@ -177,11 +177,11 @@ CREATE PROCEDURE log_attempt_failure(
 BEGIN
     DECLARE EXIT HANDLER FOR SQLEXCEPTION BEGIN ROLLBACK; END;
     START TRANSACTION;
-    INSERT INTO order_attempts (order_no, user_id, product_id, quantity, result, stock_deducted)
-    SELECT p_order_no, p_user, p.id, COALESCE(MAX(jt.qty), 0), p_result, 0
+    INSERT INTO order_attempts (order_no, user_id, product_id, product_name, quantity, result, stock_deducted)
+    SELECT p_order_no, p_user, p.id, p.name, COALESCE(MAX(jt.qty), 0), p_result, 0
     FROM JSON_TABLE(p_items, '$[*]' COLUMNS (product_id BIGINT PATH '$.product_id', qty INT PATH '$.qty')) jt
     JOIN products p ON p.id = jt.product_id
-    GROUP BY p.id;
+    GROUP BY p.id, p.name;
     COMMIT;
 END//
 
@@ -291,8 +291,8 @@ proc: BEGIN
 
     CALL apply_stock_move(p_order_id, p_user);
     -- The completed attempt is written in the transaction of the order.
-    INSERT INTO order_attempts (order_no, user_id, product_id, order_id, quantity, result, stock_deducted)
-    SELECT p_order_no, p_user, product_id, p_order_id, quantity, 'COMPLETED', quantity
+    INSERT INTO order_attempts (order_no, user_id, product_id, product_name, order_id, quantity, result, stock_deducted)
+    SELECT p_order_no, p_user, product_id, product_name, p_order_id, quantity, 'COMPLETED', quantity
     FROM order_items WHERE order_id = p_order_id;
     COMMIT;
     SET p_result = 'COMPLETED';
@@ -307,14 +307,16 @@ END//
 -- product is read without a lock and changed by a conditional update, so two listings cannot
 -- both win. Two first listings meet on the unique key of products(inventory_id): the second
 -- waits for the first, then fails with a duplicate key and reports ALREADY_LISTED.
--- p_result: LISTED, ALREADY_LISTED, NOT_FOUND, RETRYABLE, or ERROR.
+-- The item must have stock (available_quantity above zero), read under a shared lock on the
+-- warehouse row; otherwise the result is NO_STOCK and nothing is written.
+-- p_result: LISTED, ALREADY_LISTED, NOT_FOUND, NO_STOCK, RETRYABLE, or ERROR.
 CREATE PROCEDURE list_product(
     IN p_inventory_id BIGINT, IN p_price DECIMAL(12,2), IN p_name VARCHAR(200), IN p_operator BIGINT,
     OUT p_result VARCHAR(32)) SQL SECURITY INVOKER
 proc: BEGIN
     DECLARE v_pid BIGINT DEFAULT NULL;
     DECLARE v_status VARCHAR(16) DEFAULT NULL;
-    DECLARE v_live INT DEFAULT 0;
+    DECLARE v_qty INT DEFAULT NULL;
     DECLARE EXIT HANDLER FOR 1062
     BEGIN
         ROLLBACK;
@@ -335,6 +337,16 @@ proc: BEGIN
     SELECT id, status INTO v_pid, v_status FROM products WHERE inventory_id = p_inventory_id;
 
     IF v_pid IS NULL THEN
+        SELECT available_quantity INTO v_qty FROM inventory WHERE id = p_inventory_id AND deleted_at IS NULL FOR SHARE;
+        IF v_qty IS NULL THEN
+            ROLLBACK;
+            SET p_result = 'NOT_FOUND';
+            LEAVE proc;
+        ELSEIF v_qty <= 0 THEN
+            ROLLBACK;
+            SET p_result = 'NO_STOCK';
+            LEAVE proc;
+        END IF;
         INSERT INTO products (inventory_id, name, price, status, listed_at, listed_by)
         SELECT i.id, COALESCE(p_name, i.name), p_price, 'LISTED', NOW(3), p_operator
         FROM inventory i WHERE i.id = p_inventory_id AND i.deleted_at IS NULL;
@@ -355,11 +367,15 @@ proc: BEGIN
             LEAVE proc;
         END IF;
         -- The product row is held, so the warehouse row comes next in the lock order. A deleted
-        -- item cannot be listed again.
-        SELECT COUNT(*) INTO v_live FROM inventory WHERE id = p_inventory_id AND deleted_at IS NULL FOR SHARE;
-        IF v_live = 0 THEN
+        -- item cannot be listed again, and neither can an item with no stock.
+        SELECT available_quantity INTO v_qty FROM inventory WHERE id = p_inventory_id AND deleted_at IS NULL FOR SHARE;
+        IF v_qty IS NULL THEN
             ROLLBACK;
             SET p_result = 'NOT_FOUND';
+            LEAVE proc;
+        ELSEIF v_qty <= 0 THEN
+            ROLLBACK;
+            SET p_result = 'NO_STOCK';
             LEAVE proc;
         END IF;
     END IF;
