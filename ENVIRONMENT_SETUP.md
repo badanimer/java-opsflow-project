@@ -82,7 +82,7 @@ Reference `application.yml` configuration for Spring Boot. The application conne
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://127.0.0.1:3306/opsflow?useSSL=false&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
+    url: jdbc:mysql://127.0.0.1:3306/opsflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
     username: ${OPSFLOW_DB_USERNAME}
     password: ${OPSFLOW_DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -111,7 +111,7 @@ Keep the two connections separate in Spring Boot:
 
 #### The first migration is applied by Flyway, not by hand
 
-Do not apply `db/migration/V1__initial_schema.sql` to `opsflow` manually. The first creation of the tables should be done by Flyway when the backend is connected, so that Flyway's schema history table exists from the start. Until then `opsflow` stays empty, and experiments belong in a temporary database.
+Do not apply `backend/src/main/resources/db/migration/V1__initial_schema.sql` to `opsflow` manually. The first creation of the tables should be done by Flyway when the backend is connected, so that Flyway's schema history table exists from the start. Until then `opsflow` stays empty, and experiments belong in a temporary database.
 
 #### Per-table privileges after the first migration
 

@@ -22,7 +22,7 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 | The current database design: tables, fields, order and inventory flow, concurrency rules, privileges, verification results | [docs/database/database-design.md](docs/database/database-design.md) |
 | What changed in each iteration, why, and which decisions were made | [docs/iterations/](docs/iterations/), one file per version |
 | Which documents must be updated together | [docs/documentation-sync-rules.md](docs/documentation-sync-rules.md) |
-| The executable schema | [db/migration/](db/migration/) |
+| The executable schema | [backend/src/main/resources/db/migration/](backend/src/main/resources/db/migration/) |
 | Privileges for the application account, run once after the first migration | [db/admin/](db/admin/) |
 | The temporary-database check of the schema, privileges, and concurrency rules, and the log of every test | [db/verification/](db/verification/), the log is [concurrency-tests.md](db/verification/concurrency-tests.md) |
 | Local setup: MySQL accounts, environment variables, services, follow-up tasks | [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) |

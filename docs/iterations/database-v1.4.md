@@ -146,7 +146,7 @@ New actions, with `target_type` `ROLE` and `target_id` set to `roles.id`: `ROLE_
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated |
-| [Initial migration](../../db/migration/V1__initial_schema.sql) | Updated in place (`users.must_change_password`, the login fields, and `email_verification_codes`); not yet applied anywhere |
+| [Initial migration](../../backend/src/main/resources/db/migration/V1__initial_schema.sql) | Updated in place (`users.must_change_password`, the login fields, and `email_verification_codes`); not yet applied anywhere |
 | [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Comment updated; the active grants did not change |
 | [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated: `users` gets `must_change_password`, `password_changed_at`, `failed_login_count`, `last_failed_login_at`, and `locked_until`, and the new table `email_verification_codes` is added |
 | [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn) | Updated: new Idempotency Check section, wired between Submit Order and Validate Products |

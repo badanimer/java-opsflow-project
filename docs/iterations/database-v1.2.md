@@ -19,7 +19,7 @@ The authoritative design is [Database Structure and Business Flow](../database/d
 
 ## Summary
 
-Version 1.2 keeps the table structure and tightens the rules around it. The review found that the tables were sound and that the open risks were in concurrency rules and constraints. This iteration fixes five of the six review points, brings the Business Process Flowchart in line with the reservation flow, records the operating parameters and field specifications, and turns them into the first executable migration, `db/migration/V1__initial_schema.sql`. This covers all six review points. Follow-up decisions then fixed the comparison rules of the generated identifiers, made ticket comments append-only, turned the per-table privileges into a script, and verified the schema, the privileges, and the concurrency rules against a real MySQL server.
+Version 1.2 keeps the table structure and tightens the rules around it. The review found that the tables were sound and that the open risks were in concurrency rules and constraints. This iteration fixes five of the six review points, brings the Business Process Flowchart in line with the reservation flow, records the operating parameters and field specifications, and turns them into the first executable migration, `backend/src/main/resources/db/migration/V1__initial_schema.sql`. This covers all six review points. Follow-up decisions then fixed the comparison rules of the generated identifiers, made ticket comments append-only, turned the per-table privileges into a script, and verified the schema, the privileges, and the concurrency rules against a real MySQL server.
 
 ## Changes
 
@@ -55,7 +55,7 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 
 ### Initial migration
 
-- New [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql) creates all 12 tables for MySQL 8.0.16 or later, using the Field Specifications. Every foreign key uses `ON DELETE RESTRICT` so history is never cascaded or nulled out.
+- New [`backend/src/main/resources/db/migration/V1__initial_schema.sql`](../../backend/src/main/resources/db/migration/V1__initial_schema.sql) creates all 12 tables for MySQL 8.0.16 or later, using the Field Specifications. Every foreign key uses `ON DELETE RESTRICT` so history is never cascaded or nulled out.
 - Indexes: `orders(status, reserved_until)` for the timeout job, `inventory_transactions(inventory_id, created_at)`, `tickets(assignee_id, status)`, `operation_logs(target_type, target_id)`, and an index on every foreign key.
 - Extra `CHECK` constraints beyond the design rules: an order is `CREATED` exactly when `finished_at` is empty, an order item's `subtotal` equals `unit_price * quantity`, inventory transaction snapshots agree with the type and quantity, and a ticket assignment must change the assignee.
 - `tickets.type` and `tickets.priority` are required with no default, so callers must choose them, including code that creates tickets automatically. A form may preselect `MEDIUM`, but the endpoint must receive the priority explicitly. `tickets.status` defaults to `OPEN`.
@@ -124,7 +124,7 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated |
-| [Initial migration](../../db/migration/V1__initial_schema.sql) | New |
+| [Initial migration](../../backend/src/main/resources/db/migration/V1__initial_schema.sql) | New |
 | [Per-table privilege script](../../db/admin/restrict-app-privileges.sql) | New; run once after the first migration |
 | [Verification scripts](../../db/verification/) | New; the concurrency fixtures and the runner |
 | [Environment setup](../../ENVIRONMENT_SETUP.md) | Updated; accounts, UTC, environment variables |

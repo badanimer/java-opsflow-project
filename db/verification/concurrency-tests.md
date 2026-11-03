@@ -11,7 +11,7 @@ The check names in this file are the names the script prints, so a line in the r
 ## How the tests run
 
 - The script creates a temporary database, `opsflow_verify`, and two temporary accounts, then drops them at the end. It never touches `opsflow`. The MySQL root password is asked for in a masked dialog and is used only to create and drop them.
-- It applies [`V1__initial_schema.sql`](../migration/V1__initial_schema.sql), the stored procedures in [`concurrency-fixtures.sql`](concurrency-fixtures.sql), and [`restrict-app-privileges.sql`](../admin/restrict-app-privileges.sql), adapted to the temporary names.
+- It applies [`V1__initial_schema.sql`](../../backend/src/main/resources/db/migration/V1__initial_schema.sql), the stored procedures in [`concurrency-fixtures.sql`](concurrency-fixtures.sql), and [`restrict-app-privileges.sql`](../admin/restrict-app-privileges.sql), adapted to the temporary names.
 - **The stored procedures are an executable specification of the flows, not the application code.** They exist so that the rules can be tried against a real MySQL server before the backend exists. The application's own retry logic, connection pool, and time zone handling still need the same checks once the backend is built (T-17, T-34).
 - Concurrent tests start several `mysql` sessions at the same moment, released together by a lock barrier (`GET_LOCK('go')`), and run them as the restricted application account. This also proves that the per-table grants are enough for the flows.
 - A session that fails with a deadlock or a lock wait timeout (its result starts with `RETRYABLE`) is run again up to two more times, the way the application would, unless the test says it must not be retried.

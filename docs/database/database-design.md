@@ -1004,13 +1004,13 @@ Times are stored in UTC. `DATETIME` carries no time zone, and the defaults for `
 
 ## Initial Migration
 
-The first executable migration is [`db/migration/V1__initial_schema.sql`](../../db/migration/V1__initial_schema.sql). It creates all 16 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
+The first executable migration is [`backend/src/main/resources/db/migration/V1__initial_schema.sql`](../../backend/src/main/resources/db/migration/V1__initial_schema.sql). It creates all 16 tables for MySQL 8.0.16 or later, using the types in Field Specifications. It creates structure only. The roles `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER` are added by a separate seed migration when the permission module is implemented, so an empty `roles` table is expected for now. Never edit a migration that has been applied. Add a new one.
 
 The first application of this migration is done by Flyway, when the backend is connected to Flyway. Do not apply it to `opsflow` by hand, so that Flyway's schema history exists from the start. Experiments use a temporary database.
 
 Run migrations with the `opsflow_migrator` account, which can change the schema. The application connects as `opsflow_app`, which can only read, insert, and update rows in `opsflow`. See [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#23-mysql-849) for the accounts and their credentials.
 
-When the Spring Boot backend is created, move the migrations to its `src/main/resources/db/migration/`, which Flyway reads by default (`classpath:db/migration`). Move them, do not copy them, so that only one copy exists.
+The migrations live in the Spring Boot backend at `backend/src/main/resources/db/migration/`, which Flyway reads by default (`classpath:db/migration`). They were moved there from the repository root, not copied, so that only one copy exists.
 
 Beyond the rules listed in Initial Constraints, the migration adds these checks, each verified against MySQL 8.4:
 

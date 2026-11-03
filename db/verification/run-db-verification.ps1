@@ -10,7 +10,7 @@
       1. Asks for the MySQL root password in a masked dialog. The password is used only to
          create a temporary database and two temporary accounts, and to drop the accounts at
          the end. It is never printed, logged, or stored.
-      2. Applies db/migration/V1__initial_schema.sql and db/verification/concurrency-fixtures.sql.
+      2. Applies backend/src/main/resources/db/migration/V1__initial_schema.sql and db/verification/concurrency-fixtures.sql.
       3. Applies db/admin/restrict-app-privileges.sql, adapted to the temporary names.
       4. Runs structure, privilege, and concurrency checks. The concurrency checks run
          several mysql sessions at the same time, released together by a lock barrier, under
@@ -46,7 +46,7 @@ if ($cmd) { $mysql = $cmd.Source } else { $mysql = 'C:\Program Files\MySQL\MySQL
 if (-not (Test-Path $mysql)) { throw "mysql.exe not found: $mysql" }
 
 $repo      = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$migration = Join-Path $repo 'db\migration\V1__initial_schema.sql'
+$migration = Join-Path $repo 'backend\src\main\resources\db\migration\V1__initial_schema.sql'
 $fixtures  = Join-Path $PSScriptRoot 'concurrency-fixtures.sql'
 $restrict  = Join-Path $repo 'db\admin\restrict-app-privileges.sql'
 $DB    = 'opsflow_verify'

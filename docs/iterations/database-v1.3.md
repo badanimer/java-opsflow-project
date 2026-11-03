@@ -52,7 +52,7 @@ Version 1.3 adds two rules around role grants and changes no table, field, or co
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated |
-| [Initial migration](../../db/migration/V1__initial_schema.sql) | Not changed; no schema change |
+| [Initial migration](../../backend/src/main/resources/db/migration/V1__initial_schema.sql) | Not changed; no schema change |
 | [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Not changed; no table or field changed |
 | [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Not changed; no table or relationship changed |
 | [Verification scripts](../../db/verification/) | Not re-run; the schema, the privileges, and the fixtures did not change, and both new rules are application behavior |

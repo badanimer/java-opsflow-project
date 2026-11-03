@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: opsflow-backend
+  datasource:
+    url: jdbc:mysql://127.0.0.1:3306/opsflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
+    username: ${OPSFLOW_DB_USERNAME}
+    password: ${OPSFLOW_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    user: ${OPSFLOW_MIGRATION_USERNAME}
+    password: ${OPSFLOW_MIGRATION_PASSWORD}

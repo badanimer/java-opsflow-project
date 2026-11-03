@@ -50,7 +50,7 @@ The authoritative design is [Database Structure and Business Flow](../database/d
 | [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Updated: a comment only |
 | [Verification script](../../db/verification/run-db-verification.ps1) | Updated: the check of the cleanup now inserts a code that expired one minute ago, runs `expires_at < NOW(3)`, and is named `app can delete email codes that have expired, and a valid code stays`. **Run on 2026-11-03, MySQL 8.4: 156 passed, 0 failed**, including the renamed check. The count stays 156. Started by the assistant, with the root password typed by the owner in the masked dialog |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the entry of this check. The Latest run section shows the run of 2026-11-03 (156 passed) |
-| [Initial migration](../../db/migration/V1__initial_schema.sql), [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1), Simplified ERD, Business Process Flowchart | Not changed: no table, column, or flow changed |
+| [Initial migration](../../backend/src/main/resources/db/migration/V1__initial_schema.sql), [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1), Simplified ERD, Business Process Flowchart | Not changed: no table, column, or flow changed |
 
 ## Open Items
 
