@@ -496,10 +496,10 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $d = Allowed (As-App "DELETE FROM user_roles WHERE user_id=2;")
     Check 'app can delete user_roles once DELETE is granted on that table only' ($g -and $d)
     $null = As-Admin "REVOKE DELETE ON $DB.user_roles FROM '$APP'@'localhost';"
-    $null = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('old@example.com','REGISTER','h',NOW(3) - INTERVAL 25 HOUR), ('new@example.com','REGISTER','h',NOW(3) + INTERVAL 10 MINUTE);"
-    $dc = Allowed (As-App "DELETE FROM email_verification_codes WHERE expires_at < NOW(3) - INTERVAL 24 HOUR;")
+    $null = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('old@example.com','REGISTER','h',NOW(3) - INTERVAL 1 MINUTE), ('new@example.com','REGISTER','h',NOW(3) + INTERVAL 10 MINUTE);"
+    $dc = Allowed (As-App "DELETE FROM email_verification_codes WHERE expires_at < NOW(3);")
     $left = Scalar "SELECT CONCAT('RESULT=', GROUP_CONCAT(email ORDER BY id)) FROM email_verification_codes WHERE email IN ('old@example.com','new@example.com');"
-    Check 'app can delete email codes that expired more than 24 hours ago, and a valid code stays' ($dc -and ($left -eq 'new@example.com')) "$dc / $left"
+    Check 'app can delete email codes that have expired, and a valid code stays' ($dc -and ($left -eq 'new@example.com')) "$dc / $left"
 
     # -----------------------------------------------------------------------------------------
     Section "Concurrency ($Rounds rounds per race; sessions run as the restricted application account)"

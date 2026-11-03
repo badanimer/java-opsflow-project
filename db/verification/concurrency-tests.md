@@ -20,7 +20,7 @@ The check names in this file are the names the script prints, so a line in the r
 
 ## Latest run
 
-**2026-10-27, MySQL 8.4: 156 passed, 0 failed.** Races were repeated 4 to 12 rounds each. This is the run of the final v1.9 script (one refusal removed, five checks added, one changed), started by the assistant with the root password typed by the owner in the masked dialog.
+**2026-11-03, MySQL 8.4: 156 passed, 0 failed.** Races were repeated 4 to 12 rounds each. This is the run of the v1.10 script (the same checks as the final v1.9 script, with the email code cleanup check renamed and its statement changed), started by the assistant with the root password typed by the owner in the masked dialog. The previous run (2026-10-27, v1.9) also had 156.
 
 | Block | Checks |
 | --- | --- |
@@ -89,7 +89,7 @@ The application account must be able to do what the flows need and nothing else.
 | `app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes), including the soft delete of an item`; `app: insert into every table it writes`; `app: SELECT ... FOR UPDATE on inventory` | The grants are enough for the flows, including the soft delete of an item and the row lock |
 | `app is refused: UPDATE` or `DELETE` on `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, `operation_logs`, `order_items` (frozen), `user_roles` | Append-only and frozen tables accept `SELECT` and `INSERT` only (18 checks) |
 | `app is refused: DELETE` on `orders`, `users`, `products`, `inventory` | Nothing that is soft-deleted or kept for good can be deleted (4 checks) |
-| `app can delete email codes that expired more than 24 hours ago, and a valid code stays` | `email_verification_codes` is the one table the application may delete from. The check inserts an old code and a valid one, runs the cleanup statement as the application account, and expects only the valid one to remain (v1.9) |
+| `app can delete email codes that have expired, and a valid code stays` | `email_verification_codes` is the one table the application may delete from. The check inserts an expired code and a valid one, runs the cleanup statement (`expires_at < NOW(3)`) as the application account, and expects only the valid one to remain (v1.9; the name and the statement changed in v1.10, when the 24 hours were dropped) |
 | `app is refused: CREATE TABLE`; `app is refused: DROP TABLE` | The application cannot change the schema |
 | `app can delete user_roles once DELETE is granted on that table only` | The later grant for role revocation works and stays limited to one table |
 

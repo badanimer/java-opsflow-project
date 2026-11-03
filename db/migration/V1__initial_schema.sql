@@ -1,4 +1,4 @@
-﻿-- OpsFlow initial schema (database design v1.2)
+﻿-- OpsFlow initial schema (matches database design v1.9)
 --
 -- Source of truth: docs/database/database-design.md
 -- Target: MySQL 8.0.16 or later (CHECK constraints are enforced from 8.0.16).
