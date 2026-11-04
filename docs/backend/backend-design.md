@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-05 | 1.2 | The application tests are logged in the test log, in a section of their own | [backend-v1.2.md](../iterations/backend-v1.2.md) |
 | 2026-11-04 | 1.1 | The persistence layer is `JdbcTemplate`, transactions use `@Transactional`, and the code is organized by feature | [backend-v1.1.md](../iterations/backend-v1.1.md) |
 | 2026-11-03 | 1.0 | The Spring Boot skeleton: Maven project in `backend/`, Flyway and the MySQL driver, configuration from environment variables, and the migrations moved into the project | [backend-v1.0.md](../iterations/backend-v1.0.md) |
 
@@ -69,7 +70,7 @@ The test code is in `backend/src/test/java/com/opsflow/support`:
 | `RaceRunner` | Runs one task on several threads released at the same moment and returns the value or the exception of each |
 | `TestInfrastructureTest` | Checks the setup itself: 16 tables, UTC sessions, the limited rights, the clean start, and the race runner |
 
-Run the tests from `backend/` with `mvnw test`. The first run downloads the MySQL image.
+Run the tests from `backend/` with `mvnw test`. The first run downloads the MySQL image. Every application test is recorded in the Application tests section of the test log [`concurrency-tests.md`](../../db/verification/concurrency-tests.md), next to the script check that it repeats.
 
 The script in [`db/verification`](../../db/verification/) keeps checking the database on its own. The integration tests repeat those checks against the application code.
 

@@ -12,7 +12,7 @@ The check names in this file are the names the script prints, so a line in the r
 
 - The script creates a temporary database, `opsflow_verify`, and two temporary accounts, then drops them at the end. It never touches `opsflow`. The MySQL root password is asked for in a masked dialog and is used only to create and drop them.
 - It applies [`V1__initial_schema.sql`](../../backend/src/main/resources/db/migration/V1__initial_schema.sql), the stored procedures in [`concurrency-fixtures.sql`](concurrency-fixtures.sql), and [`restrict-app-privileges.sql`](../admin/restrict-app-privileges.sql), adapted to the temporary names.
-- **The stored procedures are an executable specification of the flows, not the application code.** They exist so that the rules can be tried against a real MySQL server before the backend exists. The application's own retry logic, connection pool, and time zone handling still need the same checks once the backend is built (T-17, T-34).
+- **The stored procedures are an executable specification of the flows, not the application code.** They exist so that the rules can be tried against a real MySQL server before the backend exists. The application's own retry logic, connection pool, and time zone handling still need the same checks once the backend is built (T-17, T-34); those tests are recorded in Application tests below.
 - Concurrent tests start several `mysql` sessions at the same moment, released together by a lock barrier (`GET_LOCK('go')`), and run them as the restricted application account. This also proves that the per-table grants are enough for the flows.
 - A session that fails with a deadlock or a lock wait timeout (its result starts with `RETRYABLE`) is run again up to two more times, the way the application would, unless the test says it must not be retried.
 - `-Rounds` sets how many times each race is repeated. The default is 12. Some races use a third or a half of it, as noted below. More rounds make a rare interleaving more likely to show up. A passing run shows that the design holds under the interleavings it produced, not that every possible interleaving was tried.
@@ -162,6 +162,40 @@ The procedures are `create_item`, `delete_item`, and `create_ticket`. A race is 
 - **`the application must roll back explicitly, which removes them`.** After an explicit `ROLLBACK` the insert is gone.
 - **Supports:** the ascending lock order, the plain read of the SKU, and the rule that the application rolls back explicitly before every retry (Concurrency and duplicate protection).
 
+## Application tests
+
+The blocks above are the checks of the SQL script. This section records the tests of the Java application, which run against a MySQL 8.4 container and repeat the checks against the real code (T-17, T-34). Their counts are separate from the 156 checks of the script and are not added to them.
+
+- **How they run:** from `backend/`, `mvnw test`, with Docker Desktop running. The container gets the migrations and `restrict-app-privileges.sql`, and the tests connect as the limited application account. See [Tests](../../docs/backend/backend-design.md#tests) in the backend design.
+- **Test names** are the Java method names, so a line in the Maven output can be found here with a search.
+- **Latest run, 2026-11-04: 7 passed, 0 failed.**
+
+### Test infrastructure (7 tests)
+
+These tests check the set-up, not a business rule. They are in `TestInfrastructureTest` and `OpsflowBackendApplicationTests`.
+
+| Test | What it shows | Supports |
+| --- | --- | --- |
+| `contextLoads` | The application starts against the container | The configuration |
+| `migrationsBuildTheSixteenTables` | The migrations build exactly the 16 tables of the design | [Initial Migration](../../docs/database/database-design.md#initial-migration) |
+| `sessionsRunInUtc` | The session time zone is UTC | [Time zone](../../docs/database/database-design.md#time-zone) |
+| `applicationAccountHasOnlyItsPerTableRights` | The application account inserts into an append-only table, and is refused `UPDATE` on it and `DELETE` on it and on `roles` | `restrict-app-privileges.sql` |
+| `everyTestStartsWithEmptyTables`, `everyTestStartsWithEmptyTablesToo` | A row left by one test is gone when the other starts | The clean start every race test needs |
+| `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key lets exactly one insert succeed | The race runner itself |
+
+### Repeats of the script checks
+
+Each row says which Java test repeats which check of Block D. None is written yet: they are the task T-17, and each is added here when it is written.
+
+| Check in this file | Application test | State |
+| --- | --- | --- |
+| D1. Repeated submission | | Not written |
+| D2. A multi-item order with one item short | | Not written |
+| D3. Many sales on one stock row | | Not written |
+| D4. Listing, delisting, and ordering under a product | | Not written |
+| D5. Adding and deleting warehouse items, and opening a ticket on items | | Not written |
+| D6. Deadlocks and lock waits (including the retry and the explicit rollback) | | Not written |
+
 ## What is not tested yet
 
 These rules are designed but have no race test, because the flows are not written as procedures and the application code does not exist. Each is a task for when its module is built (T-17, T-34).
@@ -183,3 +217,4 @@ The ticket status transitions, the fields each must fill, the ticket limits, and
 3. Run the script, and record the result in the iteration file and in the Concurrency and privilege verification section of the design document.
 4. When a test changes or is removed, change its entry here and say why in the iteration file. A test that is removed without a reason is a rule that is no longer checked.
 5. When a race in the table above gets a test, move it out of What is not tested yet into its block.
+6. For a test of the Java application, add it to Application tests: its method name, what it shows, and the design rule it supports, and fill in the row of the script check it repeats. Update the result of the latest `mvnw test` run.

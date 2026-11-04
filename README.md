@@ -39,6 +39,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-05 | 1.2 | Backend | Logged the tests of the Java application in the existing test log, in a section of their own that maps each script check to the Java test that repeats it | [backend-v1.2.md](docs/iterations/backend-v1.2.md) |
 | 2026-11-04 | 1.1 | Backend | Chose `JdbcTemplate` as the persistence layer, `@Transactional` for transactions, a layout by feature, three layers of tests with Testcontainers for the integration tests, and BCrypt with a signed JWT for authentication. Found that Docker works on this machine and corrected the environment notes | [backend-v1.1.md](docs/iterations/backend-v1.1.md) |
 | 2026-11-04 | 1.0 | API | The first API conventions: a versioned base path, JSON and UTC formats, Problem Details errors with a `code`, one table of result codes and statuses, and key-based paging | [api-v1.0.md](docs/iterations/api-v1.0.md) |
 | 2026-11-03 | 1.0 | Backend | The Spring Boot skeleton: a Maven project in `backend/`, Flyway and the MySQL driver, configuration from environment variables with the UTC parameters, and the migrations moved into the project | [backend-v1.0.md](docs/iterations/backend-v1.0.md) |
