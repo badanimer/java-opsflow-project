@@ -1,10 +1,10 @@
 package com.opsflow;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
-@SpringBootTest
-class OpsflowBackendApplicationTests {
+import com.opsflow.support.MySqlIntegrationTest;
+
+class OpsflowBackendApplicationTests extends MySqlIntegrationTest {
 
 	@Test
 	void contextLoads() {

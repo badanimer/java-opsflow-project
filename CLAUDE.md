@@ -18,6 +18,7 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 | --- | --- |
 | Project overview, documentation structure, Project Log | [README.md](README.md) |
 | Open tasks and undecided questions | [docs/project-todo.md](docs/project-todo.md) |
+| The order in which the open tasks are built, in phases | [docs/implementation-roadmap.md](docs/implementation-roadmap.md) |
 | Ideas for features after the program is complete. Add one only after the owner approves it. | [docs/future-ideas.md](docs/future-ideas.md) |
 | The current database design: tables, fields, order and inventory flow, concurrency rules, privileges, verification results | [docs/database/database-design.md](docs/database/database-design.md) |
 | What changed in each iteration, why, and which decisions were made | [docs/iterations/](docs/iterations/), one file per version |

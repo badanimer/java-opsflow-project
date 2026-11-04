@@ -19,12 +19,14 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 
 - [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
 - [`docs/backend`](docs/backend/) contains the current description of the backend: the stack, the layout of the project, the configuration, and how it is run. The code is in [`backend`](backend/).
+- [`docs/api`](docs/api/) contains the conventions of the HTTP API: the paths, the data formats, the error response, the result codes, and the paging.
 - [`docs/frontend`](docs/frontend/) contains the page design: which pages exist, who sees them, and what each one shows. It is a first version, and the visual design is not started.
 - [`backend/src/main/resources/db/migration`](backend/src/main/resources/db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
 - [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
 - [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification). The test log [`concurrency-tests.md`](db/verification/concurrency-tests.md) lists every test by block, with what it shows and what is not tested yet.
 - [`docs/iterations`](docs/iterations/) contains one summary file per design iteration, indexed in the Project Log below.
 - [`docs/project-todo.md`](docs/project-todo.md) lists the confirmed tasks and the undecided questions that are still open.
+- [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md) puts the open tasks in the order in which they can be built, in phases, with what each phase is done when.
 - [`docs/future-ideas.md`](docs/future-ideas.md) keeps rough ideas for features that can be added after the program is complete. An idea goes in only after the owner approves it.
 - [`docs/documentation-sync-rules.md`](docs/documentation-sync-rules.md) defines which documents must be updated together and how iterations are recorded. Read it before changing any design document or diagram.
 - [`opsflow_learning_docs_en`](opsflow_learning_docs_en/) contains the English learning path.
@@ -37,6 +39,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-04 | 1.1 | Backend | Chose `JdbcTemplate` as the persistence layer, `@Transactional` for transactions, a layout by feature, three layers of tests with Testcontainers for the integration tests, and BCrypt with a signed JWT for authentication. Found that Docker works on this machine and corrected the environment notes | [backend-v1.1.md](docs/iterations/backend-v1.1.md) |
+| 2026-11-04 | 1.0 | API | The first API conventions: a versioned base path, JSON and UTC formats, Problem Details errors with a `code`, one table of result codes and statuses, and key-based paging | [api-v1.0.md](docs/iterations/api-v1.0.md) |
 | 2026-11-03 | 1.0 | Backend | The Spring Boot skeleton: a Maven project in `backend/`, Flyway and the MySQL driver, configuration from environment variables with the UTC parameters, and the migrations moved into the project | [backend-v1.0.md](docs/iterations/backend-v1.0.md) |
 | 2026-11-03 | 1.10 | Database | Shortened the keeping of email codes: a code is deleted as soon as it expires (10 minutes after it was made), by a job that runs once a minute, instead of 24 hours after it expires. No table changed | [database-v1.10.md](docs/iterations/database-v1.10.md) |
 | 2026-10-26 | 1.0 | Frontend | First page design: the page map, what each role sees, and a first description of every page, including the stock page with its log, the ticket screens, the user page, and the audit log page. The owner's rough ideas were turned into rules for lists, search, and paging that the database answers | [frontend-v1.0.md](docs/iterations/frontend-v1.0.md) |

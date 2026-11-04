@@ -2,7 +2,7 @@
 
 > Recorded: 2026-09-12
 > Operating system: Windows 11 Home (10.0.26200)
-> Note: this machine is a **virtual machine** without nested virtualization (VT-x/AMD-V is not passed through). Docker Desktop is installed but **cannot run**, so all middleware is installed as **native Windows services** instead.
+> Note: all middleware is installed as **native Windows services**. Docker Desktop also works (verified on 2026-11-04, see 2.6) and is used for tests; the services themselves have not been moved into containers.
 
 ---
 
@@ -19,7 +19,7 @@
 | Node.js | Frontend build and runtime | v21.7.0 | Preinstalled | ✅ Installed |
 | npm | Frontend package manager | 10.5.0 | Preinstalled | ✅ Installed |
 | Git | Version control | 2.44.0.windows.1 | Preinstalled | ✅ Installed |
-| Docker Desktop | Container deployment | 4.90.0 | winget | ⚠️ Installed but unusable (the host does not support nested virtualization) |
+| Docker Desktop | Container deployment | 4.90.0 | winget | ✅ Works on WSL2 (verified on 2026-11-04), not started with Windows; start Docker Desktop before running the integration tests |
 
 ---
 
@@ -199,13 +199,13 @@ spring:
 
 ⚠️ **A pitfall during installation**: the Erlang installed first through winget was 29.0.6, which is incompatible with RabbitMQ 4.3.x. RabbitMQ 4.3.x officially supports Erlang 27.x, partly supports 28.x, and does not support 29.x. At startup it failed with `incompatible_feature_flags` and `horus extraction_denied` errors. After uninstalling Erlang 29 and installing Erlang 27.3.4.17, it worked. **Before upgrading Erlang in the future, check the [RabbitMQ compatibility table](https://www.rabbitmq.com/docs/which-erlang).**
 
-### 2.6 Docker Desktop (not enabled)
+### 2.6 Docker Desktop
 
-- Installed through winget (4.90.0), but the machine checks showed:
-  - The Windows `VirtualMachinePlatform` and `Microsoft-Windows-Subsystem-Linux` features are both enabled.
-  - Hardware virtualization is not passed through to this machine. `wsl --install` reports that virtualization is not enabled, and `systeminfo` shows "A hypervisor has been detected".
-  - Conclusion: this machine is itself a virtual machine. Docker and WSL2 need **nested virtualization** enabled on the host, which cannot be fixed from inside the virtual machine.
-- On a physical machine, or if the host enables nested virtualization, try `wsl --install` again. Once it succeeds, Docker Desktop will work, and MySQL, Redis, and RabbitMQ can be moved to `docker-compose` (see chapter 13 of the learning documents).
+- Installed through winget (4.90.0). It was first recorded as unusable, because `wsl --install` reported that virtualization was not enabled and `systeminfo` showed "A hypervisor has been detected". The conclusion then was that this machine is itself a virtual machine. **That conclusion was wrong.** The machine is a physical one (an ASUS ROG STRIX Z790-A board with an Intel Core i9-13900KF), and the hypervisor that `systeminfo` reports is Windows' own (Hypervisor enforced Code Integrity).
+- On 2026-11-04 the WSL default version was 2, a `docker-desktop` distribution existed, and after starting Docker Desktop, `docker run --rm hello-world` ran correctly (Docker engine 29.7.2).
+- Docker Desktop does not start with Windows. Start it before running the integration tests, which use Testcontainers to create a temporary MySQL 8.4 (see [OpsFlow Backend](docs/backend/backend-design.md#tests)).
+- The WSL2 virtual machine takes memory. To limit it, create `%UserProfile%\.wslconfig` with a `[wsl2]` section and a `memory=` line.
+- MySQL, Redis, and RabbitMQ stay as native Windows services (decided on 2026-11-04). Docker is used only for the temporary MySQL of the tests.
 
 ---
 
@@ -284,4 +284,3 @@ All three services should show `Running` / `Automatic`, which means they start o
 - [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE (see chapter 3 of the learning documents)
 - [ ] When the backend is created, read the MySQL and RabbitMQ credentials from the environment variables in section 3, as in the section 2 examples, and keep `application-local.yml` out of git
 - [ ] Frontend: decide between Vue and React (the learning documents mention both), then decide whether a scaffolding CLI is needed (for example `npm create vite@latest`)
-- [ ] If the machine moves to an environment that supports virtualization, consider managing these middleware services with Docker Compose, as in chapter 13 of the learning documents
