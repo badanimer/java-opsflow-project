@@ -168,7 +168,7 @@ The blocks above are the checks of the SQL script. This section records the test
 
 - **How they run:** from `backend/`, `mvnw test`, with Docker Desktop running. The container gets the migrations and `restrict-app-privileges.sql`, and the tests connect as the limited application account. See [Tests](../../docs/backend/backend-design.md#tests) in the backend design.
 - **Test names** are the Java method names, so a line in the Maven output can be found here with a search.
-- **Latest run, 2026-11-04: 7 passed, 0 failed.**
+- **Latest run, 2026-11-09: 80 passed, 0 failed** (7 of the test infrastructure and 73 of the shared code).
 
 ### Test infrastructure (7 tests)
 
@@ -183,9 +183,25 @@ These tests check the set-up, not a business rule. They are in `TestInfrastructu
 | `everyTestStartsWithEmptyTables`, `everyTestStartsWithEmptyTablesToo` | A row left by one test is gone when the other starts | The clean start every race test needs |
 | `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key lets exactly one insert succeed | The race runner itself |
 
+### Shared code (73 tests)
+
+These tests check the foundations in the `common` package ([Shared Code](../../docs/backend/backend-design.md#shared-code)). The counts are the runs that Maven prints: a parameterised test counts once for each value.
+
+| Test class and methods | What it shows | Supports |
+| --- | --- | --- |
+| `CursorCodecTest`: `aCursorSurvivesTheRoundTrip` (6), `theEncodedFormCanBeUsedInAUrlWithoutEscaping`, `aStringThatIsNotACursorIsRefused` (6), `nullAndTooLongStringsAreRefused` | A cursor decodes to what was encoded, whatever the key holds, and a string that is not a cursor is refused with `VALIDATION_FAILED` | [Paging](../../docs/api/api-design.md#paging) |
+| `PageQueryFactoryTest`: `theDefaultsAreTheFirstPageOfTenNewestFirst`, `theParametersAreReadWithoutRegardToCase`, `theLimitIsAtMostThePageSize`, `anUnknownDirectionOrOrderIsRefused`, `orderIsRefusedOnAListWhoseOrderIsFixed`, `goingBackNeedsACursor`, `aBrokenCursorIsRefused`, `theReadDirectionCombinesTheOrderWithTheDirectionOfTravel` | The paging parameters are defaulted and checked, and a bad one is refused, not corrected | [Home page and paging](../../docs/database/database-design.md#home-page-and-paging) |
+| `PagingWalkTest`: `walkingForwardShowsEveryRowOnceNewestFirst`, `theFirstPageHasNoPreviousCursorAndTheLastHasNoNextCursor`, `aListThatFillsExactlyOnePageHasNoNextCursor`, `anEmptyListHasNoCursors`, `goingBackShowsTheSameRowsInTheSameOrder`, `rowsInsertedAtTheTopBetweenTwoReadsNeitherRepeatNorSkipARow`, `rowsInsertedInsideTheAlreadyReadPartDoNotShiftTheNextPage`, `aRowDeletedBetweenTwoReadsDoesNotDisturbTheNextPage`, `rowsWithTheSameKeyAreOrderedByIdAndNoneIsLostAtAPageEdge` | A list walked forward and back is seen once, the two ends have no cursor, and rows inserted or deleted between two page reads change nothing already read. It runs on an in-memory list with the comparison a repository makes; the first real list repeats it against the database (T-45) | Paging by key, not by offset |
+| `TransactionRetryTest` (14 tests): `aDeadlockIsRetriedAndTheLaterTrySucceeds`, `whenEveryTryFailsTheResultIsBusyAfterExactlyTheConfiguredAttempts`, `theNumberOfAttemptsComesFromTheConfiguration`, `aLockWaitTimeoutIsRetriedToo`, `anyOtherFailureGoesToTheCallerAtOnce`, `aRefusalOfTheApiIsNeverRetried`, `callingItInsideATransactionIsRefusedBecauseTheRetryWouldRunOnARolledBackConnection`, and seven more | Only a deadlock or a lock wait is retried, at most the configured number of times, each try a new call, then `BUSY` with the last failure as its cause | [Operating Parameters](../../docs/database/database-design.md#operating-parameters), Transactions in the backend design |
+| `TransactionRetryMySqlTest`: `twoTransactionsLockingTheSameRowsInOppositeOrderBothSucceedAfterTheLoserRetries`, `aLockWaitThatNeverEndsIsRetriedTheConfiguredNumberOfTimesAndThenAnswersBusy` | Against the MySQL container: a real deadlock aborts one of two transactions and the retry makes both succeed in three attempts in total; a real lock wait timeout is retried 3 times and ends in `BUSY` with nothing written | The deadlock and lock wait rules of Concurrency and duplicate protection |
+| `UtcTimeTest` (5 tests), `UtcSourceRuleTest`: `noCodeReadsTheDefaultTimeZoneOfTheMachine` | The conversions do not depend on the time zone of the machine, and no code in `src/main/java` reads it | [Time zone](../../docs/database/database-design.md#time-zone) |
+| `IdempotencyKeyTest` (4 tests) | The header is optional; an empty, too long, spaced, or non-ASCII key is refused | [Idempotency](../../docs/api/api-design.md#general-rules) |
+| `ApiConventionsTest` (15 tests) | Through HTTP calls to a controller that exists only in the tests: the base path, the error body with its `code` and extra fields, `BUSY` as 503, validation errors with the refused fields, a text over its limit refused, 404, 405, 415, no detail, SQL, or secret in an unexpected error, the paging and idempotency parameters, and a time written with a trailing `Z` | [OpsFlow API](../../docs/api/api-design.md) |
+| `LimitsMatchSchemaTest`: `everyLimitEqualsTheLengthOfItsColumns` | Each constant of `Limits` equals the length of its 22 columns in the migrated database | [Field Specifications](../../docs/database/database-design.md#field-specifications) (T-13) |
+
 ### Repeats of the script checks
 
-Each row says which Java test repeats which check of Block D. None is written yet: they are the task T-17, and each is added here when it is written.
+Each row says which Java test repeats which check of Block D. Most are not written yet: they are the task T-17, and each is added here when it is written.
 
 | Check in this file | Application test | State |
 | --- | --- | --- |
@@ -194,7 +210,7 @@ Each row says which Java test repeats which check of Block D. None is written ye
 | D3. Many sales on one stock row | | Not written |
 | D4. Listing, delisting, and ordering under a product | | Not written |
 | D5. Adding and deleting warehouse items, and opening a ticket on items | | Not written |
-| D6. Deadlocks and lock waits (including the retry and the explicit rollback) | | Not written |
+| D6. Deadlocks and lock waits (including the retry and the explicit rollback) | `TransactionRetryMySqlTest`: both methods above | Partly written: the retry component against a real deadlock and a real lock wait. The lock order of the order flow is not repeated yet, because that code does not exist |
 
 ## What is not tested yet
 

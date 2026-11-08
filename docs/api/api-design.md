@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-09 | 1.1 | The conventions are written into code: the format of the idempotency key, the rules that refuse a bad paging parameter, and two codes for a wrong method and a wrong media type | [api-v1.1.md](../iterations/api-v1.1.md) |
 | 2026-11-04 | 1.0 | The first conventions: paths, formats, the error response, result codes, status codes, and key-based paging | [api-v1.0.md](../iterations/api-v1.0.md) |
 
 ## General Rules
@@ -23,7 +24,7 @@ This document always describes the current API conventions. Each iteration has a
 | Time | ISO 8601 in UTC with a trailing `Z`, for example `2026-11-04T03:00:00Z`. The frontend converts it for display. See [Time zone](../database/database-design.md#time-zone). |
 | Authentication | The header `Authorization: Bearer <token>`. The token carries only the user id and its issue time (see T-20 in [project-todo.md](../project-todo.md)). |
 | Success | No envelope: the response body is the resource itself. `200` for a read or an update, `201` with the new resource for a create, `204` with no body when there is nothing to return. |
-| Idempotency | An order request may carry the header `Idempotency-Key`. A repeated submission with the same key returns the original order and adds no row. |
+| Idempotency | An order request may carry the header `Idempotency-Key`. A repeated submission with the same key returns the original order and adds no row. The key is 1 to 128 visible ASCII characters (a UUID fits), because it is stored in a 128-character column; an empty, longer, or other key is refused with `VALIDATION_FAILED`, and `errors` names the field `Idempotency-Key`. |
 | Limits | The length limit of every text field equals the length of its database column, so that over-long input is refused with `VALIDATION_FAILED` and never truncated (T-13). |
 
 ## Error Response
@@ -62,6 +63,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists | General |
 | 404 | `ORDER_NOT_FOUND` | The order number named on a ticket is not in `order_attempts` | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 404 | `FOLLOW_NOT_FOUND` | The ticket to follow does not exist | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
+| 405 | `METHOD_NOT_ALLOWED` | The path exists but not for this HTTP method | General |
 | 409 | `OUT_OF_STOCK` | An item is short | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `NO_STOCK` | An item with no stock cannot be listed | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
 | 409 | `PRODUCT_DELISTED` | The product is not on sale | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
@@ -69,6 +71,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 409 | `ITEM_CHANGED` | A chosen item no longer exists. The body names them | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 409 | `FOLLOW_NOT_ALLOWED` | The ticket to follow is not `RESOLVED` or `CLOSED` | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 409 | `LIMIT_REACHED` | The person already has 99 open tickets, or 99 in progress | [Ticket limits](../database/database-design.md#ticket-limits) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | The body is not JSON | General |
 | 429 | `LOGIN_LOCKED` | The account is locked after failed logins | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 429 | `TOO_MANY_REQUESTS` | A code was requested again within 60 seconds | General |
 | 503 | `BUSY` | The retries on a deadlock or a lock wait were used up. Nothing was created | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
@@ -99,6 +102,7 @@ Response:
 { "items": [ ... ], "nextCursor": "...", "prevCursor": "..." }
 ```
 
+- A parameter that is out of range is refused with `VALIDATION_FAILED` and is never corrected silently: a `limit` below 1 or above the page size, an unknown `direction` or `order`, a `direction` of `prev` without a `cursor`, an `order` on a list whose order is fixed, and a `cursor` that does not decode. The values are read without regard to case.
 - A cursor is `null` when there is no page in that direction.
 - There is no total count.
 - The cursor holds the sort key of the row at the edge of the page and its `id`. The client never builds or reads one.

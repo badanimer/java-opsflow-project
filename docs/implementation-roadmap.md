@@ -17,7 +17,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | Phase | Goal | Main tasks |
 | --- | --- | --- |
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
-| 1 | Foundations that every module uses | T-52, T-09, T-13, T-11 |
+| 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login | T-05, T-20, T-28, T-29, T-49, T-43, T-36 |
 | 3 | Roles and permissions | T-24, T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45 |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
@@ -42,18 +42,16 @@ These apply to each module, so they are not repeated below:
 - The backend skeleton, and the decisions on the persistence layer (`JdbcTemplate`), transactions (`@Transactional`), the package layout (by feature), authentication (BCrypt and a signed JWT), and the API conventions.
 - The test infrastructure: a MySQL 8.4 container, the race runner, and the first 7 tests.
 
-## Phase 1: Foundations
+## Phase 1: Done
 
-Nothing in the later phases works without these, and they need no database tables of their own.
+[backend-v1.3.md](iterations/backend-v1.3.md) and [api-v1.1.md](iterations/api-v1.1.md) record it.
 
-| Task | What |
-| --- | --- |
-| T-52 | The base path `/api/v1`, one exception handler that returns Problem Details with a `code`, the cursor codec and the paged-response type, the `Idempotency-Key` header, and the retry component that sits outside the `@Transactional` method |
-| T-09 | Every Java time is handled in UTC |
-| T-13 | The validation limits equal the column lengths. Start with a shared way to declare them, and apply it as each request type is written |
-| T-11 | The operating parameters in application configuration. Start with the retry attempts and delays, and add the others as their modules arrive |
+- The base path `/api/v1`, one exception handler that returns Problem Details with a `code`, the cursor codec and the paged-response type, the `Idempotency-Key` check, and the retry component that sits outside the `@Transactional` method.
+- Every Java time in UTC: the `Clock` bean, `UtcTime`, and a test that fails when code reads the time zone of the machine.
+- The shared declaration of the length limits (`Limits`), checked against the database by a test, and the first operating parameters (the retry and the page size) in application configuration.
+- 73 tests, among them a real deadlock and a real lock wait timeout in the MySQL container.
 
-**Done when:** an endpoint that fails returns the documented error body, a cursor survives a round trip, and the retry component retries a deadlock a configured number of times and gives up with `BUSY`. All of this is covered by unit and controller tests.
+Two tasks do not end here, because they grow with the modules: apply `Limits` to each request type as it is written (T-13), and add each module's parameters to `OpsflowProperties` (T-11).
 
 ## Phase 2: Accounts and Login
 

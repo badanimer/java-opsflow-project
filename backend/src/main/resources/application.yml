@@ -9,3 +9,11 @@ spring:
   flyway:
     user: ${OPSFLOW_MIGRATION_USERNAME}
     password: ${OPSFLOW_MIGRATION_PASSWORD}
+
+# Operating parameters (T-11). The reasons are in Operating Parameters in docs/database/database-design.md.
+opsflow:
+  retry:
+    attempts: 3           # in total, the first try included
+    delays: 50ms, 150ms   # before the 2nd and the 3rd try; a random extra of up to half is added
+  paging:
+    page-size: 10         # the default and the most

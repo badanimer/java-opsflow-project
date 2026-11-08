@@ -39,6 +39,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-09 | 1.1 | API | Settled three points while writing the conventions into code: the format of the idempotency key, the paging parameters that are refused, and two result codes for a wrong method and a wrong media type | [api-v1.1.md](docs/iterations/api-v1.1.md) |
+| 2026-11-09 | 1.3 | Backend | Built the shared foundations in the `common` package: the error handler, key-based paging, the retry component for deadlocks, UTC time helpers, the base path, the length limits, and the operating parameters in configuration, with 73 new tests | [backend-v1.3.md](docs/iterations/backend-v1.3.md) |
 | 2026-11-05 | 1.2 | Backend | Logged the tests of the Java application in the existing test log, in a section of their own that maps each script check to the Java test that repeats it | [backend-v1.2.md](docs/iterations/backend-v1.2.md) |
 | 2026-11-04 | 1.1 | Backend | Chose `JdbcTemplate` as the persistence layer, `@Transactional` for transactions, a layout by feature, three layers of tests with Testcontainers for the integration tests, and BCrypt with a signed JWT for authentication. Found that Docker works on this machine and corrected the environment notes | [backend-v1.1.md](docs/iterations/backend-v1.1.md) |
 | 2026-11-04 | 1.0 | API | The first API conventions: a versioned base path, JSON and UTC formats, Problem Details errors with a `code`, one table of result codes and statuses, and key-based paging | [api-v1.0.md](docs/iterations/api-v1.0.md) |
