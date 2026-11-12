@@ -10,6 +10,11 @@ spring:
     user: ${OPSFLOW_MIGRATION_USERNAME}
     password: ${OPSFLOW_MIGRATION_PASSWORD}
 
+# Every log line of a request carries the id of the request, set by RequestIdFilter.
+logging:
+  pattern:
+    correlation: "[%X{requestId:-}] "
+
 # Operating parameters (T-11). The reasons are in Operating Parameters in docs/database/database-design.md.
 opsflow:
   retry:

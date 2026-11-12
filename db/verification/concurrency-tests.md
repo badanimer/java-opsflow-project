@@ -168,7 +168,7 @@ The blocks above are the checks of the SQL script. This section records the test
 
 - **How they run:** from `backend/`, `mvnw test`, with Docker Desktop running. The container gets the migrations and `restrict-app-privileges.sql`, and the tests connect as the limited application account. See [Tests](../../docs/backend/backend-design.md#tests) in the backend design.
 - **Test names** are the Java method names, so a line in the Maven output can be found here with a search.
-- **Latest run, 2026-11-09: 80 passed, 0 failed** (7 of the test infrastructure and 73 of the shared code).
+- **Latest run, 2026-11-12: 85 passed, 0 failed** (7 of the test infrastructure and 78 of the shared code). The run was made with the four database environment variables unset, as on the machine of the continuous integration job, which runs the same command on every push (see [Continuous integration](../../docs/backend/backend-design.md#continuous-integration)).
 
 ### Test infrastructure (7 tests)
 
@@ -183,7 +183,7 @@ These tests check the set-up, not a business rule. They are in `TestInfrastructu
 | `everyTestStartsWithEmptyTables`, `everyTestStartsWithEmptyTablesToo` | A row left by one test is gone when the other starts | The clean start every race test needs |
 | `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key lets exactly one insert succeed | The race runner itself |
 
-### Shared code (73 tests)
+### Shared code (78 tests)
 
 These tests check the foundations in the `common` package ([Shared Code](../../docs/backend/backend-design.md#shared-code)). The counts are the runs that Maven prints: a parameterised test counts once for each value.
 
@@ -196,7 +196,7 @@ These tests check the foundations in the `common` package ([Shared Code](../../d
 | `TransactionRetryMySqlTest`: `twoTransactionsLockingTheSameRowsInOppositeOrderBothSucceedAfterTheLoserRetries`, `aLockWaitThatNeverEndsIsRetriedTheConfiguredNumberOfTimesAndThenAnswersBusy` | Against the MySQL container: a real deadlock aborts one of two transactions and the retry makes both succeed in three attempts in total; a real lock wait timeout is retried 3 times and ends in `BUSY` with nothing written | The deadlock and lock wait rules of Concurrency and duplicate protection |
 | `UtcTimeTest` (5 tests), `UtcSourceRuleTest`: `noCodeReadsTheDefaultTimeZoneOfTheMachine` | The conversions do not depend on the time zone of the machine, and no code in `src/main/java` reads it | [Time zone](../../docs/database/database-design.md#time-zone) |
 | `IdempotencyKeyTest` (4 tests) | The header is optional; an empty, too long, spaced, or non-ASCII key is refused | [Idempotency](../../docs/api/api-design.md#general-rules) |
-| `ApiConventionsTest` (15 tests) | Through HTTP calls to a controller that exists only in the tests: the base path, the error body with its `code` and extra fields, `BUSY` as 503, validation errors with the refused fields, a text over its limit refused, 404, 405, 415, no detail, SQL, or secret in an unexpected error, the paging and idempotency parameters, and a time written with a trailing `Z` | [OpsFlow API](../../docs/api/api-design.md) |
+| `ApiConventionsTest` (20 tests) | Through HTTP calls to a controller that exists only in the tests: the base path, the error body with its `code` and extra fields, `BUSY` as 503, validation errors with the refused fields, a text over its limit refused, 404, 405, 415, no detail, SQL, or secret in an unexpected error, the paging and idempotency parameters, and a time written with a trailing `Z`. The request id, in five tests: `everyResponseCarriesANewRequestId`, `anErrorBodyCarriesTheRequestIdOfItsResponse` (a refusal, a validation failure, an error of Spring MVC, and an unexpected error), `aRequestIdSentByTheClientIsIgnored`, `theLogLinesOfARequestCarryItsRequestId`, and `theRequestIdDoesNotStayOnTheThreadAfterTheRequest` | [OpsFlow API](../../docs/api/api-design.md), [Request id and logs](../../docs/backend/backend-design.md#request-id-and-logs) |
 | `LimitsMatchSchemaTest`: `everyLimitEqualsTheLengthOfItsColumns` | Each constant of `Limits` equals the length of its 22 columns in the migrated database | [Field Specifications](../../docs/database/database-design.md#field-specifications) (T-13) |
 
 ### Repeats of the script checks

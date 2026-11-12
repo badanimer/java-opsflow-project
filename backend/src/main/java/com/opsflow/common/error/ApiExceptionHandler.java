@@ -25,12 +25,15 @@ import org.springframework.web.method.annotation.HandlerMethodValidationExceptio
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import com.opsflow.common.web.RequestIdFilter;
+
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 
 /**
  * The one place where an exception becomes an error response. Every error is a Problem Details body
- * (RFC 9457, {@code application/problem+json}) with an added {@code code}; see docs/api/api-design.md.
+ * (RFC 9457, {@code application/problem+json}) with an added {@code code} and the {@code requestId} of
+ * the request; see docs/api/api-design.md.
  *
  * The body never carries a stack trace or an SQL message. An unexpected error is logged here with its
  * stack trace and answered with {@code INTERNAL_ERROR} and no detail.
@@ -142,6 +145,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 			problem.setDetail(detail);
 		}
 		problem.setProperty("code", code.name());
+		String requestId = RequestIdFilter.current();
+		if (requestId != null) {
+			problem.setProperty("requestId", requestId);
+		}
 		return problem;
 	}
 

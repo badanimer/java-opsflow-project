@@ -19,7 +19,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login | T-05, T-20, T-28, T-29, T-49, T-43, T-36 |
-| 3 | Roles and permissions | T-24, T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45 |
+| 3 | Roles and permissions | T-24, T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45, T-54 |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
@@ -32,7 +32,7 @@ These apply to each module, so they are not repeated below:
 
 1. **Design first.** State the reads, the protection against a concurrent request, and the place in the lock order of every new write path in [database-design.md](database/database-design.md#concurrency-by-module) before writing it (T-34).
 2. **Build** the module in its own package, as in [backend-design.md](backend/backend-design.md#layout). Add each new result code to the table in [api-design.md](api/api-design.md).
-3. **Test** every rule with a test, and every race with a race test against the MySQL container (T-17, T-34).
+3. **Test** every rule with a test, and every race with a race test against the MySQL container (T-17, T-34). A rule that every module must keep gets a test that fails the build (see [Rules Checked By Tests](backend/backend-design.md#rules-checked-by-tests)). Keep slow work out of every transaction (see [No slow work inside a transaction](backend/backend-design.md#no-slow-work-inside-a-transaction)).
 4. **Grant** the application account the rights for any new table in [restrict-app-privileges.sql](../db/admin/restrict-app-privileges.sql) (T-04).
 5. **Record** the iteration as the sync rules require, and update the to-do list.
 
@@ -50,6 +50,7 @@ These apply to each module, so they are not repeated below:
 - Every Java time in UTC: the `Clock` bean, `UtcTime`, and a test that fails when code reads the time zone of the machine.
 - The shared declaration of the length limits (`Limits`), checked against the database by a test, and the first operating parameters (the retry and the page size) in application configuration.
 - 73 tests, among them a real deadlock and a real lock wait timeout in the MySQL container.
+- Added before Phase 2 ([backend-v1.4.md](iterations/backend-v1.4.md)): a request id on every response and log line, and the tests run in continuous integration on every push.
 
 Two tasks do not end here, because they grow with the modules: apply `Limits` to each request type as it is written (T-13), and add each module's parameters to `OpsflowProperties` (T-11).
 
@@ -78,7 +79,8 @@ The first administrator comes first, because no one can be given a role without 
 | Task | What |
 | --- | --- |
 | T-24 | The console command that creates the first administrator |
-| T-27 | Review the Permission Matrix, then check every endpoint against the roles of the caller |
+| T-27 | Review the Permission Matrix, then check every endpoint against the roles of the caller. Refuse by default, with a test that fails for an endpoint that declares no permission |
+| T-54 | The test of the package dependencies, now that there are two modules |
 | T-19, T-15 | A role counts only for a usable account; role grants are refused to other accounts and logged |
 | T-21 | Role management for `ADMIN`, and replacing a user's roles in one transaction |
 | T-26 | Authority over roles and accounts |
@@ -163,7 +165,7 @@ It can start earlier, after Phase 3, and grow one module at a time as each backe
 | --- | --- |
 | T-17, T-34 | Repeat the concurrency checks for tickets, roles, and authentication against the real code, and check that the test log matches the code |
 | Q-07, T-08 | Redis for idempotency and rate limiting, and RabbitMQ for asynchronous work, if they are brought in. T-08 follows with the RabbitMQ variables |
-| Q-32 | Continuous integration and the deployment plan |
+| Q-32 | The deployment plan, with the counters, the health check, and the question of more than one instance. The tests already run in continuous integration |
 | Q-28 | How the creator and the assignee are told that a ticket was cancelled |
 | | The README and the documentation brought up to the finished system |
 

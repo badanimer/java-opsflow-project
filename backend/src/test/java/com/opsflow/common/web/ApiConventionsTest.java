@@ -1,5 +1,6 @@
 package com.opsflow.common.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -10,13 +11,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.opsflow.common.config.OpsflowProperties;
 import com.opsflow.common.error.ApiExceptionHandler;
@@ -24,8 +32,8 @@ import com.opsflow.common.paging.PageQueryFactory;
 
 /**
  * The shared conventions of docs/api/api-design.md, checked through HTTP calls to {@link ProbeController}:
- * the base path, the error body, the result codes, the paging parameters, the idempotency header, and the
- * format of times. The service layer is not involved.
+ * the base path, the error body, the result codes, the request id, the paging parameters, the idempotency
+ * header, and the format of times. The service layer is not involved.
  */
 @WebMvcTest(ProbeController.class)
 @Import({ WebConfig.class, ApiExceptionHandler.class, PageQueryFactory.class })
@@ -141,6 +149,58 @@ class ApiConventionsTest {
 				.andExpect(status().isInternalServerError())
 				.andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
 				.andExpect(content().string(not(containsString("stack trace"))));
+	}
+
+	@Test
+	void everyResponseCarriesANewRequestId() throws Exception {
+		String first = requestIdOf(mvc.perform(get("/api/v1/probe/ok")).andExpect(status().isOk()).andReturn());
+		String second = requestIdOf(mvc.perform(get("/api/v1/probe/ok")).andReturn());
+
+		assertThat(first).matches("[0-9a-f]{32}");
+		assertThat(second).matches("[0-9a-f]{32}").isNotEqualTo(first);
+	}
+
+	@Test
+	void anErrorBodyCarriesTheRequestIdOfItsResponse() throws Exception {
+		// One error from each way the handler builds a body: a refusal, a validation failure, an error of Spring MVC, an unexpected error.
+		for (MockHttpServletRequestBuilder request : List.of(
+				get("/api/v1/probe/refusal"),
+				post("/api/v1/probe/body").contentType(MediaType.APPLICATION_JSON).content("{\"sku\":\"\",\"quantity\":0}"),
+				get("/api/v1/nothing-here"),
+				get("/api/v1/probe/boom"))) {
+			MvcResult result = mvc.perform(request).andReturn();
+			assertThat(requestIdOf(result)).matches("[0-9a-f]{32}");
+			assertThat(result.getResponse().getContentAsString()).contains("\"requestId\":\"" + requestIdOf(result) + "\"");
+		}
+	}
+
+	@Test
+	void aRequestIdSentByTheClientIsIgnored() throws Exception {
+		MvcResult result = mvc.perform(get("/api/v1/probe/ok").header(RequestIdFilter.HEADER, "written-by-the-client")).andReturn();
+
+		assertThat(requestIdOf(result)).matches("[0-9a-f]{32}");
+	}
+
+	@Test
+	@ExtendWith(OutputCaptureExtension.class)
+	void theLogLinesOfARequestCarryItsRequestId(CapturedOutput output) throws Exception {
+		String id = requestIdOf(mvc.perform(get("/api/v1/probe/boom")).andReturn());
+
+		assertThat(output.getOut().lines().filter(line -> line.contains("Unexpected error")))
+				.isNotEmpty()
+				.allMatch(line -> line.contains("[" + id + "]"));
+	}
+
+	@Test
+	void theRequestIdDoesNotStayOnTheThreadAfterTheRequest() throws Exception {
+		mvc.perform(get("/api/v1/probe/ok"));
+		mvc.perform(get("/api/v1/probe/boom"));
+
+		assertThat(RequestIdFilter.current()).isNull();
+	}
+
+	private static String requestIdOf(MvcResult result) {
+		return result.getResponse().getHeader(RequestIdFilter.HEADER);
 	}
 
 	@Test

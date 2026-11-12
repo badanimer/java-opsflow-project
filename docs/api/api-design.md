@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-12 | 1.2 | Every response carries a request id in the header `X-Request-Id`, and every error body carries it as `requestId` | [api-v1.2.md](../iterations/api-v1.2.md) |
 | 2026-11-09 | 1.1 | The conventions are written into code: the format of the idempotency key, the rules that refuse a bad paging parameter, and two codes for a wrong method and a wrong media type | [api-v1.1.md](../iterations/api-v1.1.md) |
 | 2026-11-04 | 1.0 | The first conventions: paths, formats, the error response, result codes, status codes, and key-based paging | [api-v1.0.md](../iterations/api-v1.0.md) |
 
@@ -25,11 +26,12 @@ This document always describes the current API conventions. Each iteration has a
 | Authentication | The header `Authorization: Bearer <token>`. The token carries only the user id and its issue time (see T-20 in [project-todo.md](../project-todo.md)). |
 | Success | No envelope: the response body is the resource itself. `200` for a read or an update, `201` with the new resource for a create, `204` with no body when there is nothing to return. |
 | Idempotency | An order request may carry the header `Idempotency-Key`. A repeated submission with the same key returns the original order and adds no row. The key is 1 to 128 visible ASCII characters (a UUID fits), because it is stored in a 128-character column; an empty, longer, or other key is refused with `VALIDATION_FAILED`, and `errors` names the field `Idempotency-Key`. |
+| Request id | Every response, successful or not, carries the header `X-Request-Id`: 32 hexadecimal characters that the server makes new for each request. The same value is on every log line of the request, so the id from a report finds the request in the log. The server ignores an `X-Request-Id` sent by the client. |
 | Limits | The length limit of every text field equals the length of its database column, so that over-long input is refused with `VALIDATION_FAILED` and never truncated (T-13). |
 
 ## Error Response
 
-Every error uses the Problem Details format (RFC 9457, `application/problem+json`), which Spring supports directly, with one added field, `code`, that a program can read:
+Every error uses the Problem Details format (RFC 9457, `application/problem+json`), which Spring supports directly, with two added fields: `code`, that a program can read, and `requestId`, that a person can quote:
 
 ```json
 {
@@ -37,12 +39,14 @@ Every error uses the Problem Details format (RFC 9457, `application/problem+json
   "code": "OUT_OF_STOCK",
   "title": "Out of stock",
   "detail": "Widget has only 3 left",
+  "requestId": "ddddc8f3b64942ff94a448cfbb1d7f9d",
   "orderNo": "ord-3f2a..."
 }
 ```
 
 - `code` is the stable, machine-readable result. The frontend decides what to do from `code`, never from `detail`.
 - `title` and `detail` are for people and may change in wording.
+- `requestId` is the value of the `X-Request-Id` header of the same response. The frontend shows it with an error message that the user may report, and never decides anything from it.
 - A refused order and a refused ticket may carry extra fields that belong to the result, such as `orderNo`. A refused order always carries its `orderNo`, because every attempt has one and is recorded in `order_attempts`.
 - A validation failure adds `errors`, a list of `{ "field": "...", "message": "..." }` for each field that was refused.
 - The error body never contains a stack trace, an SQL message, a password, a code, or a hash.
