@@ -1,0 +1,214 @@
+/*
+ * The layout of the pages. The colours are the default tokens of Ant Design, as in the Figma design.
+ * No width is fixed: a card has a largest width and fills a narrow screen, so the account pages work
+ * on a phone without a design of their own.
+ */
+
+:root {
+  --bg-layout: #f5f5f5;
+  --bg-container: #ffffff;
+  --border: #d9d9d9;
+  --text: #1f1f1f;
+  --text-secondary: #8c8c8c;
+  --primary: #1677ff;
+  --primary-bg: #e6f4ff;
+  --card-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-layout);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo__name {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Pages for people who are not logged in */
+
+.auth-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 448px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 40px 48px;
+  background: var(--bg-container);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+}
+
+.auth-card__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.auth-card .auth-card__title,
+.pending-card .pending-card__title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.4;
+}
+
+.auth-card__aside {
+  display: flex;
+  justify-content: flex-end;
+  margin: -8px 0 20px;
+}
+
+.auth-card__footer {
+  margin: 0;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.code-row {
+  display: flex;
+  gap: 8px;
+}
+
+.code-row__button {
+  flex: none;
+  min-width: 132px;
+}
+
+/* Pages of a logged-in user */
+
+.app-page {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  padding: 0 32px;
+  background: var(--bg-container);
+  border-bottom: 1px solid var(--border);
+}
+
+.top-bar__account {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.top-bar__name {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-page__center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.pending-card {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 48px;
+  text-align: center;
+  background: var(--bg-container);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+}
+
+.pending-card .pending-card__title {
+  font-size: 20px;
+}
+
+.pending-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--primary-bg);
+  color: var(--primary);
+  font-size: 28px;
+}
+
+.pending-card__notice {
+  width: 100%;
+  text-align: left;
+}
+
+.center-page {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.center-page__box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  max-width: 448px;
+}
+
+/* A phone: less padding, and the button for the code under the address */
+
+@media (max-width: 480px) {
+  .auth-card,
+  .pending-card {
+    padding: 28px 20px;
+  }
+
+  .top-bar {
+    padding: 0 16px;
+  }
+
+  .code-row {
+    flex-direction: column;
+  }
+}

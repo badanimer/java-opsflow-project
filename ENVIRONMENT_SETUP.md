@@ -16,7 +16,7 @@
 | Redis | Cache, idempotency, rate limiting | 8.10.1 (redis-windows-fork, MSYS2 build) | winget + NSSM registered as a service | ✅ Running as a Windows service, starts on boot |
 | Erlang/OTP | RabbitMQ runtime dependency | 27.3.4.17 | Manual download and install | ✅ Installed |
 | RabbitMQ | Message queue (asynchronous tasks) | 4.3.5 | Manual download and install | ✅ Running as a Windows service, starts on boot, management plugin enabled |
-| Node.js | Frontend build and runtime | v21.7.0 | Preinstalled | ✅ Installed |
+| Node.js | Frontend build and runtime. The frontend is pinned to Vite 5 and jsdom 25, which run on this version; their newest versions need Node 22 | v21.7.0 | Preinstalled | ✅ Installed |
 | npm | Frontend package manager | 10.5.0 | Preinstalled | ✅ Installed |
 | Git | Version control | 2.44.0.windows.1 | Preinstalled | ✅ Installed |
 | Docker Desktop | Container deployment | 4.90.0 | winget | ✅ Works on WSL2 (verified on 2026-11-04), not started with Windows; start Docker Desktop before running the integration tests |
@@ -325,4 +325,4 @@ All three services should show `Running` / `Automatic`, which means they start o
 - [ ] Create the business database manually: `CREATE DATABASE opsflow ...` (see 2.3)
 - [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE (see chapter 3 of the learning documents)
 - [ ] When the backend is created, read the MySQL and RabbitMQ credentials from the environment variables in section 3, as in the section 2 examples, and keep `application-local.yml` out of git
-- [ ] Frontend: decide between Vue and React (the learning documents mention both), then decide whether a scaffolding CLI is needed (for example `npm create vite@latest`)
+- [x] Frontend: React with TypeScript, created with Vite (`npm create vite@latest`), and Ant Design for the components. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files)

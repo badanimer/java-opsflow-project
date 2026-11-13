@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document collects the page design of OpsFlow: which pages exist, who sees them, what each one shows, and what it does. It is the starting point for the UI design, and it records the owner's ideas while they are still rough. It is a first version. The visual design (layout, colour, components) is not started, and the frontend framework is not chosen (T-18).
+This document collects the page design of OpsFlow: which pages exist, who sees them, what each one shows, and what it does. It is the starting point for the UI design, and it records the owner's ideas while they are still rough. It is a first version. The frontend stack is chosen and the visual design has started with the account pages (see Frontend Stack And Design Files); the other pages are not drawn yet.
 
 The pages are designed backwards from the database: the screens decide what the database must be able to answer. The rules that reach into the database or the service layer are in [Screens and Lists](../database/database-design.md#screens-and-lists), and the rules of each flow are in [database-design.md](../database/database-design.md). This document does not repeat them in full. Where a rule matters to a page, it is summarized here with a link.
 
@@ -12,8 +12,59 @@ This document always describes the current page design. Entries are listed newes
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-14 | 1.3 | Implemented the four account pages, the route guards, and the shared API client in `frontend/` | [frontend-v1.3.md](../iterations/frontend-v1.3.md) |
+| 2026-11-13 | 1.2 | The frontend stack is chosen (React, TypeScript, Vite, Ant Design), the interface is in English, the token is kept in `localStorage`, and every page is drawn in Figma before it is built. The four account pages are drawn as a first draft | [frontend-v1.2.md](../iterations/frontend-v1.2.md) |
 | 2026-11-12 | 1.1 | A disabled account is told so on the login page and never reaches the pending page; a user whose account is disabled while logged in is sent back to the login page with the same message; the pending page is only for a user with no role. Extended on 2026-11-13: what the sign-up page and Forgot password show for each answer about an email code, and the username rule | [frontend-v1.1.md](../iterations/frontend-v1.1.md) |
 | 2026-10-26 | 1.0 | First version: the page map, what each role sees, and a first description of every page, built from the earlier design and from the owner's rough design of the pages | [frontend-v1.0.md](../iterations/frontend-v1.0.md) |
+
+## Frontend Stack And Design Files
+
+| Item | Choice |
+| --- | --- |
+| Framework | React with TypeScript, built with Vite. The project lives in `frontend/`, next to `backend/` |
+| Components | Ant Design. Its default look is the starting point of the visual design |
+| Language of the interface | English, for every text on every page |
+| Login token | Kept in the `localStorage` of the browser, so a refresh keeps the user logged in until the token expires after 12 hours. On `UNAUTHENTICATED` or `ACCOUNT_DISABLED` the frontend removes it |
+| Design before code | Each page is drawn in Figma first, reviewed by the owner, and then built against the finished endpoints |
+| Order of work | Beside the backend, one module at a time |
+
+The UI design file is [OpsFlow UI in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU). It is not tracked by git. Its page "Login and Sign-up" holds the design of the account pages, which the owner reviewed and accepted on 2026-11-14:
+
+- **Components**: a field (label, input, and a helper or error line), three buttons (primary, default, disabled), three alerts (error, info, warning), and the logo. The colours are variables with the default values of Ant Design.
+- **Login**: the empty page, and its states: wrong username or password, locked after failed attempts, account disabled, empty fields, signing in, after a password reset (a success message), session expired, something went wrong (with the request id as a reference to report), and cannot reach the server.
+- **Sign-up**: the empty page, and its states: code sent (the button for a new code is disabled for 60 seconds), email already registered, wrong or expired code, username taken (the code is kept), too many requests, invalid username, invalid email, invalid password, a code that is not 6 digits, empty fields, sending the code, and creating the account.
+- **Forgot password**: the empty page, and its states: code sent, a new password equal to the current one, invalid password, wrong or expired code, too many requests, and resetting.
+- **Pending**: the page of a user with no role, with a button that checks again and a link to sign out, and the state after a check that still found no role.
+
+Rules that the states follow:
+
+- **The page checks a value before it sends it.** An empty field, a username or a password that breaks its rule, an address that is not an email address, and a code that is not 6 digits are shown under the field, in red, and nothing is sent. The server checks the same rules again. The message for a password is "Use 8 to 24 characters, with at least one letter and one digit."
+- **Every "too many" message says "Please try again in a minute."**, for the lock of the login and for the limits on code requests alike, and names no time. This is the owner's wording. The real wait can be longer: the lock grows to 5 and 15 minutes and to midnight, and the limits on code requests last to the end of the hour or of the day. A person who tries again after a minute is then refused again with the same message.
+- **While a request runs** the button is disabled and says what is happening ("Signing in…"), so a second click sends nothing.
+- **A failure that is not the user's** has two messages: "Something went wrong" with the request id for `INTERNAL_ERROR` and `BUSY`, and "Cannot reach the server" when no answer came.
+- **After a password reset** the user is sent to the login page, which says that the password was reset. **After `UNAUTHENTICATED` on any page** the login page says that the session has expired.
+
+## Running the Frontend Locally
+
+From `frontend/`, run `npm ci` to install the locked dependencies, then `npm run dev`. Open `http://localhost:5173`. Vite forwards `/api` to Spring Boot at `http://localhost:8080` by default. Set `OPSFLOW_API_TARGET` in the shell that starts Vite if the backend runs at a different address. The backend setup is described in [OpsFlow Backend](../backend/backend-design.md).
+
+Run `npm test`, `npm run lint`, and `npm run build` from `frontend/` to check the project. The frontend tests substitute API responses. The owner clicked through the four pages against the running backend on 2026-11-14, signed up with a code from a real mail, and logged in.
+
+The project needs Node 20 or later. It uses Vite 5 and jsdom 25, because the newest versions of both need a newer Node than the 21.7 on the development machine; raise them together with Node.
+
+| Path in `frontend/` | Content |
+| --- | --- |
+| `src/api` | `client.ts`, the one place that calls the backend, and `auth.ts`, the endpoints of Authentication |
+| `src/auth` | The stored token (`session.ts`), the login state (`AuthProvider.tsx`, `context.ts`), and the route guards (`guards.tsx`) |
+| `src/pages` | The four account pages, the placeholder of the product page, and what they share (`useEmailCode.ts`, `failure.ts`) |
+| `src/components` | The frame of the account pages, the top bar, and the logo |
+| `src/text.ts`, `src/validation.ts` | Every text of the interface, and the checks a page makes before it sends a value |
+| `src/test` | The set-up of the tests and the fake server |
+| `vite.config.ts` | The development proxy and the test configuration |
+
+The tests are next to the code they test, in files that end in `.test.ts` or `.test.tsx`: `validation.test.ts`, `api/client.test.ts`, and one for each of the four pages. They open the whole application at a path and set the answers of the server themselves, so they need no backend. The latest run, on 2026-11-14, had 87 tests in 6 files, all passed. GitHub Actions runs `npm ci`, the lint, the tests, and the build on every push, with Node 22, in [`.github/workflows/frontend-tests.yml`](../../.github/workflows/frontend-tests.yml). The job needs no backend and no secret.
+
+The root route currently shows a placeholder for signed-in users with a role. A response of `ACCOUNT_NO_ROLE` from a protected API call sends the signed-in user to Pending and keeps the token.
 
 ## Principles
 
@@ -75,11 +126,11 @@ The full rules are in the [Permission Matrix](../database/database-design.md#per
 
 Ordinary pages, in the usual style of a web application. There are three functions and no more.
 
-- **Login** takes a username and a password. An error never says whether the username exists. After five wrong passwords the account is locked for a time, and the page says when to try again (see [Login security](../database/database-design.md#login-security-and-account-recovery)). The SYSTEM identity cannot log in. The first administrator is created on the server with a console command, so no page exists for it (see [First administrator](../database/database-design.md#first-administrator)).
+- **Login** takes a username and a password. An error never says whether the username exists. After five wrong passwords the account is locked for a time, and the page says "Too many failed attempts. Please try again in a minute." It does not show the time the lock ends, although the API sends it (see [Login security](../database/database-design.md#login-security-and-account-recovery)). The SYSTEM identity cannot log in. The first administrator is created on the server with a console command, so no page exists for it (see [First administrator](../database/database-design.md#first-administrator)).
 - **A disabled account** is told so on the login page. When the password is right and the account is disabled, the login answers `ACCOUNT_DISABLED` and gives no token: the page stays where it is and shows "This account has been disabled. Please contact an administrator." When any later request answers `ACCOUNT_DISABLED`, the account was disabled while the user was logged in: the frontend clears its login state, goes back to the login page, and shows the same message. After the account is enabled again, the user logs in again (see [Disabled accounts](../database/database-design.md#login-security-and-account-recovery)).
 - **Sign-up** takes a username, an email, and a password. The page sends a 6-digit code to the email, and the account is created when the code is entered. The new account has no role. The sign-up logs the user in, so the page goes straight to the pending page, which says that the account is waiting for an administrator to assign permissions. A username is 3 to 64 letters and digits, with no space and no other character.
 - **Forgot password** takes the email, sends a code, and then takes the new password. The reply is the same whether or not the email is registered. A new code can be requested after 60 seconds.
-- **The code, on both pages.** On the sign-up page, a request for a code for an address that already has an account answers `EMAIL_TAKEN`, and the page says "This email is already registered." with links to the login page and to Forgot password. On Forgot password, the page always says that a code was sent if the address has an account, because the server gives the same answer whether or not a mail went out. The button for a new code is disabled for 60 seconds. On `TOO_MANY_REQUESTS` the page says "Too many requests. Please try again later.", and on `CODE_INVALID` "The code is wrong or no longer valid. Please request a new one." On `USERNAME_TAKEN` the page keeps the code and asks for another username. A new password that equals the current one is refused with a message on that field.
+- **The code, on both pages.** On the sign-up page, a request for a code for an address that already has an account answers `EMAIL_TAKEN`, and the page says "This email is already registered." with links to the login page and to Forgot password. On Forgot password, the page always says that a code was sent if the address has an account, because the server gives the same answer whether or not a mail went out. The button for a new code is disabled for 60 seconds. On `TOO_MANY_REQUESTS` the page says "Too many requests. Please try again in a minute.", and on `CODE_INVALID` "The code is wrong or no longer valid. Please request a new one." On `USERNAME_TAKEN` the page keeps the code and asks for another username. A new password that equals the current one is refused with a message on that field.
 - The email and the username cannot be changed. There is no account page. A person changes the password only through Forgot password on the login page.
 
 ### Pending page
@@ -194,7 +245,8 @@ For managers and administrators. The page opens on a menu of seven areas: Accoun
 
 These are not designed yet. Each is a question for the UI design, or for the owner.
 
-- The visual design: layout, colour, components, and the navigation between pages.
+- The visual design of every page but the account pages: layout, colour, and the navigation between pages. The account pages have a first draft in Figma.
+- The font. The draft uses Inter; Ant Design shows the system font of the device.
 - Where the page for the log of one item opens (a dialog or a page), and what the dialog for changing a quantity looks like in detail.
 - How the user is picked in the ticket filters (a typed username is the first idea).
 - The look of the audit log filters, and how each log row is shown (Q-34).
@@ -203,4 +255,3 @@ These are not designed yet. Each is a question for the UI design, or for the own
 - Whether an operator can filter the order records by who ordered, to find their own orders faster.
 - Whether the stock page also shows whether an item is listed.
 - Mobile and small-screen behaviour.
-- The frontend framework (T-18).

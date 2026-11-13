@@ -23,7 +23,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
-| 7 | Frontend | T-18, Q-34, T-22, T-27, T-30, T-37 |
+| 7 | Frontend. Started beside the backend, with the account pages | Q-34, T-27, T-30, T-37 |
 | 8 | Hardening and the rest | T-17, T-34, Q-07, T-08, Q-32, Q-28 |
 
 ## Every Phase
@@ -142,18 +142,16 @@ Tickets link to orders and to items, so they come after both.
 
 ## Phase 7: Frontend
 
-It can start earlier, after Phase 3, and grow one module at a time as each backend part is finished. The choice below decides that.
+It is built beside the backend and grows one module at a time as each backend part is finished. It started on 2026-11-13 with the account pages, whose backend is done. The stack is React, TypeScript, Vite, and Ant Design, and each page is drawn in Figma before it is built ([frontend-v1.2.md](iterations/frontend-v1.2.md)).
 
 | Task | What |
 | --- | --- |
-| T-18 | Choose Vue or React, and a scaffolding tool |
 | Q-34 | The visual design and the open details of the [page design](frontend/page-design.md) |
-| T-22 | The pending page |
 | T-27 | Hide the controls the user cannot use |
 | T-30 | The plus and minus for operators, and Save enabled only when the quantity and the reason are filled in |
 | T-37 | The ticket list order |
 
-**Decisions needed:** T-18, and whether to build the frontend after the backend or beside it.
+**Decisions needed:** the review of each drawn page before it is built. The account pages are reviewed and built.
 
 **Done when:** each page of the page design works against the API for every role.
 

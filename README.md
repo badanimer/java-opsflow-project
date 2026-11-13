@@ -2,7 +2,7 @@
 
 OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a realistic back-office system with transactional consistency, role-based access control, exception handling, and auditability.
 
-The repository currently contains the initial design, staged learning documents, and the initial database migration. Application code will be added as the implementation progresses.
+The repository contains the Spring Boot backend, the React account pages, the database migrations, and the project design and learning documents.
 
 ## Design Documents
 
@@ -12,6 +12,7 @@ The current project design is documented separately from the learning guide:
 - [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) - a concise overview for the README and project introduction.
 - [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) - table fields, keys, and implementation-oriented relationships.
 - [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) - the English order, inventory, audit, and exception-ticket flow.
+- [UI design in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) - the drawn pages. The account pages are a first draft. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files).
 
 The simplified ERD is intended for quick communication. The physical ERD and database document are the references for implementation.
 
@@ -20,7 +21,7 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 - [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
 - [`docs/backend`](docs/backend/) contains the current description of the backend: the stack, the layout of the project, the configuration, and how it is run. The code is in [`backend`](backend/).
 - [`docs/api`](docs/api/) contains the conventions of the HTTP API: the paths, the data formats, the error response, the result codes, and the paging.
-- [`docs/frontend`](docs/frontend/) contains the page design: which pages exist, who sees them, and what each one shows. It is a first version, and the visual design is not started.
+- [`docs/frontend`](docs/frontend/) contains the page design and local frontend instructions. The code is in [`frontend`](frontend/).
 - [`backend/src/main/resources/db/migration`](backend/src/main/resources/db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
 - [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
 - [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification). The test log [`concurrency-tests.md`](db/verification/concurrency-tests.md) lists every test by block, with what it shows and what is not tested yet.
@@ -39,6 +40,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-14 | 1.3 | Frontend | Implemented the React project and four account pages, with route guards, session handling, and frontend tests | [frontend-v1.3.md](docs/iterations/frontend-v1.3.md) |
+| 2026-11-13 | 1.2 | Frontend | Chose the frontend stack (React, TypeScript, Vite, Ant Design), an English interface, and `localStorage` for the token, and drew the first draft of the four account pages in Figma: Login, Sign-up, Forgot password, and Pending, with their states | [frontend-v1.2.md](docs/iterations/frontend-v1.2.md) |
 | 2026-11-13 | 1.5 | Backend | Built login: the `auth` module with BCrypt, a signed token, the check of the account on every request, the login lockout, and security that refuses any request that no rule allows; the seed migration with the four roles and the SYSTEM identity; and the one table of audit actions. 49 new tests, among them the race of a login with a password reset. Extended the same day with sign-up and password recovery: email codes stored as a keyed hash, `EMAIL_TAKEN` at sign-up for an address that has an account and the same answer at recovery whether or not an address is registered, a sign-up that logs the new user in, limits on code requests per client address and for the whole system, a mail component that sends by SMTP in the background and never inside a transaction, the first scheduled job (the cleanup), and the migration `V3`. 78 more tests. Then the console command that creates an administrator, the first task of Phase 3, with 10 tests: 222 in all | [backend-v1.5.md](docs/iterations/backend-v1.5.md) |
 | 2026-11-12 | 1.1 | Frontend | A disabled account is told so on the login page and never reaches the pending page, a user disabled while logged in is sent back to the login page, and the pending page is only for a user with no role. Extended on 2026-11-13 with what the sign-up page and Forgot password show for each answer about an email code | [frontend-v1.1.md](docs/iterations/frontend-v1.1.md) |
 | 2026-11-12 | 1.3 | API | Fixed the answers for a disabled, soft-deleted, or just-reset account: `ACCOUNT_DISABLED` at login with no token and on the next request after the account is disabled, and the general `401` for a soft-deleted account and for a login whose password was replaced while it was checked. Added the first endpoints, `POST /auth/login` and `GET /auth/me`. Extended on 2026-11-13 with `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset`, and the codes `CODE_INVALID`, `USERNAME_TAKEN`, and `EMAIL_TAKEN` | [api-v1.3.md](docs/iterations/api-v1.3.md) |

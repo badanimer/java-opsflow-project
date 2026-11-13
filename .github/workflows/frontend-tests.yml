@@ -1,0 +1,38 @@
+# Checks the frontend on a clean machine, on each push to any branch: the lint rules, the tests, and
+# the production build. The tests set the answers of the server themselves, so the job needs no
+# backend, no database, and no secret. See Running the Frontend Locally in docs/frontend/page-design.md.
+name: Frontend tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Installs exactly the versions of package-lock.json, and fails when it does not match package.json.
+      - name: Install the locked dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run the tests
+        run: npm test
+
+      # The build also type-checks the whole project.
+      - name: Build
+        run: npm run build
