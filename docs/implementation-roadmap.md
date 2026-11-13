@@ -18,8 +18,8 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | --- | --- | --- |
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
-| 2 | Accounts and login | T-05, T-20, T-28, T-29, T-49, T-43, T-36 |
-| 3 | Roles and permissions | T-24, T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45, T-54 |
+| 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
+| 3 | Roles and permissions. The console command that creates an administrator is done, and the local machine has its first administrator | T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45, T-54 |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
@@ -38,7 +38,7 @@ These apply to each module, so they are not repeated below:
 
 ## Phase 0: Done
 
-- The schema `V1__initial_schema.sql` (16 tables), applied by Flyway, and the per-table privileges.
+- The schema `V1__initial_schema.sql` (16 tables; `V3` added the 17th in Phase 2), applied by Flyway, and the per-table privileges.
 - The backend skeleton, and the decisions on the persistence layer (`JdbcTemplate`), transactions (`@Transactional`), the package layout (by feature), authentication (BCrypt and a signed JWT), and the API conventions.
 - The test infrastructure: a MySQL 8.4 container, the race runner, and the first 7 tests.
 
@@ -58,19 +58,18 @@ Two tasks do not end here, because they grow with the modules: apply `Limits` to
 
 Everything after this needs to know who is calling.
 
+**Done** ([backend-v1.5.md](iterations/backend-v1.5.md)): the seed migration with the four roles and the SYSTEM identity; login with BCrypt and the signed token; the check of the account on every request; the lockout; the refusal of a login whose password was replaced while it was checked, with its race test; `ACCOUNT_DISABLED` for a disabled account; and security that refuses any request that no rule allows. Also done, in the same iteration: the email codes with their limits (10 requests of one client address in an hour, 200 of the whole system in a day, and no mail for an address that cannot use the code), sign-up, the password reset, the mail component, and the cleanup job (T-29, T-49). The mail service is decided (Q-12): Gmail SMTP with an app password, from an account made for OpsFlow.
+
+**Still to do:**
+
 | Task | What |
 | --- | --- |
-| T-05 | The seed migration: the four roles and the SYSTEM identity. Update the test base so that emptying the tables does not remove the seed |
-| T-20 | Login with BCrypt, the signed token, and the check of the account on every request |
-| T-28 | The login lockout |
-| T-29 | Sign-up and password recovery with email codes, and the password rule |
-| T-49 | The job that deletes expired email codes |
 | T-43 | No way to change the username or the email |
-| T-36 | The rules of the SYSTEM identity that belong to login and the user module |
+| T-36 | The rules of the SYSTEM identity that belong to the user module. Its login is already refused, and its address gets no code |
 
-**Decisions needed:** Q-12, the mail service. T-29 can be built behind a small mail interface with a fake in the tests, so the choice of a provider only has to be made before the code is used for real.
+**Decisions needed:** none.
 
-**Done when:** a person can sign up with a code, log in, be locked out after repeated failures, reset the password, and get a `401` with an old token after the password changes.
+**Done when:** a person can sign up with a code, log in, be locked out after repeated failures, reset the password, and get a `401` with an old token after the password changes; a login that checked the old password while a reset committed is refused; and a disabled account gets `ACCOUNT_DISABLED` at login and on its next request.
 
 ## Phase 3: Roles and Permissions
 
@@ -78,7 +77,6 @@ The first administrator comes first, because no one can be given a role without 
 
 | Task | What |
 | --- | --- |
-| T-24 | The console command that creates the first administrator |
 | T-27 | Review the Permission Matrix, then check every endpoint against the roles of the caller. Refuse by default, with a test that fails for an endpoint that declares no permission |
 | T-54 | The test of the package dependencies, now that there are two modules |
 | T-19, T-15 | A role counts only for a usable account; role grants are refused to other accounts and logged |

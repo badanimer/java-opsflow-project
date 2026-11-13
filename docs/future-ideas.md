@@ -63,3 +63,10 @@ This file keeps rough ideas for features that can be added after OpsFlow is comp
 - **Why it might help:** the first version finds an item only by its name. Tags would let people group and find items without a fixed category or a fixed unit, and they are lighter than a category tree.
 - **Roles:** `MANAGER` and `ADMIN` set tags. Every role that can see the product page can search by them.
 - **Where it came from:** requested by the owner while the products part was designed. Categories, units of measure, and low-stock alerts were set aside for the first version and are not recorded here, because the owner has not approved them as ideas.
+
+### A human check before a code is mailed
+
+- **What:** a check that the request comes from a person and not from a script, such as Cloudflare Turnstile, on the sign-up page and on Forgot password, before the server sends an email code. The page shows the check, and the server confirms its result with the provider before it stores a code.
+- **Why it might help:** the first version limits code requests per client address (10 in an hour) and for the whole system (200 in a day). That bounds the damage, but a script can still use up the limit of the day, and then nobody gets a code until the next day. A human check stops scripts before they are counted.
+- **Roles:** everyone who signs up or recovers a password, before they are logged in.
+- **Where it came from:** approved by the owner on 2026-11-13, as the third of four answers to Q-07 for code requests; the other three (the limit per client address, the limit of the whole system, and no mail for an address that cannot use the code) are built. It needs a site key in the frontend, a secret key in the environment, and a call to the provider that must stay outside every transaction. It becomes worth building when OpsFlow is open to people outside the company.

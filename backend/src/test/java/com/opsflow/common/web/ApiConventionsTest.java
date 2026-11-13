@@ -16,12 +16,17 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -36,9 +41,24 @@ import com.opsflow.common.paging.PageQueryFactory;
  * header, and the format of times. The service layer is not involved.
  */
 @WebMvcTest(ProbeController.class)
-@Import({ WebConfig.class, ApiExceptionHandler.class, PageQueryFactory.class })
+@Import({ WebConfig.class, ApiExceptionHandler.class, PageQueryFactory.class, ApiConventionsTest.OpenToEveryone.class })
 @EnableConfigurationProperties(OpsflowProperties.class)
 class ApiConventionsTest {
+
+	/**
+	 * These tests are about the conventions and not about who may call what, so every request is let
+	 * through. The security rules of the application are tested with login, in the auth package.
+	 */
+	@TestConfiguration(proxyBeanMethods = false)
+	static class OpenToEveryone {
+
+		@Bean
+		SecurityFilterChain openToEveryone(HttpSecurity http) throws Exception {
+			return http.csrf(AbstractHttpConfigurer::disable)
+					.authorizeHttpRequests(requests -> requests.anyRequest().permitAll())
+					.build();
+		}
+	}
 
 	@Autowired
 	MockMvc mvc;

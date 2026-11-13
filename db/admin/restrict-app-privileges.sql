@@ -21,8 +21,11 @@ GRANT INSERT, UPDATE ON opsflow.products  TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.inventory TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.orders    TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.tickets   TO 'opsflow_app'@'localhost';
--- Expired email codes are deleted by a job (once expires_at has passed), so this is the one table with DELETE.
+-- Expired email codes are deleted by a job (once expires_at has passed), so this table has DELETE.
 GRANT INSERT, UPDATE, DELETE ON opsflow.email_verification_codes TO 'opsflow_app'@'localhost';
+-- The counts of code requests (migration V3). The same job deletes the rows of windows that are over.
+-- On a server where this script ran before V3 existed, run this one line again after V3 is applied.
+GRANT INSERT, UPDATE, DELETE ON opsflow.email_code_request_counts TO 'opsflow_app'@'localhost';
 
 -- Append-only tables: read and insert only
 GRANT INSERT ON opsflow.inventory_transactions    TO 'opsflow_app'@'localhost';

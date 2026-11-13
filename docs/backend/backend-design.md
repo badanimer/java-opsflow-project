@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-13 | 1.5 | Login is built: the `auth` module with BCrypt, the signed token, the check of the account on every request, the login lockout, and security that refuses by default; the seed migration `V2`; the one table of audit actions and the writer of `operation_logs`; and a signing key from the environment. Extended the same day with sign-up and password recovery: email codes with their limits, the mail component (SMTP, in the background, never inside a transaction), the first scheduled job (the cleanup), and the migration `V3`. Then the console command that creates an administrator, the first task of Phase 3 | [backend-v1.5.md](../iterations/backend-v1.5.md) |
 | 2026-11-12 | 1.4 | A request id on every response, error body, and log line; the tests run in continuous integration on every push; and the rules for slow work in a transaction, for scheduled jobs, and for rules that a test must check | [backend-v1.4.md](../iterations/backend-v1.4.md) |
 | 2026-11-09 | 1.3 | The shared foundations in `common`: the error handler, paging, the retry component, UTC time helpers, the base path, the idempotency key check, the length limits, and the operating parameters in configuration | [backend-v1.3.md](../iterations/backend-v1.3.md) |
 | 2026-11-05 | 1.2 | The application tests are logged in the test log, in a section of their own | [backend-v1.2.md](../iterations/backend-v1.2.md) |
@@ -25,12 +26,14 @@ This document always describes the current backend. Each iteration has a summary
 | Build | Maven, through the wrapper `backend/mvnw` |
 | Web | `spring-boot-starter-webmvc` |
 | Validation | `spring-boot-starter-validation` |
+| Security | Spring Security with its OAuth2 resource server support (`spring-boot-starter-security-oauth2-resource-server`): BCrypt for passwords and a signed JWT as the login token. See Authentication |
+| Mail | `spring-boot-starter-mail`: plain SMTP with STARTTLS, so the provider is configuration only. See Mail |
 | Database access | Plain JDBC through `JdbcTemplate` (`spring-boot-starter-jdbc`), with the SQL written in the code. No JPA and no MyBatis |
 | Transactions | `@Transactional` on service methods. See Transactions |
 | Migrations | Flyway (`spring-boot-starter-flyway` and `flyway-mysql`) |
 | Driver | `mysql-connector-j` |
 
-Not added yet: security, Redis, RabbitMQ, and mail.
+Not added yet: Redis and RabbitMQ.
 
 ## Layout
 
@@ -42,7 +45,7 @@ Not added yet: security, Redis, RabbitMQ, and mail.
 | `backend/src/main/resources/db/migration` | The Flyway migrations, applied in version order. Never edit one that has been applied: add a new one |
 | `.github/workflows/backend-tests.yml` | The continuous integration job. See Continuous integration |
 
-The code is organized by feature, not by layer. Inside a module the classes keep their layer in the name (`OrderController`, `OrderService`, `OrderRepository`). A module does not call the repository of another module: it calls the service. The write path of an order touches the stock and the product tables, and all of its SQL stays in the order module, so that the lock order of [Concurrency by Module](../database/database-design.md#concurrency-by-module) can be read in one place.
+The code is organized by feature, not by layer. Inside a module the classes keep their layer in the name (`OrderController`, `OrderService`, `OrderRepository`). A module does not call the repository of another module: it calls the service. The modules so far: `auth` (login, the token, the security rules, the email codes, sign-up, the password reset, and the console command that creates an administrator). The write path of an order touches the stock and the product tables, and all of its SQL stays in the order module, so that the lock order of [Concurrency by Module](../database/database-design.md#concurrency-by-module) can be read in one place.
 
 ## Shared Code
 
@@ -56,7 +59,10 @@ The `common` package holds what every module uses. A module calls it and never c
 | `common.time` | `UtcTime` | Converts between a `DATETIME(3)` value (a UTC wall time) and an `Instant`. See Time |
 | `common.web` | `WebConfig`, `IdempotencyKey`, `RequestIdFilter` | `WebConfig` serves every `@RestController` under `/api/v1` and provides the one `Clock` bean, in UTC. `IdempotencyKey.parse` reads the `Idempotency-Key` header. `RequestIdFilter` gives every request an id. See Request id and logs |
 | `common.validation` | `Limits` | The length of every text field a request can set, equal to its column (T-13). `@Size(max = Limits.ITEM_NAME)` |
-| `common.config` | `OpsflowProperties` | The operating parameters, bound from `opsflow.*`. See Configuration |
+| `common.config` | `OpsflowProperties`, `JobsConfig` | The operating parameters, bound from `opsflow.*`. See Configuration. `JobsConfig` turns the scheduled jobs on unless `opsflow.jobs.enabled` is false. See Scheduled Jobs |
+| `common.mail` | `Mailer`, `MailTransport`, `MailConfig`, `OutgoingMail` | `Mailer.send` is the only way a mail leaves the application. See Mail |
+| `common.audit` | `AuditAction`, `AuditCategory`, `AuditLogWriter` | `AuditAction` is the one table of the actions written to `operation_logs`, each with its category (see [Categories](../database/database-design.md#categories)). `AuditLogWriter.write` is the only way a row is written, so no row lacks a category, and it refuses to run outside a transaction, because a log row belongs to the transaction of the change it describes. A module that logs a new action adds it to `AuditAction` |
+| `common.security` | `CurrentUser` | The user who sent the request: the id, the username, and the role codes, as the database has them at this request. A controller takes it with `@AuthenticationPrincipal CurrentUser` |
 
 A controller declares its path without the prefix (`@RequestMapping("/orders")`) and takes the paging parameters as plain request parameters that it passes to `PageQueryFactory`.
 
@@ -67,7 +73,7 @@ When a user reports an error, the log lines of that one request must be found am
 - It gives every request a new id of 32 hexadecimal characters and returns it in the response header `X-Request-Id`.
 - It puts the id into the logging context of the thread, and `logging.pattern.correlation` in `application.yml` prints it in square brackets on every log line that the request writes. A line written outside a request shows empty brackets.
 - `ApiExceptionHandler` adds it to every error body as `requestId`, so a screenshot of an error is enough to find the request.
-- It runs before every other filter, so a request that a later filter refuses has an id too. The security filters come after it when authentication is built (T-20).
+- It runs before every other filter, the security filters included, so a request that security refuses has an id too.
 - An id sent by the client is ignored, because a client could otherwise write its own text into the log.
 - The id is removed from the thread when the request ends, because the thread then serves another request.
 
@@ -94,23 +100,29 @@ A transaction holds a database connection, and often row locks, until it ends. T
 
 | Work | Why it is slow | Where it runs |
 | --- | --- | --- |
-| Hashing or checking a password with BCrypt | It is made to take tens of milliseconds | Before the transaction. Login reads the user, checks the password, and only then opens a short transaction that records the success or the failure (T-20, T-28). Sign-up, a password reset, and the console command hash the new password before they open theirs (T-29, T-24) |
-| Sending an email | It waits for a mail server, and it cannot be undone by a rollback | After the transaction has committed, so a code is never sent for a row that was rolled back (T-29). The database design states the same rule for any call outside the database |
+| Hashing or checking a password with BCrypt | It is made to take tens of milliseconds | Before the transaction. Login reads the user, checks the password, and only then opens a short transaction that locks the user row, confirms that the hash it checked is still the current one, and records the success or the failure (T-20, T-28; see [Login steps](../database/database-design.md#login-security-and-account-recovery)). Sign-up and a password reset check the email code first and hash the new password before they open theirs, and the console command hashes the typed password before its transaction |
+| Sending an email | It waits for a mail server, and it cannot be undone by a rollback | After the transaction has committed, so a code is never sent for a row that was rolled back, and on the thread of the mailer, so the request does not wait for the mail server either (see Mail). The database design states the same rule for any call outside the database |
 | Writing or reading a file | It waits for the disk | An item image is written before the transaction that stores its path (T-42) |
 
-The components that do this work refuse to run inside a transaction, as `TransactionRetry` already does, so that a mistake fails in the first test and not under load. This is built with each component.
+The components that do this work refuse to run inside a transaction, as `TransactionRetry` already does, so that a mistake fails in the first test and not under load. This is built with each component. `PasswordHasher` refuses to hash or check a password while a transaction is active, and `Mailer` refuses to send a mail.
+
+An email code is not slow work: its stored value is an HMAC, which takes microseconds, so `EmailCodeHasher` has no such rule.
 
 A method with `Propagation.REQUIRES_NEW` needs a second connection while the caller keeps its own. It is therefore called only after the outer transaction has ended, as the order module does for a refused order. Called inside an open transaction, a busy moment could leave every thread holding one connection and waiting for a second, with none left in the pool.
 
 The HTTP conventions of the controllers (paths, error responses, result codes, paging) are in [api-design.md](../api/api-design.md).
 
-## Scheduled Jobs (decided, not built)
+## Scheduled Jobs
 
-The application has two jobs, each run once a minute: the cleanup of expired email codes (T-49) and the archive of resolved tickets (T-33). Three rules apply to them and to any later job:
+The application has two jobs, each run once a minute: the cleanup of expired email codes, which is built, and the archive of resolved tickets, which comes with the ticket module (T-33). A job is a method with `@Scheduled` in its module, and `JobsConfig` turns the schedule on. Three rules apply to them and to any later job:
 
 - **One instance.** The application is designed to run as one instance, so a job runs in one place. This is an assumption, not something the code enforces. Before a second instance is added, the jobs need a lock that only one instance can hold.
 - **Safe to run twice.** A job that runs twice, or at the same time as a person doing the same thing, must change nothing wrongly. The archive goes through the status gate for each ticket, and the cleanup deletes only rows that have expired, so both already are.
 - **A limit on each run.** A run handles at most a fixed number of rows and leaves the rest to the next run, so one run never holds locks or a connection for long after a backlog has built up. The number is an operating parameter, set when each job is built.
+
+`EmailCodeCleanupJob` deletes the email codes whose `expires_at` has passed and the request counts whose window started more than two days ago, at most `opsflow.email-code.cleanup-batch` rows of each table in one run. It finds the rows with a plain read and deletes each one by its id in a statement of its own, so it holds no lock between two rows and never locks a range that a request is writing into.
+
+With `opsflow.jobs.enabled` set to false no job runs by itself. The integration tests set it, so that no job changes rows in the middle of another test, and call a job directly when they test it.
 
 ## Rules Checked By Tests
 
@@ -120,10 +132,12 @@ A rule that is only written in a document is broken without anyone noticing. A r
 | --- | --- | --- |
 | No code reads the time zone of the machine | `UtcSourceRuleTest` | Built |
 | The length limit of a text field equals its column | `LimitsMatchSchemaTest` | Built |
-| Every endpoint is refused unless it declares who may call it | Security refuses any request that no rule allows, and a test lists every endpoint of the application and fails for one without a declared permission | With the permission module (T-27) |
+| Every endpoint is refused unless it declares who may call it | Security refuses any request that no rule allows (`TokenCheckTest.aRequestThatNoRuleAllowsIsRefused`), and a test lists every endpoint of the application and fails for one without a declared permission | The refusal is built. The test over the endpoints comes with the permission module (T-27) |
 | A module does not use the repository of another module, a controller does not use `JdbcTemplate`, and `common` depends on no module | A test of the package dependencies | When the second module is built (T-54) |
 | Only the allowed ticket status transitions happen | The transitions are one table in the code, and a test tries every pair of the five statuses and expects a refusal for each pair that is not in the table | With the ticket module (T-33) |
-| Every action of the audit log has a category | A test over the one table of actions | With the first log rows (T-50) |
+| Every action of the audit log has a category | `AuditLogTest`: every action of `AuditAction` has a category, and the categories are exactly the ones the database accepts | Built |
+| A password is never hashed or checked inside a transaction | `PasswordHasherTest.hashingOrCheckingInsideATransactionIsRefused` | Built |
+| A mail is never sent inside a transaction | `MailerTest.sendingInsideATransactionIsRefused` | Built |
 
 When such a test fails, the code is wrong unless the design was changed on purpose. Only in that case is the test changed, together with the design document.
 
@@ -143,9 +157,12 @@ The test code is in `backend/src/test/java/com/opsflow/support`:
 
 | Class | Purpose |
 | --- | --- |
-| `MySqlIntegrationTest` | The base class of integration tests. It starts the container once for the run, makes the two accounts with random passwords, applies the migrations and the privilege script (with the account host changed from `localhost` to `%`), and connects the application as `opsflow_app`. `jdbc` is the application account, `root()` is the root account of the container, and the tables are emptied before each test |
+| `MySqlIntegrationTest` | The base class of integration tests. It starts the container once for the run, makes the two accounts with random passwords, applies the migrations and the privilege script (with the account host changed from `localhost` to `%`), and connects the application as `opsflow_app`. `jdbc` is the application account, `root()` is the root account of the container, `clock` is the clock of the application, and `sentMail()` returns the mails the application has sent in the test, after waiting for the mailer. Before each test the tables are emptied, the rows of the seed migration `V2` are put back by running that file again, and the mailbox is emptied, so every test starts with the four roles and the SYSTEM identity and nothing else. It also gives the application a token signing key made for the run, and turns the scheduled jobs off |
+| `MutableClock` | The clock of the application in the integration tests. It shows the real time until a test sets it, and then moves only when the test moves it, so a test lets a minute or a night pass without waiting |
+| `Mailbox` | The mail server of the integration tests. It keeps every mail and sends none, so the tests need no mail account and no network. The application still sends through its real `Mailer` |
 | `RaceRunner` | Runs one task on several threads released at the same moment and returns the value or the exception of each |
-| `TestInfrastructureTest` | Checks the setup itself: 16 tables, UTC sessions, the limited rights, the clean start, and the race runner |
+| `TestInfrastructureTest` | Checks the setup itself: 17 tables, UTC sessions, the limited rights, the clean start with the seed rows, and the race runner |
+| `SeedMigrationTest` | Flyway applied `V2` after `V1`, and the four roles and the SYSTEM identity are there (T-05) |
 
 The tests of the shared code are in `backend/src/test/java/com/opsflow/common`, next to the package they test:
 
@@ -161,6 +178,28 @@ The tests of the shared code are in `backend/src/test/java/com/opsflow/common`, 
 | `IdempotencyKeyTest` | Unit | The header is optional, and an empty, too long, or non-ASCII key is refused |
 | `ProbeController`, `ApiConventionsTest` | Controller | A controller that exists only in the tests, and the checks through it: the base path, the error body and the code of each kind of error, no detail on an unexpected error, validation errors with their fields, the request id (in the header, in every error body, on the log line, new for each request, never taken from the client, and gone from the thread afterwards), the paging parameters, the idempotency header, and the format of times |
 | `LimitsMatchSchemaTest` | Integration | Each constant of `Limits` equals the length of its columns in the migrated database (T-13) |
+| `MailerTest` | Unit | The mails leave in order, the caller does not wait for the mail server, a failing mail server reaches neither the caller nor the next mail, sending inside a transaction is refused, and neither the text of a mail nor the mail password is part of what could be printed |
+| `AuditLogTest` | Integration | Every audit action has a category, the categories are the ones the database accepts, a row is written with the category of its action, and writing outside a transaction is refused |
+
+The tests of login, sign-up, and password recovery are in `backend/src/test/java/com/opsflow/auth`:
+
+| Class | Layer | Purpose |
+| --- | --- | --- |
+| `LoginLockPolicyTest` | Unit | The lock steps at 5, 10, and 15 failures, the lock until midnight from 20, the count read as zero after midnight in Sydney, and the days of 23 and 25 hours |
+| `TokenServiceTest` | Unit | The token carries only the user id and its issue time, lasts 12 hours, and is refused when signed with another key or changed; a signing key that is too short or not Base64 stops the start and is not quoted in the message |
+| `PasswordHasherTest` | Unit | A password matches its own hash only, a stored value that is not a hash matches nothing, and hashing or checking inside a transaction is refused |
+| `EmailCodeHasherTest` | Unit | A code has 6 digits; its stored value is not the code, matches only that code, purpose, and address, and depends on the key; the marker of a code that was not mailed matches nothing |
+| `AccountRulesTest` | Unit | The password rule and the username rule, value by value |
+| `AuthIntegrationSupport` | | The base of the integration classes below: HTTP calls through the whole application with `MockMvc`, the security filters included, the code read from the mail that the application sent, and accounts made directly in the database where a test is not about sign-up |
+| `LoginTest` | Integration | The login through HTTP: the token, the general error for a wrong password, an unknown user, a soft-deleted account, and the SYSTEM identity, the lockout and its log row, the reset at midnight, and a disabled account |
+| `TokenCheckTest` | Integration | The check on every request: no token, a foreign token, the expiry, an account disabled or soft-deleted after login, a token older than the password, the roles read at each request, and the refusal of a request that no rule allows |
+| `LoginRaceTest` | Integration | The races of login: a password reset, a disabling, a soft delete, or a lock that commits between the password check and the transaction that records the result, and five wrong passwords at the same moment. The test wraps the real `PasswordHasher` and commits the other change right after the check, so the order is the same on every run. The reset in these tests is the real transaction of the application |
+| `EmailCodeTest` | Integration | Requesting a code: the mail and the stored keyed hash, `EMAIL_TAKEN` for a sign-up code for an address that has an account, the same answer and no mail for a recovery code that nobody can use, the 60-second rule, the limit of 10 per client address in an hour and of 200 for the whole system in a day (the Sydney day), a refused request that is not counted, and requests at the same moment that cannot pass a limit or get two codes |
+| `SignUpTest` | Integration | Sign-up: the active account with no role, its log row, and the token that logs the new user in and ends with a reset in the same millisecond, a wrong, dead, expired, older, or foreign code, the rules checked before the code, a taken username that leaves the code usable, and the races of one code sent four times and of one username wanted twice |
+| `PasswordResetTest` | Integration | The reset: the new password, the old tokens ended, the lock cleared, the log row, a new password equal to the current one, the same answer for an address with no account, a disabled and a soft-deleted account, a token issued in the same millisecond as a reset, and a login and a reset on real threads at the same moment |
+| `AccountRaceTest` | Integration | A newer code is requested while the password of a sign-up or a reset is being hashed: the older code no longer works and nothing is written. The test wraps the real `PasswordHasher`, so the order is the same on every run |
+| `CreateAdminCommandTest` | Integration | The console command, in an application started without the web server and with a terminal played by the test: the administrator with its role and its two log rows, who can log in; a second administrator; differing passwords, a value that breaks a rule of sign-up, a taken username or address, a missing `ADMIN` role, and input that ends early, each of which creates nothing; the password is never printed; and two commands at the same moment |
+| `EmailCodeCleanupJobTest` | Integration | The cleanup job, called directly: an expired code is deleted and a valid one is kept, the counts of windows long over are deleted, a run deletes at most its batch, a second run changes nothing, and no job is scheduled in the tests |
 
 Run the tests from `backend/` with `mvnw test`. The first run downloads the MySQL image. Every application test is recorded in the Application tests section of the test log [`concurrency-tests.md`](../../db/verification/concurrency-tests.md), next to the script check that it repeats.
 
@@ -171,24 +210,99 @@ The script in [`db/verification`](../../db/verification/) keeps checking the dat
 GitHub Actions runs `mvnw test` on a clean Linux machine on every push to any branch. The job is [`.github/workflows/backend-tests.yml`](../../.github/workflows/backend-tests.yml), and its result is shown next to the commit on GitHub.
 
 - It installs Java 17 and nothing else. The machine has Docker, so the integration tests start their MySQL container as they do locally.
-- It needs no secret and no environment variable: the tests make their own accounts with random passwords, and no test reads `OPSFLOW_DB_*` or `OPSFLOW_MIGRATION_*`. Keep it so, and check a change of the test set-up by running the tests with those four variables unset.
+- It needs no secret and no environment variable: the tests make their own accounts with random passwords and their own token signing key, and no test reads `OPSFLOW_DB_*`, `OPSFLOW_MIGRATION_*`, `OPSFLOW_TOKEN_SIGNING_KEY`, or `OPSFLOW_MAIL_*`, and no test sends a mail. Keep it so, and check a change of the test set-up by running the tests with those variables unset.
 - A new test class is run without any change to the job, as long as its name ends in `Test` or `Tests`. Maven skips a class with another name without a warning.
 - It does not run [`run-db-verification.ps1`](../../db/verification/run-db-verification.ps1), which needs the local MySQL service and the root password. That script is still run by hand when the schema, the privileges, or the flows change.
 
-## Authentication (decided, not built)
+## Authentication
 
-- Passwords are hashed with BCrypt through Spring Security's `DelegatingPasswordEncoder`, so the stored value carries the `{bcrypt}` prefix and another algorithm can be added later without breaking old passwords.
-- The token is a signed JWT, checked with Spring Security's OAuth2 resource server support. It carries only the user id and the issue time, and the signing key comes from an environment variable and never enters the repository. Every request still loads the user and compares the issue time with `password_changed_at` (T-20).
-- The client sends the token in the `Authorization` header, as in [api-design.md](../api/api-design.md#general-rules). Where the frontend keeps it is decided when the frontend starts.
+Login, the check of every request, the email codes, sign-up, and the password reset are built in the `auth` module. The rules are in [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery), and the endpoints in [api-design.md](../api/api-design.md#authentication).
+
+| Class | Purpose |
+| --- | --- |
+| `AuthController` | `POST /auth/login`, `GET /auth/me`, `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset` |
+| `LoginService` | The login steps. It has no transaction: it reads the user, checks the password, and then calls `LoginRecorder` through `TransactionRetry` |
+| `LoginRecorder` | The short transaction of step 3. It locks the user row, confirms that the hash that was checked is still the current one, and records the result. It returns the outcome and never throws a refusal, because an exception would roll back the count of a failed attempt |
+| `LoginLockPolicy` | The lockout rules as pure calculation: the failures in a row that still count, and until when a failure locks the account |
+| `PasswordHasher` | Hashes and checks passwords, and refuses to run inside a transaction |
+| `TokenService` | Issues the token and checks its signature and expiry |
+| `TokenAuthenticator` | The check of the account on every request: loads the user and the roles and refuses an account that may not use the token |
+| `SecurityConfig` | Which request needs what. Refuses by default. It exists only in the web application |
+| `SecurityErrorHandler` | Turns a refusal of the security filters into the error body of the API. It exists only in the web application |
+| `AuthRepository` | The SQL of the module on `users` and `user_roles` |
+| `EmailCodeService` | Requests a code and checks the one a person typed. It has no transaction: it decides whether a mail is sent, stores the code through `EmailCodeStore`, and sends the mail after the commit |
+| `EmailCodeStore` | The transaction of a request: the two counts, the 60-second rule, the older codes marked used, and the new row. A refusal is thrown, so a refused request rolls back and is not counted. Also the short transaction that counts a wrong entry |
+| `EmailCodeHasher` | Makes a code, and the keyed hash that is stored for it |
+| `EmailCodeRepository` | The SQL on `email_verification_codes` and `email_code_request_counts` |
+| `EmailCodeCleanupJob` | The scheduled cleanup. See Scheduled Jobs |
+| `AccountService` | Sign-up and the password reset. It has no transaction: it checks the values, then the code, then does the BCrypt work, and then calls `AccountWriter` through `TransactionRetry` |
+| `AccountWriter` | The two transactions that a code allows: creating the account, and setting the new password with the user row locked |
+| `AccountRules` | The username rule and the password rule |
+| `CreateAdminCommand` | The console command `create-admin`: it asks for the values at the terminal, checks them with the rules of sign-up, hashes the password, and calls `AdminCreator`. See Console command |
+| `AdminCreator` | The transaction of that command: it locks the `ADMIN` row in `roles`, creates the user, grants `ADMIN`, and writes the two log rows |
+| `Prompt` | The terminal of a console command. The real one hides a typed secret; the tests use one of their own |
+| `PasswordConfig` | The password encoder. It is apart from `SecurityConfig`, because the console command hashes a password without the web application |
+
+- **Passwords** are hashed with BCrypt through Spring Security's `DelegatingPasswordEncoder`, so the stored value carries the `{bcrypt}` prefix and another algorithm can be added later without breaking old passwords.
+- **The token** is a JWT signed with HMAC-SHA256, checked with Spring Security's OAuth2 resource server support. It carries the user id (`sub`), the issue time, and the expiry, and nothing else about the user. The standard issue time `iat` is in whole seconds, and `users.password_changed_at` is in milliseconds, so the token also carries the issue time in milliseconds (`iat_ms`): with seconds alone, a login in the same second as a password reset could not be told from one before it.
+- **Every request** loads the user and the roles from the database with plain reads (`TokenAuthenticator`). A token is accepted only if it was issued after `password_changed_at`. `LoginRecorder` never issues a token at or before that time: a login in the same millisecond as the reset before it gets the next millisecond.
+- **The expiry** is read on the `Clock` bean, the clock that issued the token, and not on the system clock of the token library.
+- **Unknown users cost the same time.** When there is no account to check, the login checks the password against a decoy hash made at startup, so the answer for an unknown username takes as long as for a real one.
+- **Refuse by default.** `SecurityConfig` lists the requests that are allowed: `POST /auth/login`, `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset` for everyone, and `GET /auth/me` for a logged-in user. Any other request is refused, with `UNAUTHENTICATED` without a token and `FORBIDDEN` with one, also when the path does not exist. A module adds a rule for each endpoint it adds, and the permission module turns the rules into the Permission Matrix (T-27).
+- **Errors of the security filters** happen before any controller. `SecurityErrorHandler` hands them to the exception handler of the controllers, so they have the same Problem Details body with `code` and `requestId`: `UNAUTHENTICATED`, `ACCOUNT_DISABLED`, or `FORBIDDEN`. The body does not say why a token was refused.
+- **No session and no cookie.** The server keeps no session, and the client sends the token in the `Authorization` header, as in [api-design.md](../api/api-design.md#general-rules). Protection against cross-site request forgery is therefore off: no cookie authenticates a request. Where the frontend keeps the token is decided when the frontend starts.
+- **An email code** is stored as an HMAC-SHA256 made with the token signing key, so there is no second secret. The signed text starts with a line of its own, which no login token can start with, so a stored value can never serve as the signature of a token.
+- **A request for a sign-up code** for an address that has an account is refused with `EMAIL_TAKEN` before anything is stored. **A request for a recovery code** gets the same answer whether or not a mail is sent, and a row is stored either way (with the marker `!NOT-SENT` when no mail goes out), so the limits and a later wrong entry behave the same for a registered and an unregistered address.
+- **A sign-up logs the new user in.** The transaction that creates the account takes the issue time of the first token and stores it as `last_login_at`, and `AccountService` issues the token after the commit. A later reset is never earlier than `last_login_at`, so it ends that token like any other.
+- **The cheap checks come first.** Sign-up and the reset check the values, then the code, and only with a right code hash a password. A request with a wrong code costs no BCrypt.
+- **The limits on code requests** are counted in MySQL and not in Redis: a few dozen codes a day do not justify another service, and the count row gives the lock that makes the limits safe against a race.
+- **The roles** of the user become the authorities `ROLE_<code>` of the request, and `CurrentUser.roles()` for the code. Nothing reads them yet except `GET /auth/me`.
+
+## Console command
+
+`create-admin` makes an administrator on the server, so that no page and no endpoint exists for it (see [First administrator](../database/database-design.md#first-administrator)). It is run from `backend/` after `mvnw package`, in a terminal, with the five required variables set:
+
+```
+java -jar target/opsflow-backend-0.0.1-SNAPSHOT.jar create-admin
+```
+
+- **No web server.** `OpsflowBackendApplication.main` sees the argument and starts the application with no web server and with the scheduled jobs off, runs the command, and exits with 0 when the administrator was created and 1 otherwise. Flyway still runs at that start, so the roles exist. `SecurityConfig` and `SecurityErrorHandler` are marked as parts of the web application only, because they need the web layer; `CreateAdminCommandTest` starts the application the same way, so a class that cannot start without the web server fails there.
+- **The password is typed and kept nowhere.** The command asks for the username, the email, and the password twice. The password is read with the typed characters hidden, is never an argument, an environment variable, or a file, and is never printed or logged. Without a real terminal (input from a pipe or a file, or a start from an IDE or from Maven) the command refuses to run and says so.
+- **The rules of sign-up** apply to the username, the email, and the password. A value that breaks one, two passwords that differ, a username or an address that is taken, and a missing `ADMIN` role each end the command with a message that names the reason, and nothing is created.
+- **A start that fails** is reported in one sentence and not as a stack trace. The usual reason is an environment variable that the terminal does not have, because the terminal was opened before the variable was set; the sentence names the variable and never a value.
+- **It can run again** at any time, for another administrator.
+
+## Mail
+
+The application sends one kind of mail so far: the email code of sign-up and password recovery. All mail goes through `Mailer` in `common.mail`.
+
+- **Plain SMTP with STARTTLS.** Every mail provider offers it, so changing the provider changes the configuration and no code. The owner chose Gmail SMTP with an app password, from a Gmail account made for OpsFlow (Q-12). The sender shown to the recipient is that account. A provider for transactional mail (Amazon SES, Resend, and the like) needs a domain of one's own and replaces it by configuration when OpsFlow gets real users.
+- **Never inside a transaction.** `Mailer.send` refuses to run while a transaction is active. A caller commits first and sends afterwards.
+- **In the background.** `send` hands the mail to one worker thread and returns at once. The answer to a request therefore takes the same time whether or not a mail is sent, which matters because the answer must not show whether an address is registered, and a slow mail server does not hold a request. The mails leave in the order they were handed over. At most 200 wait; a mail beyond that is dropped with a log line.
+- **A failure is logged and not reported**: the request has been answered already. The log line holds the subject and the type of the error, never the address, the text, or the code. The person requests a new code after 60 seconds.
+- **Without a mail server** (`OPSFLOW_MAIL_HOST` or `OPSFLOW_MAIL_PASSWORD` not set) the application starts, sends nothing, and logs a warning for each mail. The code is never written to the log, so a machine without a mail account cannot complete a sign-up. The tests replace the mail server with `Mailbox`.
+- **The connection** uses the port 587, requires STARTTLS, so neither the password nor a mail travels unencrypted, and gives up after 10 seconds.
+- **The password** of the mail account comes from the environment. `OpsflowProperties.Mail` leaves it out of its text, so it cannot reach a log through the configuration object.
 
 ## Configuration
 
-The application connects to MySQL as `opsflow_app`, and Flyway connects as `opsflow_migrator` (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)). The four values come from environment variables and have no default, so a missing one stops the application from starting instead of falling back to a value in the repository:
+The application connects to MySQL as `opsflow_app`, and Flyway connects as `opsflow_migrator` (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)). These values come from environment variables and have no default, so a missing one stops the application from starting instead of falling back to a value in the repository:
 
 | Variable | Used for |
 | --- | --- |
 | `OPSFLOW_DB_USERNAME`, `OPSFLOW_DB_PASSWORD` | The application connection |
 | `OPSFLOW_MIGRATION_USERNAME`, `OPSFLOW_MIGRATION_PASSWORD` | Flyway |
+| `OPSFLOW_TOKEN_SIGNING_KEY` | The key that signs the login tokens: Base64 of at least 32 random bytes. The application refuses to start with a shorter key or one that is not Base64, and never prints it. Whoever has the key can make a token for any user, and changing it logs every user out. It is also the key of the stored email codes, so changing it makes the codes that are waiting useless |
+
+The mail variables are optional, so the application starts without them and sends no mail:
+
+| Variable | Used for |
+| --- | --- |
+| `OPSFLOW_MAIL_HOST` | The SMTP server, `smtp.gmail.com` for the chosen account. Without it, or without the password, no mail is sent |
+| `OPSFLOW_MAIL_PORT` | The SMTP port. The default is 587 |
+| `OPSFLOW_MAIL_USERNAME` | The login of the mail account, which is its address |
+| `OPSFLOW_MAIL_PASSWORD` | The password for SMTP. For Gmail it is an app password, not the password of the Google account. A secret |
+| `OPSFLOW_MAIL_FROM` | The sender address, when it differs from the username. Gmail always sends as the account |
 
 The operating parameters are under `opsflow.*` in `application.yml` and are bound and checked at startup by `OpsflowProperties` (T-11). They hold no secret. The reasons for the values are in Operating Parameters in the database design.
 
@@ -197,6 +311,19 @@ The operating parameters are under `opsflow.*` in `application.yml` and are boun
 | `opsflow.retry.attempts` | 3 | The tries in total of a transaction that lost a deadlock or a lock wait, the first one included |
 | `opsflow.retry.delays` | 50ms, 150ms | The wait before the second and the third try. The last one is reused if there are more retries |
 | `opsflow.paging.page-size` | 10 | The default and the most of the `limit` of a list |
+| `opsflow.login.lock-steps` | 5: 1m, 10: 5m, 15: 15m | The failed logins in a row that lock an account, and for how long |
+| `opsflow.login.lock-until-midnight-at` | 20 | The failed logins in a row from which the account is locked until midnight |
+| `opsflow.login.reset-zone` | `Australia/Sydney` | The time zone of the midnight at which the count of failures starts again |
+| `opsflow.token.ttl` | 12h | How long a login token is valid |
+| `opsflow.email-code.ttl` | 10m | How long an email code is valid |
+| `opsflow.email-code.max-wrong-entries` | 5 | The wrong entries after which a code is dead |
+| `opsflow.email-code.resend-after` | 60s | The wait before a new code for the same email and purpose |
+| `opsflow.email-code.requests-per-ip-per-hour` | 10 | The accepted code requests of one client address in one hour |
+| `opsflow.email-code.requests-per-day` | 200 | The accepted code requests of the whole system in one day |
+| `opsflow.email-code.day-zone` | `Australia/Sydney` | The time zone of the midnight at which that day starts |
+| `opsflow.email-code.cleanup-interval` | 1m | How often the cleanup job runs |
+| `opsflow.email-code.cleanup-batch` | 1000 | The most rows one run of the cleanup deletes from each table |
+| `opsflow.jobs.enabled` | true | Whether the scheduled jobs run. The tests set it to false |
 
 A module adds its own parameters to this table and to `OpsflowProperties` when it is built.
 
@@ -206,10 +333,10 @@ The JDBC URL sets `connectionTimeZone=UTC` and `forceConnectionTimeZoneToSession
 
 ## Running
 
-From `backend/`, with the four variables set in the shell:
+From `backend/`, with the five required variables set in the shell, and the mail variables if mail is to be sent:
 
 ```
 mvn spring-boot:run
 ```
 
-The first start makes Flyway apply `V1__initial_schema.sql` to `opsflow`. After it, run [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql) once as `root` (T-02).
+The first start makes Flyway apply `V1__initial_schema.sql` to `opsflow`. After it, run [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql) once as `root` (T-02). The next start after a new migration applies it: `V2__seed_roles_and_system_identity.sql` adds the four roles and the SYSTEM identity, and needs no new grant because it adds no table. `V3__email_code_request_counts.sql` adds a table, so after it the grant for `email_code_request_counts` in the privilege script is run once as `root`. Until then a request for an email code fails with a permission error, which is the safe way to fail. On the local machine all three migrations are applied and the grant is run (2026-11-13).

@@ -10,7 +10,9 @@
       1. Asks for the MySQL root password in a masked dialog. The password is used only to
          create a temporary database and two temporary accounts, and to drop the accounts at
          the end. It is never printed, logged, or stored.
-      2. Applies backend/src/main/resources/db/migration/V1__initial_schema.sql and db/verification/concurrency-fixtures.sql.
+      2. Applies the migrations that change the schema, V1__initial_schema.sql and
+         V3__email_code_request_counts.sql from backend/src/main/resources/db/migration, and
+         db/verification/concurrency-fixtures.sql. V2 only adds rows, and the checks make their own.
       3. Applies db/admin/restrict-app-privileges.sql, adapted to the temporary names.
       4. Runs structure, privilege, and concurrency checks. The concurrency checks run
          several mysql sessions at the same time, released together by a lock barrier, under
@@ -47,6 +49,7 @@ if (-not (Test-Path $mysql)) { throw "mysql.exe not found: $mysql" }
 
 $repo      = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $migration = Join-Path $repo 'backend\src\main\resources\db\migration\V1__initial_schema.sql'
+$migration3 = Join-Path $repo 'backend\src\main\resources\db\migration\V3__email_code_request_counts.sql'
 $fixtures  = Join-Path $PSScriptRoot 'concurrency-fixtures.sql'
 $restrict  = Join-Path $repo 'db\admin\restrict-app-privileges.sql'
 $DB    = 'opsflow_verify'
@@ -255,6 +258,9 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $r = Run-File $ADMIN $adminPw $migration
     Check 'migration V1 applies cleanly' (Allowed $r) (Short-Err $r.Err)
     if ($r.Code -ne 0) { throw 'Migration failed' }
+    $r = Run-File $ADMIN $adminPw $migration3
+    Check 'migration V3 applies cleanly' (Allowed $r) (Short-Err $r.Err)
+    if ($r.Code -ne 0) { throw 'Migration V3 failed' }
     $r = Run-File $ADMIN $adminPw $fixtures
     Check 'verification procedures load' (Allowed $r) (Short-Err $r.Err)
     if ($r.Code -ne 0) { throw 'Fixtures failed' }
@@ -264,7 +270,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     # -----------------------------------------------------------------------------------------
     Section 'Structure'
     # -----------------------------------------------------------------------------------------
-    Check '16 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '16')
+    Check '17 tables exist' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.tables WHERE table_schema='$DB' AND table_type='BASE TABLE';") -eq '17')
     Check 'order_items has no updated_at (frozen)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='order_items' AND column_name='updated_at';") -eq '0')
     Check 'inventory has no locked_quantity column and orders has no status, reservation, or cancellation columns (an order is final)' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND ((table_name='inventory' AND column_name='locked_quantity') OR (table_name='orders' AND column_name IN ('status','reserved_until','finished_at','status_reason','cancel_reason','cancelled_by','cancelled_at')));") -eq '0')
     Check 'inventory has no version column' ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM information_schema.columns WHERE table_schema='$DB' AND table_name='inventory' AND column_name='version';") -eq '0')
@@ -383,6 +389,14 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     Check 'only an ORDER_EXCEPTION ticket needs an order number' (Allowed $r) (Short-Err $r.Err)
     $r = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('x@example.com','OTHER','h',NOW(3));"
     Check 'email_verification_codes rejects an unknown purpose' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $r = As-Admin "INSERT INTO email_code_request_counts(scope,window_start,request_count) VALUES ('ALL','2026-01-01 00:00:00',0);"
+    Check 'email_code_request_counts rejects a count that is not positive' (($r.Code -ne 0) -and ($r.Err -match 'ERROR 3819'))
+    $bump = "INSERT INTO email_code_request_counts(scope,window_start,request_count) VALUES ('ALL','2026-01-01 00:00:00',1) ON DUPLICATE KEY UPDATE request_count = request_count + 1;"
+    $r = As-Admin ($bump + ' ' + $bump + ' ' + $bump)
+    $counted = Scalar "SELECT CONCAT('RESULT=', COUNT(*), '/', COALESCE(SUM(request_count),0)) FROM email_code_request_counts WHERE scope='ALL';"
+    Check 'email_code_request_counts keeps one row for a window and counts in it' ((Allowed $r) -and ($counted -eq '1/3')) "$counted"
+    $r = As-Admin "INSERT INTO email_code_request_counts(scope,window_start,request_count) VALUES ('ALL','2026-01-01 00:00:00',1);"
+    Check 'email_code_request_counts rejects a second row for the same scope and window' (Dup $r)
     $null = As-Admin "INSERT INTO tickets(ticket_no,created_by,type,source,title,description) VALUES ('TKTBATCH',1,'INVENTORY_EXCEPTION','MANUAL','batch','several products');"
     $r = As-Admin "INSERT INTO ticket_inventory(ticket_id,inventory_id) SELECT t.id,i.id FROM tickets t, inventory i WHERE t.ticket_no='TKTBATCH' AND i.id IN (1,2,3);"
     Check 'one ticket can cover several inventory records' ((Allowed $r) -and ((Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM ticket_inventory;") -eq '3')) (Short-Err $r.Err)
@@ -500,6 +514,12 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
     $dc = Allowed (As-App "DELETE FROM email_verification_codes WHERE expires_at < NOW(3);")
     $left = Scalar "SELECT CONCAT('RESULT=', GROUP_CONCAT(email ORDER BY id)) FROM email_verification_codes WHERE email IN ('old@example.com','new@example.com');"
     Check 'app can delete email codes that have expired, and a valid code stays' ($dc -and ($left -eq 'new@example.com')) "$dc / $left"
+    $appBump = "INSERT INTO email_code_request_counts(scope,window_start,request_count) VALUES ('IP:203.0.113.7','2026-01-01 05:00:00',1) ON DUPLICATE KEY UPDATE request_count = request_count + 1;"
+    $cc = Allowed (As-App ($appBump + ' ' + $appBump))
+    $counted = Scalar "SELECT CONCAT('RESULT=', request_count) FROM email_code_request_counts WHERE scope='IP:203.0.113.7';"
+    $dd = Allowed (As-App "DELETE FROM email_code_request_counts WHERE window_start < '2026-06-01 00:00:00';")
+    $left = Scalar "SELECT CONCAT('RESULT=', COUNT(*)) FROM email_code_request_counts;"
+    Check 'app can count code requests and delete the counts of old windows' ($cc -and ($counted -eq '2') -and $dd -and ($left -eq '0')) "$cc / $counted / $dd / $left"
 
     # -----------------------------------------------------------------------------------------
     Section "Concurrency ($Rounds rounds per race; sessions run as the restricted application account)"

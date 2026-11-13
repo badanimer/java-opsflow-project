@@ -22,3 +22,34 @@ opsflow:
     delays: 50ms, 150ms   # before the 2nd and the 3rd try; a random extra of up to half is added
   paging:
     page-size: 10         # the default and the most
+  login:
+    lock-steps:           # failures in a row: how long the account is locked
+      5: 1m
+      10: 5m
+      15: 15m
+    lock-until-midnight-at: 20   # failures in a row that lock the account until midnight
+    reset-zone: Australia/Sydney # the midnight at which the failure count starts again
+  email-code:
+    ttl: 10m                       # a code is valid this long
+    max-wrong-entries: 5           # wrong entries after which a code is dead
+    resend-after: 60s              # a new code for the same email and purpose can be requested after this
+    requests-per-ip-per-hour: 10   # accepted code requests of one client address in one hour
+    requests-per-day: 200          # accepted code requests of the whole system in one day
+    day-zone: Australia/Sydney     # the midnight at which the day of requests-per-day starts
+    cleanup-interval: 1m           # how often expired codes and old request counts are deleted
+    cleanup-batch: 1000            # the most rows one run deletes from each table
+  jobs:
+    enabled: true         # the scheduled jobs run; the tests turn them off and call them directly
+  # The mail server (SMTP with STARTTLS). Without a host or a password no mail is sent and a warning is logged, so
+  # the application starts on a machine that has no mail account. The password is a secret.
+  mail:
+    host: ${OPSFLOW_MAIL_HOST:}
+    port: ${OPSFLOW_MAIL_PORT:587}
+    username: ${OPSFLOW_MAIL_USERNAME:}
+    password: ${OPSFLOW_MAIL_PASSWORD:}
+    from: ${OPSFLOW_MAIL_FROM:}    # the sender address; the username when empty
+  token:
+    ttl: 12h              # a login token lasts this long; there is no refresh token
+  # The key that signs the login tokens: Base64 of at least 32 random bytes. It is a secret, so it
+  # comes from the environment and has no default.
+  token-signing-key: ${OPSFLOW_TOKEN_SIGNING_KEY}

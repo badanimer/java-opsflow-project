@@ -9,17 +9,19 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 
-/** Checks the test setup itself: the schema, the limited account, the clean start, and the race runner. */
+/** Checks the test setup itself: the schema, the limited account, the clean start with the seed rows, and the race runner. */
 class TestInfrastructureTest extends MySqlIntegrationTest {
 
 	private static final String INSERT_ROLE = "INSERT INTO roles (code, name) VALUES (?, ?)";
+	/** The roles of the seed migration, which the base class puts back before each test. */
+	private static final int SEEDED_ROLES = 4;
 
 	@Test
-	void migrationsBuildTheSixteenTables() {
+	void migrationsBuildTheSeventeenTables() {
 		Integer tables = jdbc.queryForObject(
 				"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'opsflow' AND table_type = 'BASE TABLE' AND table_name <> 'flyway_schema_history'",
 				Integer.class);
-		assertThat(tables).isEqualTo(16);
+		assertThat(tables).isEqualTo(17);
 	}
 
 	@Test
@@ -37,7 +39,9 @@ class TestInfrastructureTest extends MySqlIntegrationTest {
 		assertThatThrownBy(() -> jdbc.update("UPDATE operation_logs SET action = 'CHANGED'"))
 			.isInstanceOf(DataAccessException.class)
 			.rootCause().hasMessageContaining("denied");
-		// DELETE is granted on one table only, email_verification_codes.
+		// DELETE is granted on two tables only: the email codes and the counts of code requests.
+		jdbc.update("DELETE FROM email_verification_codes");
+		jdbc.update("DELETE FROM email_code_request_counts");
 		assertThatThrownBy(() -> jdbc.update("DELETE FROM operation_logs"))
 			.isInstanceOf(DataAccessException.class)
 			.rootCause().hasMessageContaining("denied");
@@ -47,15 +51,15 @@ class TestInfrastructureTest extends MySqlIntegrationTest {
 	}
 
 	@Test
-	void everyTestStartsWithEmptyTables() {
+	void everyTestStartsWithOnlyTheSeedRows() {
 		// The next test, whichever runs first, would see this row if the tables were not emptied.
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isZero();
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isEqualTo(SEEDED_ROLES);
 		jdbc.update(INSERT_ROLE, "LEFTOVER", "Leftover");
 	}
 
 	@Test
-	void everyTestStartsWithEmptyTablesToo() {
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isZero();
+	void everyTestStartsWithOnlyTheSeedRowsToo() {
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isEqualTo(SEEDED_ROLES);
 		jdbc.update(INSERT_ROLE, "LEFTOVER", "Leftover");
 	}
 
@@ -66,7 +70,7 @@ class TestInfrastructureTest extends MySqlIntegrationTest {
 		assertThat(outcomes).filteredOn(RaceRunner.Outcome::succeeded).hasSize(1);
 		assertThat(outcomes).filteredOn(outcome -> !outcome.succeeded())
 			.allSatisfy(outcome -> assertThat(outcome.error()).isInstanceOf(DuplicateKeyException.class));
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles WHERE code = 'RACE'", Integer.class)).isEqualTo(1);
 	}
 
 }

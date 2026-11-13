@@ -11,6 +11,7 @@ public enum ErrorCode {
 
 	VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "Validation failed"),
 	INVALID_QUANTITY(HttpStatus.BAD_REQUEST, "Invalid quantity"),
+	CODE_INVALID(HttpStatus.BAD_REQUEST, "Invalid code"),
 	UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Unauthenticated"),
 	FORBIDDEN(HttpStatus.FORBIDDEN, "Forbidden"),
 	NOT_ALLOWED(HttpStatus.FORBIDDEN, "Not allowed"),
@@ -28,6 +29,8 @@ public enum ErrorCode {
 	ITEM_CHANGED(HttpStatus.CONFLICT, "Item changed"),
 	FOLLOW_NOT_ALLOWED(HttpStatus.CONFLICT, "Ticket cannot be followed"),
 	LIMIT_REACHED(HttpStatus.CONFLICT, "Limit reached"),
+	USERNAME_TAKEN(HttpStatus.CONFLICT, "Username taken"),
+	EMAIL_TAKEN(HttpStatus.CONFLICT, "Email taken"),
 	LOGIN_LOCKED(HttpStatus.TOO_MANY_REQUESTS, "Login locked"),
 	TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "Too many requests"),
 	BUSY(HttpStatus.SERVICE_UNAVAILABLE, "Busy"),

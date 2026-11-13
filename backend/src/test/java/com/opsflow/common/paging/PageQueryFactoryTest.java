@@ -15,7 +15,7 @@ import com.opsflow.common.error.ErrorCode;
 class PageQueryFactoryTest {
 
 	private final PageQueryFactory factory = new PageQueryFactory(
-			new OpsflowProperties(new OpsflowProperties.Retry(3, List.of(Duration.ofMillis(50))), new OpsflowProperties.Paging(10)));
+			new OpsflowProperties(new OpsflowProperties.Retry(3, List.of(Duration.ofMillis(50))), new OpsflowProperties.Paging(10), null, null, null, null, null));
 
 	@Test
 	void theDefaultsAreTheFirstPageOfTenNewestFirst() {

@@ -74,7 +74,7 @@ class TransactionRetryMySqlTest extends MySqlIntegrationTest {
 		assertThat(outcomes).allSatisfy(o -> assertThat(o.succeeded()).as("outcome %s", o).isTrue());
 		assertThat(attempts.get()).as("MySQL aborted exactly one of the two, which tried again").isEqualTo(3);
 		// The winner committed first and the loser's retry wrote last, so both rows hold the loser's text.
-		List<String> texts = root().queryForList("SELECT description FROM roles ORDER BY id", String.class);
+		List<String> texts = root().queryForList("SELECT description FROM roles WHERE code IN ('A', 'B') ORDER BY id", String.class);
 		assertThat(texts).hasSize(2).doesNotContainNull();
 		assertThat(texts.get(0)).isEqualTo(texts.get(1));
 	}

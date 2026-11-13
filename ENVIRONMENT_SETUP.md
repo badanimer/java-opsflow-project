@@ -113,6 +113,16 @@ Keep the two connections separate in Spring Boot:
 
 Do not apply `backend/src/main/resources/db/migration/V1__initial_schema.sql` to `opsflow` manually. The first creation of the tables should be done by Flyway when the backend is connected, so that Flyway's schema history table exists from the start. Until then `opsflow` stays empty, and experiments belong in a temporary database.
 
+#### Later migrations
+
+Flyway applies a new migration at the next start of the backend. `V2__seed_roles_and_system_identity.sql` adds the four roles and the SYSTEM identity. It adds rows only, so no grant follows it.
+
+`V3__email_code_request_counts.sql` adds the table `email_code_request_counts`. Privileges were already restricted on this machine before `V3` existed, so after the start that applied `V3` this one line was run as `root` on 2026-11-13. Another machine in the same state needs it too (it is also in the privilege script, for a server that is set up from nothing):
+```sql
+GRANT INSERT, UPDATE, DELETE ON opsflow.email_code_request_counts TO 'opsflow_app'@'localhost';
+```
+Until it is run, a request for an email code fails with a permission error (the API answers `INTERNAL_ERROR`).
+
 #### Per-table privileges after the first migration
 
 Privileges can only be granted on tables that exist, so the `opsflow_app` grants above stay database-wide until Flyway has created the tables. Then run [`db/admin/restrict-app-privileges.sql`](db/admin/restrict-app-privileges.sql) as `root`. It replaces them with per-table grants:
@@ -123,6 +133,7 @@ Privileges can only be granted on tables that exist, so the `opsflow_app` grants
 | `order_items` (frozen after the order is created) | read and insert |
 | `users`, `roles`, `products`, `inventory`, `orders`, `tickets` | read, insert, and update |
 | `email_verification_codes` | read, insert, update, and delete (expired codes are deleted by a job) |
+| `email_code_request_counts` | read, insert, update, and delete (the counts of windows that are over are deleted by the same job) |
 | `user_roles` | read and insert |
 
 - Revoking a user's role deletes a `user_roles` row, and deleting a role deletes a `roles` row. When the permission management feature is built, add `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';` and `GRANT DELETE ON opsflow.roles TO 'opsflow_app'@'localhost';` for those two tables only.
@@ -235,16 +246,47 @@ Real credentials live in environment variables and never in the repository. The 
 | `OPSFLOW_DB_PASSWORD` | Password of the application account | Yes |
 | `OPSFLOW_MIGRATION_USERNAME` | Migration account, `opsflow_migrator` | Yes |
 | `OPSFLOW_MIGRATION_PASSWORD` | Password of the migration account | Yes |
+| `OPSFLOW_TOKEN_SIGNING_KEY` | The key that signs the login tokens: Base64 of at least 32 random bytes | Yes |
+| `OPSFLOW_MAIL_HOST` | The SMTP server that sends the email codes: `smtp.gmail.com` | No. Without it, or without the password, the backend starts and sends no mail |
+| `OPSFLOW_MAIL_PORT` | The SMTP port | No, defaults to 587 |
+| `OPSFLOW_MAIL_USERNAME` | The address of the Gmail account made for OpsFlow | With the host |
+| `OPSFLOW_MAIL_PASSWORD` | The app password of that account, not the password of the Google account | With the host |
+| `OPSFLOW_MAIL_FROM` | The sender address, when it differs from the username | No |
 | `RABBITMQ_USERNAME` | RabbitMQ user | No, defaults to `guest` |
 | `RABBITMQ_PASSWORD` | RabbitMQ password | Yes |
 
 The MySQL `root` password is deliberately not in this list.
 
-On this machine the four `OPSFLOW_` variables are already set. To set or change a password, type it at a masked prompt so it is not left in the shell history, then open a new terminal and restart the IDE so it picks the value up:
+On this machine the four database variables, `OPSFLOW_TOKEN_SIGNING_KEY`, `OPSFLOW_MAIL_HOST`, `OPSFLOW_MAIL_USERNAME`, and `OPSFLOW_MAIL_PASSWORD` are set. To set or change a password, type it at a masked prompt so it is not left in the shell history, then open a new terminal and restart the IDE so it picks the value up:
 ```powershell
 $p = Read-Host "App password" -AsSecureString
 [Environment]::SetEnvironmentVariable("OPSFLOW_DB_PASSWORD", [System.Net.NetworkCredential]::new("", $p).Password, "User")
 ```
+The token signing key is not typed by a person: it is made at random and stored without being shown. Run this once, then open a new terminal and restart the IDE:
+```powershell
+$b = New-Object byte[] 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+[Environment]::SetEnvironmentVariable("OPSFLOW_TOKEN_SIGNING_KEY", [Convert]::ToBase64String($b), "User")
+```
+Whoever has this key can make a login token for any user, so treat it like a password. Running the lines again makes a new key, and every token issued with the old one stops working, so every user logs in again. The tests do not read this variable: they make their own key for each run.
+
+#### The mail account
+
+OpsFlow sends its email codes through Gmail SMTP, from a Gmail account that was made for OpsFlow and is used for nothing else, so a limit or a block on it never touches a personal mailbox. To let the backend send mail:
+
+1. Sign in to that Google account and turn on 2-Step Verification. Google offers app passwords only with it.
+2. Create an app password (Google Account, Security, App passwords). Google shows 16 characters once.
+3. Store the three values. The address is not a secret; the app password is, so it is typed at a masked prompt. The spaces that Google shows between the groups are removed:
+```powershell
+[Environment]::SetEnvironmentVariable("OPSFLOW_MAIL_HOST", "smtp.gmail.com", "User")
+[Environment]::SetEnvironmentVariable("OPSFLOW_MAIL_USERNAME", "<gmail-address-of-the-opsflow-account>", "User")
+$p = Read-Host "Mail app password" -AsSecureString
+[Environment]::SetEnvironmentVariable("OPSFLOW_MAIL_PASSWORD", ([System.Net.NetworkCredential]::new("", $p).Password -replace ' ', ''), "User")
+```
+4. Open a new terminal and restart the IDE.
+
+An app password can only send and read mail of that account. It can be revoked on the same page without changing the password of the account, and a new one is stored the same way. The tests do not read these variables and send no mail.
+
 To rotate an application password, run `ALTER USER 'opsflow_app'@'localhost' IDENTIFIED BY '<new-password>';` as `root`, then update the variable the same way.
 
 Rules:

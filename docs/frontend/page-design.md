@@ -12,6 +12,7 @@ This document always describes the current page design. Entries are listed newes
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-12 | 1.1 | A disabled account is told so on the login page and never reaches the pending page; a user whose account is disabled while logged in is sent back to the login page with the same message; the pending page is only for a user with no role. Extended on 2026-11-13: what the sign-up page and Forgot password show for each answer about an email code, and the username rule | [frontend-v1.1.md](../iterations/frontend-v1.1.md) |
 | 2026-10-26 | 1.0 | First version: the page map, what each role sees, and a first description of every page, built from the earlier design and from the owner's rough design of the pages | [frontend-v1.0.md](../iterations/frontend-v1.0.md) |
 
 ## Principles
@@ -31,7 +32,7 @@ This document always describes the current page design. Entries are listed newes
 | Login | Everyone | Log in |
 | Sign-up | Everyone | Create an account with an email code |
 | Forgot password | Everyone | Set a new password with an email code. The only way to change a password |
-| Pending page | A user with no role, or a disabled account | Shows why nothing else is open |
+| Pending page | A user with no role | Shows that the account is waiting for an administrator to assign permissions |
 | Product page | `ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER` | The home page. Lists the products on sale, is where an order is placed, and has the product log (View records, and a View button on each product) |
 | Stock page | The same four roles | One row for each warehouse item, with its stock, its correction button, a View button for its own log, and a View records button for the warehouse log of all items |
 | Ticket pool | The same four roles | `OPEN` tickets that nobody holds |
@@ -75,13 +76,15 @@ The full rules are in the [Permission Matrix](../database/database-design.md#per
 Ordinary pages, in the usual style of a web application. There are three functions and no more.
 
 - **Login** takes a username and a password. An error never says whether the username exists. After five wrong passwords the account is locked for a time, and the page says when to try again (see [Login security](../database/database-design.md#login-security-and-account-recovery)). The SYSTEM identity cannot log in. The first administrator is created on the server with a console command, so no page exists for it (see [First administrator](../database/database-design.md#first-administrator)).
-- **Sign-up** takes a username, an email, and a password. The page sends a 6-digit code to the email, and the account is created when the code is entered. The new account has no role.
+- **A disabled account** is told so on the login page. When the password is right and the account is disabled, the login answers `ACCOUNT_DISABLED` and gives no token: the page stays where it is and shows "This account has been disabled. Please contact an administrator." When any later request answers `ACCOUNT_DISABLED`, the account was disabled while the user was logged in: the frontend clears its login state, goes back to the login page, and shows the same message. After the account is enabled again, the user logs in again (see [Disabled accounts](../database/database-design.md#login-security-and-account-recovery)).
+- **Sign-up** takes a username, an email, and a password. The page sends a 6-digit code to the email, and the account is created when the code is entered. The new account has no role. The sign-up logs the user in, so the page goes straight to the pending page, which says that the account is waiting for an administrator to assign permissions. A username is 3 to 64 letters and digits, with no space and no other character.
 - **Forgot password** takes the email, sends a code, and then takes the new password. The reply is the same whether or not the email is registered. A new code can be requested after 60 seconds.
+- **The code, on both pages.** On the sign-up page, a request for a code for an address that already has an account answers `EMAIL_TAKEN`, and the page says "This email is already registered." with links to the login page and to Forgot password. On Forgot password, the page always says that a code was sent if the address has an account, because the server gives the same answer whether or not a mail went out. The button for a new code is disabled for 60 seconds. On `TOO_MANY_REQUESTS` the page says "Too many requests. Please try again later.", and on `CODE_INVALID` "The code is wrong or no longer valid. Please request a new one." On `USERNAME_TAKEN` the page keeps the code and asks for another username. A new password that equals the current one is refused with a message on that field.
 - The email and the username cannot be changed. There is no account page. A person changes the password only through Forgot password on the login page.
 
 ### Pending page
 
-Every user passes it after login. If the account is disabled, it says so. If the user has no role, it says the account is waiting for an administrator to assign permissions. Otherwise it is skipped. It is checked again on refresh and on the next login.
+Every user passes it after login. If the user has no role, it says "Waiting for an administrator to assign permissions". Otherwise it is skipped. It is checked again on refresh and on the next login. A disabled account never sees it, because it gets no token: its message is on the login page.
 
 ### Product page
 
