@@ -1,6 +1,7 @@
 package com.opsflow.auth;
 
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasItems;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -15,6 +16,7 @@ import java.util.Base64;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 
+import com.opsflow.common.security.Role;
 import com.opsflow.common.time.UtcTime;
 
 /**
@@ -143,12 +145,15 @@ class TokenCheckTest extends AuthIntegrationSupport {
 	void theRolesAreReadFromTheDatabaseOnEveryRequest() throws Exception {
 		long alice = account("alice");
 		String token = tokenOf("alice", PASSWORD);
-		me(token).andExpect(jsonPath("$.roles", hasSize(0)));
+		me(token).andExpect(jsonPath("$.roles", hasSize(0))).andExpect(jsonPath("$.permissions", hasSize(0)));
 
 		grant(alice, "OPERATOR");
 		grant(alice, "MANAGER");
 
-		me(token).andExpect(status().isOk()).andExpect(jsonPath("$.roles", contains("MANAGER", "OPERATOR")));
+		me(token).andExpect(status().isOk())
+				.andExpect(jsonPath("$.roles", contains("MANAGER", "OPERATOR")))
+				.andExpect(jsonPath("$.permissions", hasSize(Role.MANAGER.permissions().size())))
+				.andExpect(jsonPath("$.permissions", hasItems("ORDER_PLACE", "AUDIT_VIEW", "ROLE_ASSIGN")));
 	}
 
 	@Test

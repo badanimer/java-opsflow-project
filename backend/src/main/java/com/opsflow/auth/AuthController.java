@@ -14,7 +14,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.opsflow.auth.AccountService.NewAccount;
 import com.opsflow.auth.TokenService.IssuedToken;
+import com.opsflow.common.security.AnyAccount;
 import com.opsflow.common.security.CurrentUser;
+import com.opsflow.common.security.Permission;
+import com.opsflow.common.security.Public;
 import com.opsflow.common.validation.Limits;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +49,14 @@ public class AuthController {
 	public record LoginResponse(String token, Instant expiresAt) {
 	}
 
-	/** @param roles the role codes; empty while the account waits for an administrator to assign one */
-	public record AccountResponse(long id, String username, List<String> roles) {
+	/**
+	 * @param roles the role codes; empty while the account waits for an administrator to assign one
+	 * @param permissions what the user may do, as the names of {@link Permission}: the permissions of all
+	 *        the roles together. The frontend shows a control by its permission and never by a role, so
+	 *        that a new role needs no change there. It only decides what is shown: every request is
+	 *        checked again by the server
+	 */
+	public record AccountResponse(long id, String username, List<String> roles, List<Permission> permissions) {
 	}
 
 	public record EmailCodeRequest(@NotBlank @Email @Size(max = Limits.EMAIL) String email, @NotNull EmailCodePurpose purpose) {
@@ -77,24 +86,28 @@ public class AuthController {
 		this.accounts = accounts;
 	}
 
+	@Public
 	@PostMapping("/login")
 	public LoginResponse login(@Valid @RequestBody LoginRequest body, HttpServletRequest request) {
 		IssuedToken token = loginService.login(body.username(), body.password(), request.getRemoteAddr());
 		return new LoginResponse(token.value(), token.expiresAt());
 	}
 
+	@AnyAccount
 	@GetMapping("/me")
 	public AccountResponse me(@AuthenticationPrincipal CurrentUser user) {
-		return new AccountResponse(user.id(), user.username(), user.roles());
+		return new AccountResponse(user.id(), user.username(), user.roles(), List.copyOf(user.permissions()));
 	}
 
 	/** The answer is the same whether or not a mail is sent, so it does not show which addresses are registered. */
+	@Public
 	@PostMapping("/email-codes")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void requestEmailCode(@Valid @RequestBody EmailCodeRequest body, HttpServletRequest request) {
 		emailCodes.request(body.email(), body.purpose(), request.getRemoteAddr());
 	}
 
+	@Public
 	@PostMapping("/sign-up")
 	@ResponseStatus(HttpStatus.CREATED)
 	public SignUpResponse signUp(@Valid @RequestBody SignUpRequest body, HttpServletRequest request) {
@@ -102,6 +115,7 @@ public class AuthController {
 		return new SignUpResponse(account.id(), account.username(), account.token().value(), account.token().expiresAt());
 	}
 
+	@Public
 	@PostMapping("/password-reset")
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	public void resetPassword(@Valid @RequestBody PasswordResetRequest body, HttpServletRequest request) {

@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     onSessionProblem((reason) => {
       if (reason === 'noRole') {
-        setAccount((current) => current && { ...current, roles: [] })
+        setAccount((current) => current && { ...current, roles: [], permissions: [] })
         return
       }
       forget()

@@ -19,7 +19,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
-| 3 | Roles and permissions. The console command that creates an administrator is done, and the local machine has its first administrator | T-27, T-19, T-15, T-21, T-26, T-23, T-22, T-06, T-48, T-45, T-54 |
+| 3 | Roles and permissions. The console command that creates an administrator and the permission check of the endpoints are done | T-54, T-19, T-15, T-21, T-26, T-23, T-06, T-48, T-45 |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
@@ -77,13 +77,12 @@ The first administrator comes first, because no one can be given a role without 
 
 | Task | What |
 | --- | --- |
-| T-27 | Check every endpoint against the roles of the caller, as the Permission Matrix says (reviewed on 2026-11-14). Refuse by default, with a test that fails for an endpoint that declares no permission |
+| T-27 | Done ([backend-v1.6.md](iterations/backend-v1.6.md)): every endpoint is checked against the roles of the caller and refused by default, with a test that fails for an endpoint that declares no permission, and `ACCOUNT_NO_ROLE` for a user with no role. What stays is one line on each new endpoint |
 | T-54 | The test of the package dependencies, now that there are two modules |
 | T-19, T-15 | A role counts only for a usable account; role grants are refused to other accounts and logged |
 | T-21 | Replacing a user's roles in one transaction. The four roles are fixed |
 | T-26 | Authority over roles and accounts |
 | T-23 | Administrator protection, with a race test of two administrators removing each other |
-| T-22 | The backend part of the pending page: the account state and the distinct error codes |
 | T-06 | Grant `DELETE` on `user_roles` |
 | T-48 | The user list and the granting of roles through the API. This is the first list, so build the paging with it (T-45) |
 | T-50 | The user and account logs and the role logs |

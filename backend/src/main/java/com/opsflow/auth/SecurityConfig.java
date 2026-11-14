@@ -3,14 +3,11 @@ package com.opsflow.auth;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
-
-import com.opsflow.common.web.WebConfig;
 
 import jakarta.servlet.DispatcherType;
 
@@ -20,9 +17,10 @@ import jakarta.servlet.DispatcherType;
  * <ul>
  * <li>The server keeps no session. Every request carries its token in {@code Authorization: Bearer}, and
  * {@link TokenAuthenticator} checks the account behind it against the database each time.</li>
- * <li><b>Refuse by default.</b> A request that no rule below allows is refused, so an endpoint that is
- * added without a rule is closed and not open. The rules for the modules are added with the
- * permission module (T-27).</li>
+ * <li><b>Refuse by default.</b> A controller method declares who may call it, with {@code @Public},
+ * {@code @AnyAccount}, or {@code @RequiresPermission}, and {@link EndpointPermissions} decides from that. A
+ * request whose method declares nothing, or that has no method at all, is refused, so an endpoint that
+ * is added without a declaration is closed and not open.</li>
  * <li>Cross-site request forgery protection is off: no cookie authenticates a request, so a foreign site
  * cannot make the browser send one.</li>
  * </ul>
@@ -35,11 +33,9 @@ import jakarta.servlet.DispatcherType;
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 public class SecurityConfig {
 
-	private static final String API = WebConfig.BASE_PATH;
-
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, TokenService tokens, TokenAuthenticator authenticator,
-			SecurityErrorHandler errors) throws Exception {
+			SecurityErrorHandler errors, EndpointPermissions permissions) throws Exception {
 		http
 			.csrf(AbstractHttpConfigurer::disable)
 			.formLogin(AbstractHttpConfigurer::disable)
@@ -50,12 +46,8 @@ public class SecurityConfig {
 			.authorizeHttpRequests(requests -> requests
 				// The error page of the container only renders a failure that was already decided.
 				.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-				.requestMatchers(HttpMethod.POST, API + "/auth/login").permitAll()
-					// Sign-up and Forgot password are for people who are not logged in.
-					.requestMatchers(HttpMethod.POST, API + "/auth/email-codes", API + "/auth/sign-up", API + "/auth/password-reset").permitAll()
-				// A user with no role may ask who they are: the pending page needs the answer.
-				.requestMatchers(HttpMethod.GET, API + "/auth/me").authenticated()
-				.anyRequest().denyAll())
+				// Every other request is decided by what its controller method declares.
+				.anyRequest().access(permissions))
 			.oauth2ResourceServer(server -> server
 				.jwt(jwt -> jwt.decoder(tokens.decoder()).jwtAuthenticationConverter(authenticator::authenticate))
 				.authenticationEntryPoint(errors)

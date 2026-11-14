@@ -1,4 +1,4 @@
-﻿# Verification Log: Structure, Privilege, and Concurrency Tests
+# Verification Log: Structure, Privilege, and Concurrency Tests
 
 ## Purpose
 
@@ -172,7 +172,7 @@ The blocks above are the checks of the SQL script. This section records the test
 
 - **How they run:** from `backend/`, `mvnw test`, with Docker Desktop running. The container gets the migrations and `restrict-app-privileges.sql`, and the tests connect as the limited application account. See [Tests](../../docs/backend/backend-design.md#tests) in the backend design.
 - **Test names** are the Java method names, so a line in the Maven output can be found here with a search.
-- **Latest run, 2026-11-13: 222 passed, 0 failed** (10 of the test infrastructure, 87 of the shared code, and 125 of login, sign-up, password recovery, and the console command). The run was made with the database, signing key, and mail environment variables unset, as on the machine of the continuous integration job, which runs the same command on every push (see [Continuous integration](../../docs/backend/backend-design.md#continuous-integration)). No test sends a mail: the mail server of the tests keeps the mails. The run before it, earlier the same day, had 134, before sign-up and password recovery were built.
+- **Latest run, 2026-11-15: 244 passed, 0 failed** (10 of the test infrastructure, 94 of the shared code, 125 of login, sign-up, password recovery, and the console command, and 15 of roles and permissions). The run was made with the database, signing key, and mail environment variables unset, as on the machine of the continuous integration job, which runs the same command on every push (see [Continuous integration](../../docs/backend/backend-design.md#continuous-integration)). No test sends a mail: the mail server of the tests keeps the mails. The run before it, on 2026-11-13, had 222, before the permission check of the endpoints was built.
 
 ### Test infrastructure (10 tests)
 
@@ -188,7 +188,7 @@ These tests check the set-up, not a business rule. They are in `TestInfrastructu
 | `SeedMigrationTest`: `flywayAppliedTheSeedMigration`, `theFourRolesAreSeeded`, `theSystemIdentityIsOneRowThatIsNotAPersonAndHoldsNoRole` | Flyway applied `V2` after `V1`; the roles are `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`; the SYSTEM identity is one row with a password marker that is not a hash, and it holds no role | [The SYSTEM identity](../../docs/database/database-design.md#the-system-identity), [Initial Migration](../../docs/database/database-design.md#initial-migration) |
 | `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key lets exactly one insert succeed | The race runner itself |
 
-### Shared code (87 tests)
+### Shared code (94 tests)
 
 These tests check the foundations in the `common` package ([Shared Code](../../docs/backend/backend-design.md#shared-code)). The counts are the runs that Maven prints: a parameterised test counts once for each value.
 
@@ -205,6 +205,8 @@ These tests check the foundations in the `common` package ([Shared Code](../../d
 | `LimitsMatchSchemaTest`: `everyLimitEqualsTheLengthOfItsColumns` | Each constant of `Limits` equals the length of its 22 columns in the migrated database | [Field Specifications](../../docs/database/database-design.md#field-specifications) (T-13) |
 | `AuditLogTest`: `everyActionHasACategoryAndFitsItsColumn`, `theCategoriesAreTheOnesTheDatabaseAccepts`, `aRowIsWrittenWithTheCategoryOfItsAction`, `writingOutsideATransactionIsRefused` | Every action of the one table of audit actions has a category and fits the column; the categories in the code are exactly those of `chk_operation_logs_category`; a row gets the category of its action; and a log row cannot be written outside the transaction of its change | [Categories](../../docs/database/database-design.md#categories), [Auditing](../../docs/database/database-design.md#auditing) |
 | `MailerTest` (5): `mailsLeaveInTheOrderTheyWereHandedOver`, `sendingInsideATransactionIsRefused`, `theCallerDoesNotWaitForTheMailServer`, `aFailingMailServerDoesNotReachTheCallerOrStopTheNextMail`, `theTextOfAMailAndTheMailPasswordAreNotPartOfWhatIsPrinted` | With a mail server made by the test: 20 mails leave in order; a mail is never sent inside a transaction; `send` returns while the mail server has not answered; a failure of the mail server reaches neither the caller nor the next mail; and the text of a mail, its address, and the mail password are not in the text of the objects that could be logged | [Mail](../../docs/backend/backend-design.md#mail), [No slow work inside a transaction](../../docs/backend/backend-design.md#no-slow-work-inside-a-transaction) |
+| `RoleTest` (3): `theRolesOfTheCodeAreTheRowsOfTheSeedMigration`, `aRoleIsFoundByItsCode`, `aUserHoldsTheRolesOfTheirCodes` | The constants of `Role` are exactly the `code` values of the `roles` table after the seed migration, so a role added to one side only fails; a role is found by its code and an unknown code by nothing; and a user holds a role when its code is among the user's roles | [Role management](../../docs/database/database-design.md#role-management), [Permission Matrix](../../docs/database/database-design.md#permission-matrix) |
+| `PermissionTest` (4): `everyPermissionIsGrantedByARole`, `theRolesFollowThePrinciplesOfTheMatrix`, `thePermissionsOfTheRolesOfAUserAddUp`, `aUserWithNoRoleOrWithARoleTheProgramDoesNotKnowCanDoNothing` | Every constant of `Permission` is granted by at least one role; a manager can do everything an operator can and an administrator everything a manager can, a viewer has only the reading permissions, an operator has none of master data, audit logs, or users, and the roles are not a ladder; a user with `OPERATOR` and `VIEWER` can do what either grants and nothing else; and a user with no role, or with a role code the program does not know, can do nothing | [Permission Matrix](../../docs/database/database-design.md#permission-matrix), [Permissions](../../docs/backend/backend-design.md#permissions) |
 
 ### Login, sign-up, and password recovery (125 tests)
 
@@ -250,6 +252,16 @@ The races of login, sign-up, and password recovery have no check in the SQL scri
 | Two console commands create an administrator at once, with the same username | `CreateAdminCommandTest.twoCommandsAtOnceWithOneUsernameCreateOneAdministrator` | Two threads with one username and two addresses: one exits with 0 and one with 1, and there is one user, one grant, and two log rows |
 | Two console commands create different administrators at once | `CreateAdminCommandTest.twoCommandsAtOnceForDifferentPeopleCreateTwoAdministrators` | Both exit with 0, and there are two administrators. Each waited for the lock on the `ADMIN` row |
 
+### Roles and permissions (15 tests)
+
+These tests check the first gate of the Permission Matrix ([Permissions](../../docs/backend/backend-design.md#permissions)): a request reaches a controller method only when that method declares that the caller may. They call the application through HTTP, with the security filters, against the MySQL container. `PermissionProbeController` exists only in the tests and has one endpoint for each kind of declaration and one that declares nothing.
+
+| Test class and methods | What it shows | Supports |
+| --- | --- | --- |
+| `EndpointPermissionTest` (13): `aPublicEndpointNeedsNoToken`, `withoutATokenEveryOtherEndpointIsUnauthenticated`, `aUserWithNoRoleReachesAnEndpointForAnyAccount`, `aUserWithNoRoleIsToldSoOnAnEndpointThatNeedsARole`, `aUserWhoseRolesDoNotGrantThePermissionIsForbidden`, `everyRoleThatGrantsThePermissionGetsThrough`, `aRoleOpensOnlyWhatItIsGranted`, `theRolesOfAUserAddUp`, `anEndpointThatDeclaresNothingIsClosedEvenForAnAdministrator`, `anEndpointThatDeclaresNothingIsForbiddenForAUserWithNoRole`, `aPathThatExistsOnlyWithAnotherMethodIsRefused`, `aRoleThatIsGrantedOrTakenAwayCountsOnTheNextRequest`, `theRolesOfADisabledAccountOpenNothing` | A public endpoint needs no token, and every other one answers `UNAUTHENTICATED` without one, also a path that does not exist; a user with no role reaches an endpoint for any account and gets `ACCOUNT_NO_ROLE` with `requestId` on one that needs a role (T-22); a user whose roles do not grant the permission of the endpoint gets `FORBIDDEN`, every role that grants it passes, and an operator does not pass an endpoint whose permission only viewers, managers, and administrators have; a user with `OPERATOR` and `VIEWER` passes the endpoints of both and no other; an endpoint that declares nothing is `FORBIDDEN` for an administrator and for a user with no role; a role granted or taken away counts on the next request with the same token; and the roles of a disabled account open nothing (T-19) | [Permission Matrix](../../docs/database/database-design.md#permission-matrix), [Users without roles](../../docs/database/database-design.md#users-without-roles), [Role grants](../../docs/database/database-design.md#role-grants) |
+| `EveryEndpointDeclaresWhoMayCallItTest` (2): `everyEndpointOfTheApplicationDeclaresExactlyOnce`, `theControllersOfTheTestsAreLeftOutAndThoseOfTheApplicationAreNot` | Every endpoint of the running application that is compiled from `src/main` carries exactly one of `@Public`, `@AnyAccount`, and `@RequiresPermission`. The endpoints are read from the application, so a new controller is covered without a change to the test. The controllers of the tests are left out, and at least the five endpoints of the `auth` module are checked | [Rules Checked By Tests](../../docs/backend/backend-design.md#rules-checked-by-tests) (T-27) |
+
+None of these is a race: the gate only reads. The races of a change to a user come with that code (T-21, T-23).
 ### Repeats of the script checks
 
 Each row says which Java test repeats which check of Block D. Most are not written yet: they are the task T-17, and each is added here when it is written.

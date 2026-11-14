@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.4 | `GET /auth/me` also returns `permissions`, what the user may do, so that the frontend shows a control by its permission and never by a role | [api-v1.4.md](../iterations/api-v1.4.md) |
 | 2026-11-12 | 1.3 | The answers of the login endpoint and of the token check for a disabled, soft-deleted, or just-reset account: `ACCOUNT_DISABLED` at login with no token, `ACCOUNT_DISABLED` on the next request after the account is disabled, and `UNAUTHENTICATED` for a soft-deleted account and for a login whose password was replaced while it was checked. The first endpoints: `POST /auth/login` and `GET /auth/me`. Extended on 2026-11-13 with the email codes, sign-up, and the password reset: `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset`, the codes `CODE_INVALID`, `USERNAME_TAKEN`, and `EMAIL_TAKEN`, and a wider meaning of `TOO_MANY_REQUESTS` | [api-v1.3.md](../iterations/api-v1.3.md) |
 | 2026-11-12 | 1.2 | Every response carries a request id in the header `X-Request-Id`, and every error body carries it as `requestId` | [api-v1.2.md](../iterations/api-v1.2.md) |
 | 2026-11-09 | 1.1 | The conventions are written into code: the format of the idempotency key, the rules that refuse a bad paging parameter, and two codes for a wrong method and a wrong media type | [api-v1.1.md](../iterations/api-v1.1.md) |
@@ -62,10 +63,10 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 400 | `INVALID_QUANTITY` | A quantity is not a whole number in its range | [Valid quantities](../database/database-design.md#valid-quantities) |
 | 400 | `CODE_INVALID` | The email code is wrong, has expired, was used, has had 5 wrong entries, or does not exist. The answer is the same in every case. The person requests a new code | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 401 | `UNAUTHENTICATED` | No token, an invalid or expired token, a token not issued after `password_changed_at`, or a token of a user who does not exist or is soft-deleted. At login: a wrong username or password | General |
-| 403 | `FORBIDDEN` | The user is logged in and the Permission Matrix does not allow the action. Also a request that no rule of the application allows, whether or not the path exists | General |
+| 403 | `FORBIDDEN` | The user is logged in and holds a role, and the Permission Matrix does not allow the action for any of the user's roles. Also a request to an endpoint that declares nothing or does not exist, whatever the roles | General |
 | 403 | `NOT_ALLOWED` | The account is not usable or its role does not allow orders or tickets | Order and ticket results |
 | 403 | `ACCOUNT_DISABLED` | The account is disabled. At login it is the answer to the right password, with no token. On any other request it means the account was disabled after login. The frontend clears its login state and shows the message on the login page | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
-| 403 | `ACCOUNT_NO_ROLE` | The account has no role yet. The pending page shows it | [Users without roles](../database/database-design.md#users-without-roles) |
+| 403 | `ACCOUNT_NO_ROLE` | The account has no role yet, and the endpoint needs one. The pending page shows it | [Users without roles](../database/database-design.md#users-without-roles) |
 | 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists | General |
 | 404 | `ORDER_NOT_FOUND` | The order number named on a ticket is not in `order_attempts` | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 404 | `FOLLOW_NOT_FOUND` | The ticket to follow does not exist | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
@@ -103,7 +104,7 @@ The first endpoints of the API. The rules behind them are in [Login security and
 | Endpoint | Who | Request | Response |
 | --- | --- | --- | --- |
 | `POST /auth/login` | Everyone | `{ "username": "...", "password": "..." }`. The username has at most 64 characters and the password at most 24; a longer or empty value is refused with `VALIDATION_FAILED` before any check | `200` with `{ "token": "...", "expiresAt": "2026-11-13T13:00:00Z" }` |
-| `GET /auth/me` | A logged-in user, with or without a role | None | `200` with `{ "id": 7, "username": "alice", "roles": ["OPERATOR"] }`. `roles` holds the role codes and is empty while the account waits for a role, which is how the frontend knows to show the pending page |
+| `GET /auth/me` | A logged-in user, with or without a role | None | `200` with `{ "id": 7, "username": "alice", "roles": ["VIEWER"], "permissions": ["PRODUCT_VIEW", "STOCK_VIEW", "DELETED_ITEMS_VIEW", "TICKET_VIEW", "TICKET_VIEW_ALL", "TICKET_SEARCH"] }`. `roles` holds the role codes and is empty while the account waits for a role, which is how the frontend knows to show the pending page. `permissions` holds what the user may do: the permissions of all the roles together, by the names of the enum `Permission` in the backend, and empty for a user with no role |
 
 | `POST /auth/email-codes` | Everyone | `{ "email": "...", "purpose": "REGISTER" }`. `purpose` is `REGISTER` or `RESET_PASSWORD` | `204` with no body. For `RESET_PASSWORD` it is the same whether or not a mail was sent. For `REGISTER`, `EMAIL_TAKEN` when the address has an account. `TOO_MANY_REQUESTS` when a limit refuses the request |
 | `POST /auth/sign-up` | Everyone | `{ "username": "...", "email": "...", "password": "...", "code": "123456" }`. The code is 6 digits | `201` with `{ "id": 7, "username": "alice", "token": "...", "expiresAt": "2026-11-13T13:00:00Z" }`. The account is active and has no role, and the new user is logged in: the token is the same kind as the one of `POST /auth/login`, and the frontend goes to the pending page. `CODE_INVALID`, `USERNAME_TAKEN`, `EMAIL_TAKEN`, or `VALIDATION_FAILED` otherwise |
@@ -112,6 +113,7 @@ The first endpoints of the API. The rules behind them are in [Login security and
 - `expiresAt` is 12 hours after the login. After it the token gets `UNAUTHENTICATED`, and the user logs in again.
 - The refusals of the login are `UNAUTHENTICATED` (a wrong username or password), `LOGIN_LOCKED` with `lockedUntil`, and `ACCOUNT_DISABLED`, as in the rules above.
 - `GET /auth/me` reads the account at each call, so a role that was granted or revoked shows at the next call.
+- The frontend shows or hides a control by a name in `permissions`, and never by a role, so a new role needs no change in the frontend (see [Permissions](../backend/backend-design.md#permissions)). The list only decides what is shown: the server checks every request again.
 - Every other request needs the token. Without one the answer is `UNAUTHENTICATED`, and a request that no rule allows is `FORBIDDEN`.
 - A `401` carries the header `WWW-Authenticate: Bearer`. The body never says why a token was refused.
 - A code is requested first and sent with the sign-up or the reset afterwards. It is valid for 10 minutes, and only the latest code of an address and purpose works. A wrong entry is counted, and after 5 the code is dead.

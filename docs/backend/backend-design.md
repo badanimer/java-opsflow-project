@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.6 | The permission check of the endpoints, the first part of the permission module: a controller method declares who may call it with `@Public`, `@AnyAccount`, or `@RequiresPermission`, `EndpointPermissions` decides from that and refuses a method that declares nothing, a user with no role gets `ACCOUNT_NO_ROLE`, the enum `Role` is the one place that says which role grants which `Permission`, so that a new role changes no endpoint, and a test fails the build for an endpoint with no declaration | [backend-v1.6.md](../iterations/backend-v1.6.md) |
 | 2026-11-13 | 1.5 | Login is built: the `auth` module with BCrypt, the signed token, the check of the account on every request, the login lockout, and security that refuses by default; the seed migration `V2`; the one table of audit actions and the writer of `operation_logs`; and a signing key from the environment. Extended the same day with sign-up and password recovery: email codes with their limits, the mail component (SMTP, in the background, never inside a transaction), the first scheduled job (the cleanup), and the migration `V3`. Then the console command that creates an administrator, the first task of Phase 3 | [backend-v1.5.md](../iterations/backend-v1.5.md) |
 | 2026-11-12 | 1.4 | A request id on every response, error body, and log line; the tests run in continuous integration on every push; and the rules for slow work in a transaction, for scheduled jobs, and for rules that a test must check | [backend-v1.4.md](../iterations/backend-v1.4.md) |
 | 2026-11-09 | 1.3 | The shared foundations in `common`: the error handler, paging, the retry component, UTC time helpers, the base path, the idempotency key check, the length limits, and the operating parameters in configuration | [backend-v1.3.md](../iterations/backend-v1.3.md) |
@@ -62,7 +63,7 @@ The `common` package holds what every module uses. A module calls it and never c
 | `common.config` | `OpsflowProperties`, `JobsConfig` | The operating parameters, bound from `opsflow.*`. See Configuration. `JobsConfig` turns the scheduled jobs on unless `opsflow.jobs.enabled` is false. See Scheduled Jobs |
 | `common.mail` | `Mailer`, `MailTransport`, `MailConfig`, `OutgoingMail` | `Mailer.send` is the only way a mail leaves the application. See Mail |
 | `common.audit` | `AuditAction`, `AuditCategory`, `AuditLogWriter` | `AuditAction` is the one table of the actions written to `operation_logs`, each with its category (see [Categories](../database/database-design.md#categories)). `AuditLogWriter.write` is the only way a row is written, so no row lacks a category, and it refuses to run outside a transaction, because a log row belongs to the transaction of the change it describes. A module that logs a new action adds it to `AuditAction` |
-| `common.security` | `CurrentUser` | The user who sent the request: the id, the username, and the role codes, as the database has them at this request. A controller takes it with `@AuthenticationPrincipal CurrentUser` |
+| `common.security` | `CurrentUser`, `Permission`, `Role`, `Public`, `AnyAccount`, `RequiresPermission` | `CurrentUser` is the user who sent the request: the id, the username, and the role codes, as the database has them at this request. A controller takes it with `@AuthenticationPrincipal CurrentUser`, and a service asks it `can(Permission)`. `Permission` is the actions of the Permission Matrix, and `Role` is the four fixed roles with the permissions each one grants. The three annotations are how a controller method declares who may call it. See Permissions |
 
 A controller declares its path without the prefix (`@RequestMapping("/orders")`) and takes the paging parameters as plain request parameters that it passes to `PageQueryFactory`.
 
@@ -132,7 +133,9 @@ A rule that is only written in a document is broken without anyone noticing. A r
 | --- | --- | --- |
 | No code reads the time zone of the machine | `UtcSourceRuleTest` | Built |
 | The length limit of a text field equals its column | `LimitsMatchSchemaTest` | Built |
-| Every endpoint is refused unless it declares who may call it | Security refuses any request that no rule allows (`TokenCheckTest.aRequestThatNoRuleAllowsIsRefused`), and a test lists every endpoint of the application and fails for one without a declared permission | The refusal is built. The test over the endpoints comes with the permission module (T-27) |
+| Every endpoint is refused unless it declares who may call it | An endpoint that declares nothing is refused for everyone (`EndpointPermissionTest.anEndpointThatDeclaresNothingIsClosedEvenForAnAdministrator`), and `EveryEndpointDeclaresWhoMayCallItTest` reads every endpoint of the running application and fails for one that does not declare exactly once | Built |
+| The roles in the code are the roles in the database | `RoleTest.theRolesOfTheCodeAreTheRowsOfTheSeedMigration` | Built |
+| Every permission is granted by a role, and the roles keep the principles of the Permission Matrix | `PermissionTest` | Built |
 | A module does not use the repository of another module, a controller does not use `JdbcTemplate`, and `common` depends on no module | A test of the package dependencies | When the second module is built (T-54) |
 | Only the allowed ticket status transitions happen | The transitions are one table in the code, and a test tries every pair of the five statuses and expects a refusal for each pair that is not in the table | With the ticket module (T-33) |
 | Every action of the audit log has a category | `AuditLogTest`: every action of `AuditAction` has a category, and the categories are exactly the ones the database accepts | Built |
@@ -180,6 +183,8 @@ The tests of the shared code are in `backend/src/test/java/com/opsflow/common`, 
 | `LimitsMatchSchemaTest` | Integration | Each constant of `Limits` equals the length of its columns in the migrated database (T-13) |
 | `MailerTest` | Unit | The mails leave in order, the caller does not wait for the mail server, a failing mail server reaches neither the caller nor the next mail, sending inside a transaction is refused, and neither the text of a mail nor the mail password is part of what could be printed |
 | `AuditLogTest` | Integration | Every audit action has a category, the categories are the ones the database accepts, a row is written with the category of its action, and writing outside a transaction is refused |
+| `RoleTest` | Integration | The constants of `Role` are the `code` values of the seeded `roles` rows, a role is found by its code, and `CurrentUser` answers which roles a user holds |
+| `PermissionTest` | Unit | Every permission is granted by a role, the roles keep the principles of the Permission Matrix (a manager can do what an operator can, an administrator what a manager can, a viewer only reads), the permissions of the roles of a user add up, and a user with no role or with an unknown role code can do nothing |
 
 The tests of login, sign-up, and password recovery are in `backend/src/test/java/com/opsflow/auth`:
 
@@ -200,6 +205,8 @@ The tests of login, sign-up, and password recovery are in `backend/src/test/java
 | `AccountRaceTest` | Integration | A newer code is requested while the password of a sign-up or a reset is being hashed: the older code no longer works and nothing is written. The test wraps the real `PasswordHasher`, so the order is the same on every run |
 | `CreateAdminCommandTest` | Integration | The console command, in an application started without the web server and with a terminal played by the test: the administrator with its role and its two log rows, who can log in; a second administrator; differing passwords, a value that breaks a rule of sign-up, a taken username or address, a missing `ADMIN` role, and input that ends early, each of which creates nothing; the password is never printed; and two commands at the same moment |
 | `EmailCodeCleanupJobTest` | Integration | The cleanup job, called directly: an expired code is deleted and a valid one is kept, the counts of windows long over are deleted, a run deletes at most its batch, a second run changes nothing, and no job is scheduled in the tests |
+| `PermissionProbeController`, `EndpointPermissionTest` | Integration | A controller that exists only in the tests, with one endpoint for each kind of declaration and one that declares nothing, and the checks through it: no token, a user with no role (`ACCOUNT_NO_ROLE`), roles that do not grant the permission (`FORBIDDEN`), each role that grants it, a user with two roles, an endpoint that declares nothing, a path with another method, a role granted or taken away between two requests, and a disabled account |
+| `EveryEndpointDeclaresWhoMayCallItTest` | Integration | Every endpoint of the running application declares exactly once who may call it. See Rules Checked By Tests |
 
 Run the tests from `backend/` with `mvnw test`. The first run downloads the MySQL image. Every application test is recorded in the Application tests section of the test log [`concurrency-tests.md`](../../db/verification/concurrency-tests.md), next to the script check that it repeats.
 
@@ -227,7 +234,8 @@ Login, the check of every request, the email codes, sign-up, and the password re
 | `PasswordHasher` | Hashes and checks passwords, and refuses to run inside a transaction |
 | `TokenService` | Issues the token and checks its signature and expiry |
 | `TokenAuthenticator` | The check of the account on every request: loads the user and the roles and refuses an account that may not use the token |
-| `SecurityConfig` | Which request needs what. Refuses by default. It exists only in the web application |
+| `SecurityConfig` | The security filters: no session, the token, and `EndpointPermissions` for every request. It exists only in the web application |
+| `EndpointPermissions` | Decides whether a request may reach its controller method, from what the method declares. Refuses by default. See Permissions |
 | `SecurityErrorHandler` | Turns a refusal of the security filters into the error body of the API. It exists only in the web application |
 | `AuthRepository` | The SQL of the module on `users` and `user_roles` |
 | `EmailCodeService` | Requests a code and checks the one a person typed. It has no transaction: it decides whether a mail is sent, stores the code through `EmailCodeStore`, and sends the mail after the commit |
@@ -248,15 +256,52 @@ Login, the check of every request, the email codes, sign-up, and the password re
 - **Every request** loads the user and the roles from the database with plain reads (`TokenAuthenticator`). A token is accepted only if it was issued after `password_changed_at`. `LoginRecorder` never issues a token at or before that time: a login in the same millisecond as the reset before it gets the next millisecond.
 - **The expiry** is read on the `Clock` bean, the clock that issued the token, and not on the system clock of the token library.
 - **Unknown users cost the same time.** When there is no account to check, the login checks the password against a decoy hash made at startup, so the answer for an unknown username takes as long as for a real one.
-- **Refuse by default.** `SecurityConfig` lists the requests that are allowed: `POST /auth/login`, `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset` for everyone, and `GET /auth/me` for a logged-in user. Any other request is refused, with `UNAUTHENTICATED` without a token and `FORBIDDEN` with one, also when the path does not exist. A module adds a rule for each endpoint it adds, and the permission module turns the rules into the Permission Matrix (T-27).
-- **Errors of the security filters** happen before any controller. `SecurityErrorHandler` hands them to the exception handler of the controllers, so they have the same Problem Details body with `code` and `requestId`: `UNAUTHENTICATED`, `ACCOUNT_DISABLED`, or `FORBIDDEN`. The body does not say why a token was refused.
+- **Refuse by default.** Every request is decided by what its controller method declares (see Permissions). `POST /auth/login`, `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset` are `@Public`, and `GET /auth/me` is `@AnyAccount`. A request whose method declares nothing, or that has no method, is refused, with `UNAUTHENTICATED` without a token and `FORBIDDEN` with one, also when the path does not exist.
+- **Errors of the security filters** happen before any controller. `SecurityErrorHandler` hands them to the exception handler of the controllers, so they have the same Problem Details body with `code` and `requestId`: `UNAUTHENTICATED`, `ACCOUNT_DISABLED`, `ACCOUNT_NO_ROLE`, or `FORBIDDEN`. The body does not say why a token was refused.
 - **No session and no cookie.** The server keeps no session, and the client sends the token in the `Authorization` header, as in [api-design.md](../api/api-design.md#general-rules). Protection against cross-site request forgery is therefore off: no cookie authenticates a request. The frontend keeps the token in `localStorage` (see [Frontend Stack And Design Files](../frontend/page-design.md#frontend-stack-and-design-files)).
 - **An email code** is stored as an HMAC-SHA256 made with the token signing key, so there is no second secret. The signed text starts with a line of its own, which no login token can start with, so a stored value can never serve as the signature of a token.
 - **A request for a sign-up code** for an address that has an account is refused with `EMAIL_TAKEN` before anything is stored. **A request for a recovery code** gets the same answer whether or not a mail is sent, and a row is stored either way (with the marker `!NOT-SENT` when no mail goes out), so the limits and a later wrong entry behave the same for a registered and an unregistered address.
 - **A sign-up logs the new user in.** The transaction that creates the account takes the issue time of the first token and stores it as `last_login_at`, and `AccountService` issues the token after the commit. A later reset is never earlier than `last_login_at`, so it ends that token like any other.
 - **The cheap checks come first.** Sign-up and the reset check the values, then the code, and only with a right code hash a password. A request with a wrong code costs no BCrypt.
 - **The limits on code requests** are counted in MySQL and not in Redis: a few dozen codes a day do not justify another service, and the count row gives the lock that makes the limits safe against a race.
-- **The roles** of the user become the authorities `ROLE_<code>` of the request, and `CurrentUser.roles()` for the code. Nothing reads them yet except `GET /auth/me`.
+- **The roles** of the user become the authorities `ROLE_<code>` of the request, and `CurrentUser.roles()` for the code. `EndpointPermissions` reads them for every endpoint that needs a permission.
+
+### Permissions
+
+The Permission Matrix of [database-design.md](../database/database-design.md#permission-matrix) is enforced in two places. This is the first: whether a request may reach its controller method at all. The second is the service, which checks the rules that depend on the data, such as an operator who may resolve only their own ticket, inside the transaction of the change.
+
+Every controller method carries exactly one of three annotations from `common.security`:
+
+| Annotation | Who may call the endpoint |
+| --- | --- |
+| `@Public` | Everyone, logged in or not: login, sign-up, and Forgot password |
+| `@AnyAccount` | Every logged-in user, also one with no role: `GET /auth/me`, which the pending page needs |
+| `@RequiresPermission(Permission.AUDIT_VIEW)` | A logged-in user with a role that grants the permission. It is one row of the Permission Matrix, written on the method. The endpoint names no role |
+
+`EndpointPermissions` finds the controller method of a request and decides:
+
+- **The roles of a user add up.** A user passes when any one of their roles grants the permission. The roles are not a ladder: a viewer sees everyone's tickets and an operator does not, so each role lists its own permissions.
+- **A user with no role** who calls an endpoint that needs a permission gets `ACCOUNT_NO_ROLE`, and the frontend opens the pending page (T-22). A user whose roles do not grant it gets `FORBIDDEN`.
+- **A method that declares nothing is refused for everyone**, an administrator included, and so is a request that has no controller method. An endpoint that somebody forgot to declare is closed, and `EveryEndpointDeclaresWhoMayCallItTest` fails the build for it.
+- **A role counts only for a usable account** (T-19). The roles are read from the database for every request, and a disabled or soft-deleted account is refused before its roles are looked at, so a role that is granted or taken away counts on the next request.
+
+**Permissions and roles.** `Permission` is an enum with one constant for each action of the Permission Matrix that some roles may do and others may not, such as `ORDER_PLACE` or `TICKET_ASSIGN`. `Role` is an enum of the four fixed roles; the name of each constant is its `roles.code`, and each constant lists the permissions it grants. That list is the columns of the matrix, and it is the only place in the code that ties a role to a permission:
+
+- An endpoint names a permission, never a role.
+- A service asks `CurrentUser.can(Permission)` before an action, and not which role the user holds. `CurrentUser.holds(Role)` is for a rule about the role itself, such as who may change an administrator.
+- `GET /auth/me` returns `CurrentUser.permissions()`, the permissions of all the roles of the user, and the frontend shows a control by its permission ([api-v1.4.md](../iterations/api-v1.4.md)). So the frontend names no role either.
+- A wider reach that is itself a row of the matrix is a permission of its own: `TICKET_VIEW` opens the ticket screens, and `TICKET_VIEW_ALL` shows everyone's tickets on them. A reach that depends on the data, such as an operator who may resolve only a ticket assigned to them, stays a rule of the service; when a module is built, such a rule gets a permission where it would otherwise ask for a role.
+
+So each kind of change has one place:
+
+| Change | What it needs |
+| --- | --- |
+| A new endpoint | One line: the annotation with the permission of its row in the matrix |
+| A new action | A constant in `Permission`, added to the roles that grant it in `Role` |
+| A role may do more or less | The list of that role in `Role` |
+| A new role | A migration that inserts the `roles` row, and a constant in `Role` with its permissions. No endpoint and no page changes |
+
+`RoleTest` fails when the enum and the table differ, and `PermissionTest` fails for a permission that no role grants, and for a role list that breaks a principle of the matrix.
 
 ## Console command
 

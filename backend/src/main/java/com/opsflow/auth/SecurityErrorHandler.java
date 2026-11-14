@@ -25,7 +25,8 @@ import jakarta.servlet.http.HttpServletResponse;
  * <ul>
  * <li>No token, or a token that is not accepted: {@code UNAUTHENTICATED} (401).</li>
  * <li>A token of a disabled account: {@code ACCOUNT_DISABLED} (403).</li>
- * <li>A request that no rule allows for this user: {@code FORBIDDEN} (403).</li>
+ * <li>A user with no role on an endpoint that needs one: {@code ACCOUNT_NO_ROLE} (403).</li>
+ * <li>A request that is not allowed for this user: {@code FORBIDDEN} (403).</li>
  * </ul>
  *
  * The reason a token was refused is not put in the body.
@@ -53,6 +54,11 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 
 	@Override
 	public void handle(HttpServletRequest request, HttpServletResponse response, AccessDeniedException denied) {
+		if (denied instanceof EndpointPermissions.NoRoleException) {
+			resolver.resolveException(request, response, null,
+					new ApiException(ErrorCode.ACCOUNT_NO_ROLE, "This account is waiting for an administrator to assign permissions"));
+			return;
+		}
 		resolver.resolveException(request, response, null,
 				new ApiException(ErrorCode.FORBIDDEN, "You are not allowed to do this"));
 	}

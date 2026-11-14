@@ -961,7 +961,7 @@ Principles:
 | Roles | Create, update, or delete a role. The four roles are fixed (see Role management) | No one | No one | No one | No one |
 | Account | Change the password. There is no account page; the only way is Forgot password on the login page | Yes | Yes | Yes | Yes |
 
-Where the permissions live: they are fixed in the application code and keyed by role code. The roles are fixed too, so every role that exists has its permissions in the code. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role arrives in one backend change, with its `roles` row and the code that implements its permissions.
+Where the permissions live: they are fixed in the application code and keyed by role code. Each action of this matrix that some roles may do is a named permission, and one list per role says which permissions the role grants (see [Permissions](../backend/backend-design.md#permissions)). The roles are fixed too, so every role that exists has its permissions in the code. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role arrives in one backend change, with its `roles` row and its list of permissions.
 
 Confirmed in the review of 2026-11-14: only `ADMIN` and `MANAGER` may archive a ticket or give it to someone else, an `OPERATOR` may cancel only their own tickets, and an `OPERATOR` may move only their own tickets forward. Changed in the review: an `OPERATOR` may also make a correction.
 

@@ -12,6 +12,12 @@ export interface Account {
   username: string
   /** The role codes. Empty while the account waits for an administrator to assign one. */
   roles: string[]
+  /**
+   * What the user may do, as the permission names of the server (for example `ORDER_PLACE`): the
+   * permissions of all the roles together. Show a control by its permission, never by a role, so that
+   * a new role needs no change here. The server checks every request again.
+   */
+  permissions: string[]
 }
 
 export interface SignUpResponse extends TokenResponse {
