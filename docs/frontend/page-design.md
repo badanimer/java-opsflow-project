@@ -12,6 +12,7 @@ This document always describes the current page design. Entries are listed newes
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-14 | 1.4 | After the review of the Permission Matrix: an operator can also make a correction on the stock page, the creator and assignee filters and the choice of an assignee use a user picker that shows usernames only, an administrator sees their own account on the user page with no control to change it, and a user with several roles sees what any of them allows | [frontend-v1.4.md](../iterations/frontend-v1.4.md) |
 | 2026-11-14 | 1.3 | Implemented the four account pages, the route guards, and the shared API client in `frontend/` | [frontend-v1.3.md](../iterations/frontend-v1.3.md) |
 | 2026-11-13 | 1.2 | The frontend stack is chosen (React, TypeScript, Vite, Ant Design), the interface is in English, the token is kept in `localStorage`, and every page is drawn in Figma before it is built. The four account pages are drawn as a first draft | [frontend-v1.2.md](../iterations/frontend-v1.2.md) |
 | 2026-11-12 | 1.1 | A disabled account is told so on the login page and never reaches the pending page; a user whose account is disabled while logged in is sent back to the login page with the same message; the pending page is only for a user with no role. Extended on 2026-11-13: what the sign-up page and Forgot password show for each answer about an email code, and the username rule | [frontend-v1.1.md](../iterations/frontend-v1.1.md) |
@@ -95,7 +96,7 @@ The root route currently shows a placeholder for signed-in users with a role. A 
 | User page | `ADMIN`, `MANAGER` | Manage the users below the viewer's level |
 | Audit log page | `ADMIN`, `MANAGER` | Read the log of important actions |
 
-**Not planned for the first version:** an order list or order page, a page for role definitions (done through the backend), an account or profile page, a page for creating the first administrator (done with a console command on the server), comments on tickets, a notification centre, and a dashboard.
+**Not planned for the first version:** an order list or order page, a page for the roles themselves (the four roles are fixed), an account or profile page, a page for creating the first administrator (done with a console command on the server), comments on tickets, a notification centre, and a dashboard.
 
 ## What Each Role Sees
 
@@ -106,7 +107,7 @@ The root route currently shows a placeholder for signed-in users with a role. A 
 | Stock page and the warehouse log | Yes | Yes | Yes | Yes |
 | Product log (on the product page) | Yes | Yes | Yes | Yes |
 | Stock in and write-off (plus and minus) | Yes | Yes | Yes | No |
-| Setting the quantity directly | Yes | Yes | No | No |
+| Correction (typing the quantity that was counted) | Yes | Yes | Yes | No |
 | Add and delete a warehouse item | Yes | Yes | No | No |
 | Ticket pool | All | All | All | All |
 | Ticket in progress | Everyone's | Everyone's | Only tickets assigned to them | Everyone's |
@@ -117,6 +118,8 @@ The root route currently shows a placeholder for signed-in users with a role. A 
 | Create a ticket | Yes | Yes | Yes | No |
 | User page | All users | Users below manager | No | No |
 | Audit log page | Yes | Yes | No | No |
+
+A user who holds several roles sees and can use whatever any one of them allows. For example, a user who is both an operator and a viewer sees everyone's tickets and the search, and can also take a ticket.
 
 The full rules are in the [Permission Matrix](../database/database-design.md#permission-matrix).
 
@@ -149,7 +152,7 @@ The home page for every role.
 
 ### Stock page
 
-One row for each warehouse item that is not deleted. From left to right:
+One row for each warehouse item that is not deleted, ordered by name, with a search box for the name, as on the product page. From left to right:
 
 1. the image;
 2. the name;
@@ -159,7 +162,8 @@ One row for each warehouse item that is not deleted. From left to right:
 
 A **View records** button at the top of the page opens the warehouse log of all items (see Logs). A manager or an administrator also has buttons to add an item and to delete an item.
 
-- **Changing the quantity.** An operator sees a plus and a minus and a field for the reason. A manager or an administrator also gets a field to type the new quantity. The reason is required, and Save is enabled only when the quantity has changed and the reason is filled in. See [Manual stock changes](../database/database-design.md#manual-stock-changes).- **Adding an item** takes a name, an optional image, and an optional starting quantity. The SKU is generated. **Deleting an item** takes no reason and does not touch the stock. See [Warehouse items](../database/database-design.md#warehouse-items) and [Item images](../database/database-design.md#item-images).
+- **Changing the quantity.** An operator, a manager, or an administrator chooses one of three: a plus (stock in), a minus (write-off), or **Correction**, a field to type the quantity that was counted, for a stock count that differs from the number shown. The reason is required for all three, and Save is enabled only when the quantity has changed and the reason is filled in. See [Manual stock changes](../database/database-design.md#manual-stock-changes).
+- **Adding an item** takes a name, an optional image, and an optional starting quantity. The SKU is generated. **Deleting an item** takes no reason and does not touch the stock. See [Warehouse items](../database/database-design.md#warehouse-items) and [Item images](../database/database-design.md#item-images).
 
 ### Logs
 
@@ -170,8 +174,8 @@ The two pages that keep logs work the same way. The product page has the product
 1. **All records.** The View records button asks which of two kinds to read, then shows that kind for all products (or all items), newest first.
    - Product page: **listing records** (a product was listed or delisted) or **order records** (every attempt to order, placed or refused).
    - Stock page: **item records** (an item was added or deleted) or **stock movements** (orders, stock in, write-offs, and manual corrections), or the **Deleted items** module: a list of the deleted items, newest deletion first, with one box that searches by name or SKU. A row opens the own log of that item (item records, stock movements, and the listing and order records of its product, if it had one). It is the only place where a deleted item can be searched for.
-2. **One chosen.** Inside that view, a searchable picker (see below) narrows the records to one product or item, and a range of days, from one day to another, narrows them by time. The order records and the stock movements also have a box for one whole order number, which finds that order's lines or its stock movements. See [Finding by order number](../database/database-design.md#logs).
-3. **The own log of one.** The View button on a row opens the log of that product or item alone, with both kinds of record in two parts. A delisted product and a deleted item are no longer rows on their pages, and a deleted item is not offered by the picker either, so the records of a deleted item are found in the lists of all records and in the Deleted items module.
+2. **One chosen.** Inside that view, a searchable picker (see below) narrows the records to one product or item, and the time filter (see below) narrows them by time. The order records and the stock movements also have a box for one whole order number, which finds that order's lines or its stock movements. See [Finding by order number](../database/database-design.md#logs).
+3. **The own log of one.** The View button on a row opens the log of that product or item alone, with both kinds of record in two parts. It has the time filter and no other filter. A delisted product and a deleted item are no longer rows on their pages, and a deleted item is not offered by the picker either, so the records of a deleted item are found in the lists of all records and in the Deleted items module.
 
 **Columns:**
 
@@ -183,6 +187,8 @@ The two pages that keep logs work the same way. The product page has the product
 | Stock movement | Time, item, type, order number (for an order), reason (empty for an order), amount (plus or minus), who did it |
 
 An operator who needs the number of an order that failed opens the order records, filters by the product and the day, and copies the number into the ticket form (see Create ticket). Every list is paged with two buttons, 10 rows a page.
+
+**The time filter.** One template is used wherever a list is filtered by time: the two logs, the own log of one product or item, the search on the ticket screens, and the audit log page. The person picks either a start day and an end day (both included, the end day today at the latest), or a start day alone, which means from that day until now. Beside it, the person chooses newest first (the default) or oldest first. See [The time filter](../database/database-design.md#the-time-filter).
 
 **The searchable picker.** One shared control is used wherever a screen asks for a product or an item. It is a dropdown list sorted alphabetically by name, with a scroll bar when it is long, and a text box in it that narrows the list as the person types. The product picker offers every product ever listed except those of deleted items, and the item picker every item that is not deleted, with the SKU shown beside the name so that equal names can be told apart. A deleted item is offered nowhere.
 ### Ticket screens
@@ -200,7 +206,7 @@ There is one screen for each stage, and each ticket carries a status label.
 - **A ticket that is taken leaves the pool** for every role at once, like a commission that someone accepted, and appears on the In progress screen.
 - **A list row** shows the ticket number, the type, the title, the creator, the creation time, and the status label. The rest is in the detail view.
 - **Order.** The newest first by default, switchable to the oldest first. Tickets opened by the system are always shown before tickets opened by a person.
-- **Search** (manager, administrator, viewer; not operator). Each screen searches only its own status. The filters are the kind (system or manual), the creator, the assignee, and a range of creation days, and a ticket can also be found by its number, or by an order number it names, and nothing else. See [Ticket search](../database/database-design.md#ticket-search).
+- **Search** (manager, administrator, viewer; not operator). Each screen searches only its own status. The filters are the kind (system or manual), the creator, the assignee, and the creation days (the time filter of Logs), and a ticket can also be found by its number, or by an order number it names, and nothing else. The creator and the assignee are chosen from a picker that shows usernames only. See [Ticket search](../database/database-design.md#ticket-search) and [The user picker](../database/database-design.md#the-user-picker).
 - **What an operator sees:** the whole pool, and on the other screens only their own tickets, so an operator has no search. The operator has no archive screen. See [Ticket screens and who sees what](../database/database-design.md#ticket-screens-and-who-sees-what).
 
 ### Ticket detail
@@ -212,8 +218,8 @@ The buttons depend on the status and on the role:
 | Button | Who | Needs |
 | --- | --- | --- |
 | Take | An operator, a manager, or an administrator, on an `OPEN` ticket | Under 99 tickets in progress |
-| Assign | A manager or an administrator, on an `OPEN` ticket | An eligible assignee |
-| Reassign | A manager or an administrator, on an `IN_PROGRESS` ticket | A new assignee and a reason |
+| Assign | A manager or an administrator, on an `OPEN` ticket | An eligible assignee, chosen from the user picker: an operator or a manager, and an administrator only when an administrator assigns |
+| Reassign | A manager or an administrator, on an `IN_PROGRESS` ticket | A new assignee from the same picker, and a reason |
 | Release | The assignee, or a manager or an administrator | A reason |
 | Resolve | The assignee, or a manager or an administrator | A resolution text |
 | Cancel | A manager or an administrator for any ticket, an operator for their own | A reason |
@@ -235,11 +241,11 @@ When a product is delisted or an item is deleted, the tickets linked to it are c
 
 ### User page
 
-For managers and administrators. It lists only the users the viewer can manage: all users for an administrator, and for a manager the users who hold neither the manager nor the administrator role. Users with no role and disabled users are listed. A user can have roles granted or revoked, be disabled or enabled, and be deleted. The roles on offer are those the viewer may grant. There is no page for creating or changing roles. See [User page](../database/database-design.md#user-page).
+For managers and administrators. It lists only the users the viewer can manage: all users for an administrator, and for a manager the users who hold neither the manager nor the administrator role. Users with no role and disabled users are listed. The list has a search box for the username and a row of role buttons, of which several can be chosen: one for each role the viewer may manage, and **No role** for the users who are waiting for one. An administrator has Administrator, Manager, Operator, Viewer, and No role. A manager has Operator, Viewer, and No role. A user can have roles granted or revoked, be disabled or enabled, and be deleted. The roles on offer are those the viewer may grant, and a user may hold several. Nobody can disable or delete their own account or change their own roles: an administrator sees their own row without those controls, and a manager does not see their own row. The four roles are fixed, so there is no page for creating or changing roles. See [User page](../database/database-design.md#user-page).
 
 ### Audit log page
 
-For managers and administrators. The page opens on a menu of seven areas: Accounts, Roles and permissions, Tickets, Stock, Warehouse items, Products, and Orders. Choosing one shows a read-only list of its records, newest first, 10 to a page, filtered by three independent things: the action (only the actions of that area; for Orders, the result), the time, and the user. The Orders area shows the same records as the order records of the product log, so a role that cannot open the audit page, such as `VIEWER`, still finds them on the product page. A system action shows the user as System. See [Audit log page](../database/database-design.md#audit-log-page). How a row is laid out is decided later.
+For managers and administrators. The page opens on a menu of seven areas: Accounts, Roles and permissions, Tickets, Stock, Warehouse items, Products, and Orders. Choosing one shows a read-only list of its records, newest first, 10 to a page, filtered by three independent things: the action (only the actions of that area; for Orders, the result), the time (the time filter of Logs), and the user, chosen from the user picker, which also offers people whose accounts are disabled or deleted, or as System. The Orders area shows the same records as the order records of the product log, so a role that cannot open the audit page, such as `VIEWER`, still finds them on the product page. A system action shows the user as System. See [Audit log page](../database/database-design.md#audit-log-page). How a row is laid out is decided later.
 
 ## Open Details
 

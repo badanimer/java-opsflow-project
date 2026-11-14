@@ -269,9 +269,9 @@ These rules are designed but have no race test, because the flows are not writte
 
 | Module | Races in Concurrency by Module without a test |
 | --- | --- |
-| Inventory | A manual stock change (stock in, write-off, direct set with the value the user saw) racing an order on the same stock (T-30), or racing the deletion of the item |
+| Inventory | A manual stock change (stock in, write-off, correction with the value the user saw) racing an order on the same stock (T-30), or racing the deletion of the item |
 | Tickets | Two people taking the same ticket from the pool; a reassignment racing a release, a cancel, or a resolve; the open count and the in-progress count at 98; a user disabled while their tickets are released or resolved; the archive job racing a manager's archive, and the count of 99 |
-| Users and roles | Grant, revoke, replace, or disable at once; the last administrator removed twice; a role granted while it is deleted |
+| Users and roles | Two changes to the same user at once (two replacements of the roles, a replacement and a disabling, a disabling and a deletion); the actor demoted or disabled while acting; two administrators removing each other, and the last administrator removed; the same role granted twice |
 | Authentication | A password reset racing the disabling or the soft deletion of the account, which waits for the user module (T-23). The races of login, of the console command, of the email codes, of sign-up, and of the password reset are tested: see Login, sign-up, and password recovery under Application tests |
 | Products and warehouse items | A warehouse item edited while it is being listed. A SKU collision is left to the unique key |
 

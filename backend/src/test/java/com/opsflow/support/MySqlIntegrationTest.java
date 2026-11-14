@@ -58,6 +58,8 @@ public abstract class MySqlIntegrationTest {
 	private static final Path PRIVILEGE_SCRIPT = Path.of("..", "db", "admin", "restrict-app-privileges.sql");
 	private static final String SEED_SCRIPT = "db/migration/V2__seed_roles_and_system_identity.sql";
 
+	// One container for the whole test run. It is never closed here: Testcontainers removes it when the JVM exits.
+	@SuppressWarnings("resource")
 	private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4").withDatabaseName(DATABASE);
 	private static final String MIGRATOR_PASSWORD = UUID.randomUUID().toString();
 	private static final String APP_PASSWORD = UUID.randomUUID().toString();

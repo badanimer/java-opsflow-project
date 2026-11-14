@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-14 | 1.12 | Reviewed the Permission Matrix with the owner before the permission module is built. The four seeded roles are fixed: no role is created, updated, or deleted while the program runs, and a new role comes only with a backend change. A user may hold several roles, and the permissions are the union. Nobody may disable or soft-delete their own account or change their own roles. Setting the quantity directly is renamed Correction and opened to `OPERATOR`. A user picker that returns only ids and usernames serves the ticket filters and the choice of an assignee. The other working defaults of the matrix are confirmed. No table changed | [database-v1.12.md](../iterations/database-v1.12.md) |
 | 2026-11-12 | 1.11 | Defined the login steps: the password is still checked outside the transaction, and the short transaction that records the result locks the user row and confirms that the hash it checked is still the current one, so a login cannot succeed with a password that a reset has just replaced. Defined what a disabled account gets: `ACCOUNT_DISABLED` and no token at login when the password is right, and `ACCOUNT_DISABLED` on the next request when it is disabled after login. The pending page is now only for a user with no role. Added the seed migration `V2` with the four roles and the SYSTEM identity, and made the token rule exact: a token is accepted only when it was issued after `password_changed_at`, to the millisecond. No table changed Extended on 2026-11-13 when sign-up and password recovery were built: sign-up says when an address already has an account (`EMAIL_TAKEN`), and a request for a recovery code is answered the same way whether or not a mail is sent; a sign-up logs the new user in, so the user goes straight to the pending page; requests are limited per client address (10 in an hour) and for the whole system (200 in a day), counted in the new table `email_code_request_counts` (migration `V3`, 17 tables); a code is stored as a keyed hash; the steps of sign-up and of the password reset are written down; a username is 3 to 64 letters and digits, with no space and no other character; and the mail goes out by SMTP from a Gmail account made for OpsFlow (Q-12) | [database-v1.11.md](../iterations/database-v1.11.md) |
 | 2026-11-03 | 1.10 | Shortened the keeping of email codes: a code is deleted as soon as it expires (10 minutes after it was made), by a job that runs once a minute, instead of 24 hours after it expires | [database-v1.10.md](../iterations/database-v1.10.md) |
 | 2026-10-27 | 1.9 | Decided the open database questions: an item with no stock cannot be listed (`NO_STOCK`); a deleted item still refuses manual stock changes, with the reason stated; every record is kept for ever except expired email codes, which a job deletes 24 hours after they expire (the application account gets `DELETE` on `email_verification_codes` only); and defined the log formats that were missing: stock logs, order records (`order_attempts` is the record), user and account logs (sign-up, status, soft delete, password reset, login lock), and the ticket number and batch id on archived tickets; added `order_attempts.product_name`, the name of the product at the time of an attempt; made a deleted item unavailable in the pickers, gave deleted items their own module in the warehouse log, defined the labels every audit row carries, added the search by order number, and redesigned the audit page as a menu of seven areas, with a `category` on every audit row | [database-v1.9.md](../iterations/database-v1.9.md) |
@@ -145,7 +146,7 @@ Both quantities must stay greater than or equal to zero. Stock is changed only u
 
 #### Valid quantities
 
-Every value in the program that is a quantity must be valid before it is used. The service layer checks it first and refuses an invalid one without changing anything, and the database keeps its own checks as a second line. This rule covers the starting quantity of an item, the quantity of a stock-in or a write-off, the new quantity of a direct set, and the quantity of an order line. A quantity is valid only when it is:
+Every value in the program that is a quantity must be valid before it is used. The service layer checks it first and refuses an invalid one without changing anything, and the database keeps its own checks as a second line. This rule covers the starting quantity of an item, the quantity of a stock-in or a write-off, the new quantity of a correction, and the quantity of an order line. A quantity is valid only when it is:
 
 - a whole number: no fraction, no text, and no blank where a number is required;
 - within the range of its use: a starting quantity or a direct-set quantity from 0 to the maximum of one stock input, a stock-in or write-off quantity from 1 to that maximum, and an order line from 1 to the maximum per order line (see Operating Parameters);
@@ -175,12 +176,12 @@ People change stock by hand in three ways. All three change `available_quantity`
 | --- | --- | --- |
 | Stock in (plus button) | `RESTOCK` | `ADMIN`, `MANAGER`, `OPERATOR` |
 | Write-off or stock out (minus button) | `WRITE_OFF` | `ADMIN`, `MANAGER`, `OPERATOR` |
-| Set the quantity directly | `ADJUST_IN` if the new number is higher, `ADJUST_OUT` if it is lower | `ADMIN`, `MANAGER` |
+| Correction (type the quantity that was counted) | `ADJUST_IN` if the new number is higher, `ADJUST_OUT` if it is lower | `ADMIN`, `MANAGER`, `OPERATOR` |
 
-- **Reason is required for every manual change.** Stock in, write-off, and direct set all need a non-blank reason and the acting user. `SALE` comes from an order and needs no reason. The database enforces this with a `CHECK`, and the service layer validates it first.
+- **Reason is required for every manual change.** Stock in, write-off, and correction all need a non-blank reason and the acting user. `SALE` comes from an order and needs no reason. The database enforces this with a `CHECK`, and the service layer validates it first.
 - **A change must change something.** The quantity is greater than zero. Setting the quantity to the number it already has is refused and writes nothing.
-- **Screen.** The inventory screen has one Modify button per warehouse item. An `OPERATOR` who presses it sees only a plus and a minus, plus a reason field. A `MANAGER` or `ADMIN` also gets a field to type the new quantity. Save is enabled only when the quantity has changed and the reason is filled in.
-- **Direct set.** The user types the new `available_quantity`. The request also carries the `available_quantity` the user saw. Inside the transaction the service layer locks the `inventory` row and compares it with the value seen. If they differ, someone else changed the stock in the meantime, and the request is refused with a "stock changed, please reload" result. If they match, the difference becomes the transaction quantity, and the type follows its sign.
+- **Screen.** The inventory screen has one Modify button per warehouse item. An `OPERATOR`, a `MANAGER`, or an `ADMIN` who presses it chooses one of three: stock in (plus), write-off (minus), or Correction (a field to type the new quantity), and fills in the reason field. Save is enabled only when the quantity has changed and the reason is filled in.
+- **Correction.** It is for a stock count that differs from the number in the system: the person types the number that was counted, where a stock in or a write-off would need the difference worked out by hand. The user types the new `available_quantity`. The request also carries the `available_quantity` the user saw. Inside the transaction the service layer locks the `inventory` row and compares it with the value seen. If they differ, someone else changed the stock in the meantime, and the request is refused with a "stock changed, please reload" result. If they match, the difference becomes the transaction quantity, and the type follows its sign.
 - **Write-off.** Under the same lock, `available_quantity >= q` must hold, otherwise the request is refused.
 - **A deleted item.** Under the same lock the service layer also checks that the item is not deleted, and refuses every manual change of a deleted item. For the person, a deleted item is gone from the warehouse: it cannot be stocked, ordered, listed, or linked, and adding it again means creating a new item and counting its stock by hand. The `inventory` row is kept only because orders, stock records, tickets, and events refer to it. This is different from delisting a product, which never touches the stock: the stock of an item and the product made from it only meet when an order is checked.
 - **One transaction.** Each manual change locks the `inventory` row, updates it, inserts the `inventory_transactions` row with exact snapshots, and writes `operation_logs`, all together. It follows the same lock order, retry, and deadlock rules as the order flows.
@@ -324,7 +325,7 @@ A ticket is never reopened. If the problem comes back or continues, a new ticket
 
 | From | To | Who | Must have | Also sets |
 | --- | --- | --- | --- | --- |
-| `OPEN` | `IN_PROGRESS` | **Take**: any eligible assignee, for themselves. **Assign**: `MANAGER` or `ADMIN`, to an eligible assignee. | The ticket is still `OPEN`, and the new assignee is below the in-progress limit | `assignee_id`, and a history row from empty to the assignee |
+| `OPEN` | `IN_PROGRESS` | **Take**: any eligible assignee, for themselves. **Assign**: `MANAGER` or `ADMIN`, to an eligible assignee. Only an `ADMIN` may assign to a user who holds `ADMIN`. | The ticket is still `OPEN`, and the new assignee is below the in-progress limit | `assignee_id`, and a history row from empty to the assignee |
 | `IN_PROGRESS` | `OPEN` | **Release**: the assignee, for their own ticket, or a `MANAGER` or an `ADMIN` removing the assignee. The system does it when the assignee's account is no longer usable. | A non-blank reason. The system writes a fixed reason. | Clears `assignee_id`, and a history row from the assignee to empty |
 | `IN_PROGRESS` | `RESOLVED` | The assignee, `MANAGER`, `ADMIN` | A non-blank `resolution` | `resolved_by`, `resolved_at` |
 | `RESOLVED` | `CLOSED` | A `MANAGER` or an `ADMIN` at any time, or the system 7 days after `resolved_at` | | `closed_by` (the user, or the SYSTEM identity), `closed_at` |
@@ -344,6 +345,8 @@ An **eligible assignee** is a usable account (`status` is `ACTIVE` and `deleted`
 
 - a person takes a ticket from the pool;
 - a `MANAGER` or an `ADMIN` assigns a ticket from the pool, or reassigns an `IN_PROGRESS` ticket, to someone.
+
+**A manager cannot give a ticket to an administrator.** An actor who does not hold `ADMIN` may assign or reassign a ticket only to an eligible assignee who does not hold `ADMIN`: an operator, or a manager, another manager included. An actor who holds `ADMIN` may choose any eligible assignee. An administrator may still take a ticket from the pool. The roles of the new assignee are read under the same lock on their user row as the eligibility check.
 
 Further basic limits: the ticket must be in a status that allows the change (`OPEN` for taking and assigning, `IN_PROGRESS` for reassigning), a ticket that is already held cannot be taken, and every person who acts on a ticket must be a usable account, as for every action. Two limits apply to every role that works on tickets, and they are independent of each other. See Ticket limits.
 
@@ -370,7 +373,7 @@ A reassignment is valid only when all of these hold, checked inside one transact
 
 - the actor is a usable `MANAGER` or `ADMIN`;
 - the ticket is `IN_PROGRESS`. A ticket in the pool is assigned, not reassigned, and a `RESOLVED`, `CLOSED`, or `CANCELLED` ticket cannot change hands;
-- the new assignee is an eligible assignee, is not the current assignee, and has fewer than 99 tickets in progress (a ticket moved in counts as in progress);
+- the new assignee is an eligible assignee, does not hold `ADMIN` unless the actor does (see Who may take a ticket), is not the current assignee, and has fewer than 99 tickets in progress (a ticket moved in counts as in progress);
 - the actor saw the current assignee. The request carries the assignee shown on the screen, and under the ticket row lock it is compared with the real one. If someone changed it in the meantime, the request is refused and the screen is reloaded;
 - a reason is given. The service layer requires it to be non-blank, so that every change of hands can be explained later.
 
@@ -423,7 +426,7 @@ Every row of `operation_logs` has a `category`, the area the audit page files it
 | Category | `category` | Actions |
 | --- | --- | --- |
 | Accounts | `ACCOUNT` | `USER_REGISTERED`, `USER_STATUS_CHANGED`, `USER_DELETED`, `PASSWORD_RESET`, `LOGIN_LOCKED` |
-| Roles and permissions | `ROLE` | `ROLE_GRANTED`, `ROLE_REVOKED`, `ROLE_CREATED`, `ROLE_UPDATED`, `ROLE_DELETED` |
+| Roles and permissions | `ROLE` | `ROLE_GRANTED`, `ROLE_REVOKED` |
 | Tickets | `TICKET` | `TICKET_CREATED`, `TICKET_ASSIGNED`, `TICKET_REASSIGNED`, `TICKET_RELEASED`, `TICKET_RESOLVED`, `TICKET_CLOSED`, `TICKET_CANCELLED` |
 | Stock | `STOCK` | `STOCK_RESTOCK`, `STOCK_WRITE_OFF`, `STOCK_ADJUSTED` |
 | Warehouse items | `ITEM` | `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` |
@@ -448,35 +451,36 @@ An audit row must read on its own, without a join, and must still read after the
 
 #### Role management
 
-Role definitions are managed by `ADMIN` only, and every operation here is also subject to Administrator protection and to Authority over roles and accounts. Every operation below writes its `operation_logs` row in the same transaction as the change, and the operation rolls back if the log insert fails. The formats are in Role management logs.
+**The roles are fixed.** OpsFlow has exactly the four seeded roles, `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. The program has no way to create a role, to change the `code`, `name`, or `description` of one, or to delete one: no screen, no endpoint, and no console command. A new role is a backend change: a migration that inserts the `roles` row, together with the code that gives the role its permissions (see Permission Matrix). The application account therefore needs no `INSERT`, `UPDATE`, or `DELETE` on `roles`.
+
+What the program manages is **which of the four roles a user holds**. A user may hold several roles, or none. The one operation is subject to Administrator protection and to Authority over roles and accounts, and it writes its `operation_logs` rows in the same transaction as the change, so that it rolls back if a log insert fails. The formats are in Role grant and revocation logs.
 
 | Operation | Rule |
 | --- | --- |
-| Create a role | Inserts a `roles` row. `code` must be new, because it is unique. |
-| Update a role | `ADMIN` may change `name` and `description`. `code` never changes after creation, because the logs and permission checks refer to it. |
-| Delete a role | A physical delete of the `roles` row. A user who holds the role is not an obstacle: in the same transaction the service layer deletes every `user_roles` row of the role and writes one `ROLE_REVOKED` row for each, with `role deleted` in `remark`, and then deletes the role. Those users lose only this role. If a user has no other role, the user is left with no role, and no default role is given. The administrator must see how many users are affected before confirming. The `ADMIN` role can never be deleted. The service layer deletes the grants itself and does not rely on a cascading foreign key, because a cascade would skip the log rows. |
-| Replace a user's roles | Sets the user's roles to a given list in one transaction. The user must be a usable account, and every role that is added must exist. Removing `ADMIN` from a user is subject to Administrator protection. Roles the user already holds and that stay in the list are left alone and not logged. Each role that is removed writes `ROLE_REVOKED`, and each role that is added writes `ROLE_GRANTED`. The rows of one replacement carry `replace roles` in `remark`. A list equal to the current roles changes nothing and writes no log. |
+| Replace a user's roles | Sets the user's roles to a given list in one transaction, following Steps of a change to a user. The request carries the roles the actor saw, and is refused when they are no longer the user's roles. Adding a role needs a usable account, and every role that is added must exist. A list that only removes roles is also accepted for a disabled user. Removing `ADMIN` from a user is subject to Administrator protection. Roles the user already holds and that stay in the list are left alone and not logged. Each role that is removed writes `ROLE_REVOKED`, and each role that is added writes `ROLE_GRANTED`. The rows of one replacement carry `replace roles` in `remark`. A list equal to the current roles changes nothing and writes no log. An empty list leaves the user with no role. |
 
 #### Authority over roles and accounts
 
-Four roles are seeded: `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. `ADMIN` and `MANAGER` are **protected roles**: their codes are fixed, they can never be deleted by anyone, and their `code` never changes. Every other role, including any role created later, is **below manager**.
+Four roles are seeded: `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`, and they are the only roles (see Role management). `ADMIN` and `MANAGER` are **protected roles**: only an administrator may give them to a user or take them away. `OPERATOR` and `VIEWER` are **below manager**, and so is any role that a later backend change adds, unless that change says otherwise.
 
 `ADMIN` is the highest authority and is meant for major changes only, for the team that builds and maintains the system. `MANAGER` is the role for the customer's own staff: it manages employees and does the daily work. That is a working convention, not a restriction: an `ADMIN` account can do everything a `MANAGER` can.
 
 | Action | ADMIN | MANAGER |
 | --- | --- | --- |
-| Create, update, or delete a role | Yes | **No**, `MANAGER` has no authority over role definitions at all |
-| Grant, revoke, or replace `ADMIN` or `MANAGER` on a user | Yes | No |
-| Grant, revoke, or replace roles below manager | Yes | Yes |
-| Change the status of, or soft-delete, a user who holds `ADMIN` or `MANAGER` | Yes | No |
+| Create, update, or delete a role | No one | No one |
+| Grant, revoke, or replace `ADMIN` or `MANAGER` on another user | Yes | No |
+| Grant, revoke, or replace roles below manager on another user | Yes | Yes |
+| Change the status of, or soft-delete, another user who holds `ADMIN` or `MANAGER` | Yes | No |
 | Change the status of, or soft-delete, any other user | Yes | Yes |
+| Disable or soft-delete their own account, or change their own roles | No | No |
 | Products, inventory, orders, and tickets | Yes | Yes. See Permission Matrix |
 | Delete or edit audit logs | No one | No one |
 
 How the rules are applied:
 
-- The service layer checks the acting user's roles and the target user's roles in the same transaction as the change. The check counts a role only when the acting account is a usable account.
-- A manager cannot change a user who holds `ADMIN` or `MANAGER`, which includes the manager's own account. Without this, a manager could disable an administrator or another manager, or remove their own limits.
+- The service layer checks the acting user's roles and the target user's roles in the same transaction as the change, with both user rows locked (see Steps of a change to a user). The check counts a role only when the acting account is a usable account.
+- **Nobody changes their own account.** No user, an administrator included, may disable or soft-delete their own account, or grant, revoke, or replace their own roles. The service layer refuses a request whose target is the acting user. Another administrator must make the change. This stops an administrator from locking themselves out by a slip, and a manager from removing their own limits.
+- A manager cannot change a user who holds `ADMIN` or `MANAGER`. Without this, a manager could disable an administrator or another manager.
 - When a manager replaces a user's roles, the list may not add or remove `ADMIN` or `MANAGER`.
 - Only `ADMIN` can appoint or dismiss a manager or an administrator. Administrator protection still applies to every operation on `ADMIN`.
 - Nobody can delete or edit audit logs, `ADMIN` included, because the application account has only `SELECT` and `INSERT` on `operation_logs`. The database enforces this, not the service layer.
@@ -585,10 +589,34 @@ A password reset updates the same user row, so it holds the same lock, and one o
 
 The system must always have at least one usable account that holds the `ADMIN` role. This rule is fixed and has no override: no operation, by anyone including an administrator, may leave the system without one. A new administrator must be made before the only existing one can be changed.
 
-- **Covered operations**: disabling a user, soft-deleting a user, revoking `ADMIN` from a user, replacing a user's roles so that `ADMIN` is removed, and deleting a role. The `ADMIN` role itself can never be deleted, and its `code` never changes.
+- **Covered operations**: disabling a user, soft-deleting a user, revoking `ADMIN` from a user, and replacing a user's roles so that `ADMIN` is removed. Because nobody changes their own account, each of these is done by one administrator to another.
 - **How it is checked**: in the same transaction as the change, the service layer applies the change, counts the usable accounts that hold `ADMIN`, and rolls back with a clear message if the count is zero.
-- **Concurrency**: every covered operation first locks the `ADMIN` row in `roles` with `SELECT ... FOR UPDATE`, then counts. Without the lock, two administrators could remove each other at the same moment, each seeing the other still there, and both would pass.
+- **Concurrency**: two things protect the rule. First, the steps of a change to a user (below) lock the user rows of the actor and of the target, and only an administrator who is not the target can take `ADMIN` away, so the actor is still a usable administrator when the change commits. Second, as a line of defence that does not depend on the first, a change to a user who holds `ADMIN` locks the `ADMIN` row in `roles` with `SELECT ... FOR UPDATE` before it changes anything and counts afterwards. Without any lock, two administrators could remove each other at the same moment, each seeing the other still there, and both would pass.
 - **Limit**: the rule lives in the service layer. Direct SQL run as `root` or the migration account does not pass through it.
+
+#### Steps of a change to a user
+
+One user changes another in four ways: replacing the roles, disabling, enabling, and soft-deleting. All four follow the same steps, in one transaction, under the deadlock and lock-wait retry of every module.
+
+1. **Refuse at once** when the target is the actor (see Authority over roles and accounts) or the SYSTEM identity. This compares two ids and needs no lock.
+2. **Lock the user rows of the actor and of the target** with `SELECT ... FOR UPDATE`, in ascending id.
+3. **Read the status and the roles of both under those locks.** The roles and the status of a user change only in a transaction that holds that user's row, so what is read here cannot change before the commit. Check that the actor is a usable account, that the target exists and is not soft-deleted, and that the actor has authority over the target as it is now and over the change that is asked for.
+4. **Compare with what the actor saw.** A replacement of roles carries the list of roles the actor saw on the screen. If the roles under the lock differ from it, someone else changed them in the meantime, and the request is refused with "user changed, please reload", like a stock correction or a reassignment. A status change needs no such list: disabling expects `ACTIVE`, enabling expects `DISABLED`, and a request that finds another status reports the current one and changes nothing.
+5. **If the target holds `ADMIN`**, lock the `ADMIN` row in `roles` with `FOR UPDATE`.
+6. **Apply the change.** A replacement deletes the `user_roles` rows of the roles removed and inserts the rows of the roles added. Adding a role needs a usable target; a replacement that only removes roles is also allowed on a disabled user. Disabling sets `status`, and soft-deleting sets `deleted` and `status`; both then return the `IN_PROGRESS` tickets of the user to the pool (see Concurrency by Module, Tickets). Enabling sets `status` back to `ACTIVE`, and the roles the user still holds take effect again.
+7. **If step 5 applied**, count the usable accounts that hold `ADMIN`, and roll back if there is none.
+8. **Write the log rows** (see Role grant and revocation logs, and User and account logs), and commit.
+
+Lock order: `users` (ascending id), then `roles`, then `tickets`, as everywhere.
+
+What the steps give:
+
+- Two changes to the same user run one after the other, and the second sees the result of the first.
+- An actor who is demoted or disabled while acting waits for that change, or it waits for the actor. Whichever commits second sees the first: a manager whose role was just taken away is refused, and does not finish a change with an authority they no longer have.
+- Two administrators who remove each other at the same moment lock the same two rows in the same order. The second finds that it is no longer an administrator and is refused.
+- A take, an assignment, or a login for the target needs the same user row, so it waits and then sees the new state.
+
+**Requests already on their way.** Every request reads the roles of its user once, when it arrives. Changing a user locks the actor's row and reads the roles again, as the steps above say, and so do the ticket paths that lock a user row. Any other request that has passed its permission check when a revocation commits is allowed to finish: an operator whose role is taken away while a stock change of theirs is running completes that one change, and the next request is refused. Locking the user row in every write would make every order wait for every other action of the same person, for a window of one request.
 
 #### Role grant and revocation logs
 
@@ -603,21 +631,7 @@ The system must always have at least one usable account that holds the `ADMIN` r
 | `before_data` | Empty | `{"roleId": 2, "roleCode": "OPERATOR"}` |
 | `after_data` | `{"roleId": 2, "roleCode": "OPERATOR"}` | Empty |
 
-The log stores `roleCode` as well as `roleId`, so it stays readable if the role row is removed later. Removing a role means revoking every grant of it first, and each revocation is logged, so the logs still show who held the role.
-
-#### Role management logs
-
-These follow the same pattern as grants and revocations: `target_type` is `ROLE`, `target_id` is `roles.id`, and `operator_id` is the administrator.
-
-| Operation | `action` | `before_data` | `after_data` |
-| --- | --- | --- | --- |
-| Create | `ROLE_CREATED` | Empty | `{"roleCode": "AUDITOR", "name": "Auditor", "description": "Read-only audit access"}` |
-| Update `name` or `description` | `ROLE_UPDATED` | The changed fields before, for example `{"name": "Auditor"}` | The changed fields after, for example `{"name": "Audit reader"}` |
-| Delete | `ROLE_DELETED` | All fields of the row: `roleCode`, `name`, `description` | Empty |
-
-Deleting a role also writes one `ROLE_REVOKED` row for each user who held it, in the v1.3 format with `target_type` `USER`, before the `ROLE_DELETED` row.
-
-`ROLE_UPDATED` stores only the fields that changed. It puts `roleCode` in `remark`, so a log row stays readable after the role is deleted. Replacing a user's roles uses the `ROLE_GRANTED` and `ROLE_REVOKED` formats above, with `target_type` `USER`.
+The log stores `roleCode` as well as `roleId`, so a row reads without a join. Replacing a user's roles writes these rows, one for each role added or removed. The roles themselves are fixed (see Role management), so there is no log of a role being created, updated, or deleted.
 
 #### Ticket logs
 
@@ -656,7 +670,7 @@ Every manual stock change writes one `operation_logs` row in the same transactio
 | --- | --- | --- | --- |
 | Stock in | `STOCK_RESTOCK` | `{"availableQuantity": 10}` | `{"availableQuantity": 15, "quantity": 5, "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 88}` |
 | Write-off | `STOCK_WRITE_OFF` | `{"availableQuantity": 15}` | `{"availableQuantity": 12, "quantity": 3, "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 89}` |
-| Set directly | `STOCK_ADJUSTED` | `{"availableQuantity": 12}` | `{"availableQuantity": 20, "quantity": 8, "direction": "IN", "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 90}` |
+| Correction | `STOCK_ADJUSTED` | `{"availableQuantity": 12}` | `{"availableQuantity": 20, "quantity": 8, "direction": "IN", "sku": "K7Q2M9XA", "name": "A4 paper", "transactionId": 90}` |
 
 `remark` holds the required reason. The SKU and the name are repeated so the row stays readable on its own. The starting quantity of a new item is part of `ITEM_CREATED` and also has its `RESTOCK` transaction, as before. A sale writes no stock log row: it is an order, and the order record is `order_attempts`.
 
@@ -750,7 +764,7 @@ The screen does not show the stock. A user learns that stock is short only when 
 An order cannot be cancelled. When an operator placed the wrong quantity or the wrong product, the correction goes through a ticket, so that it is explained, recorded, and done by a person who is allowed to change stock:
 
 1. The operator opens a ticket (see Creating a ticket on items). The `ORDER_EXCEPTION` type names the number of the order, which the operator reads in the result of the order or in the log of the product, and the items that were wrong can be linked.
-2. The person who handles the ticket, the operator or someone else, puts the stock back to what it was before the order with a manual stock change: a stock-in (`RESTOCK`) or, for a manager or an administrator, a direct set. The reason names the ticket, as in the stock-change rules.
+2. The person who handles the ticket, the operator or someone else, puts the stock back to what it was before the order with a manual stock change: a stock-in (`RESTOCK`) or a correction. The reason names the ticket, as in the stock-change rules.
 3. The handler marks the ticket resolved.
 4. The operator places the order again, with a new idempotency key.
 
@@ -764,7 +778,7 @@ If the item of the wrong order has been deleted, step 2 does not apply: the stoc
 - **Lock order.** Order creation reads the `products` rows first (shared), then inserts the `orders` row, then locks the `inventory` rows in ascending inventory id. A fixed order lowers the chance of deadlock but does not remove it.
 - **Deadlock and lock-wait retry.** If the database reports a deadlock or a lock wait timeout, the transaction is rolled back completely and retried in a new transaction, up to the attempt limit in Operating Parameters. MySQL rolls back the whole transaction on a deadlock, but a lock wait timeout may roll back only the failed statement, so the application must explicitly roll back before it retries. Retries are safe because the unique constraints below prevent a repeated operation from taking effect twice, and because a placement that failed left nothing behind.
 - **Constraint backstop.** `CHECK` constraints keep stock quantities non-negative, so a logic error fails instead of corrupting stock.
-- **Manual stock changes** use the same row lock and transaction pattern as orders (see Manual stock changes). A manual change and an order on the same product wait for each other on the `inventory` row, so neither can overwrite the other's quantity. A direct set also checks the value the user saw, so a stale screen cannot silently undo a sale. This is a check made while the row is locked, not an optimistic version counter.
+- **Manual stock changes** use the same row lock and transaction pattern as orders (see Manual stock changes). A manual change and an order on the same product wait for each other on the `inventory` row, so neither can overwrite the other's quantity. A correction also checks the value the user saw, so a stale screen cannot silently undo a sale. This is a check made while the row is locked, not an optimistic version counter.
 - **Duplicate inventory transactions.** `UK(order_id, inventory_id, type)` on `inventory_transactions` is a second line of defense. A duplicate `SALE` for the same order and inventory record violates the constraint and rolls back. Stock-level types have no order, and the constraint does not apply to them, so repeated restocks are allowed.
 - **Duplicate orders.** `UK(user_id, idempotency_key)` prevents duplicate order creation from repeated submissions. It is a composite key, not a unique key on `idempotency_key` alone.
 
@@ -784,9 +798,18 @@ This section records the rules of the screens that reach into the database or th
 - **Lists are paged with two buttons**, previous and next. There are no page numbers and no total count, so the program never counts the rows of a list. The page size is 10, and it is also the most a page can hold. It is an operating parameter. The frontend sizes the blocks of a page to fit 10 rows or fewer.
 - **A page is read by key, not by offset.** The next page asks for the rows after the last row of the page shown, in the sort key of the list and then the `id`, and the previous page asks for the rows before the first one. The sort keys are the ones the indexes already have: the creation, archive, or cancellation time with `source` first for tickets (see Ticket list order), the creation time for the logs and the audit log, and the name for the product page. A fuller paging system is an idea for later (see [future-ideas.md](../future-ideas.md)).
 
+### The time filter
+
+Every list that is filtered by time uses one template, so that a person learns it once. It applies to the product log and the warehouse log in all three ways of reading them (the own log of one product or item included), to the creation days of the ticket search, and to the audit log page. A list that gets a time filter later uses it too.
+
+- **Two forms.** A range from a start day to an end day, both included, where the end day is today at the latest. Or from a start day until now, with no end day. With no filter set, the list is not narrowed by time.
+- **Days, not times.** The person picks days. A day is a day in the display time zone (`Australia/Sydney`). The service layer turns the choice into a UTC range: from the start of the first day to the start of the day after the last, or with no upper end for "until now". A start day after the end day, or an end day after today, is refused.
+- **The direction.** The person chooses newest first or oldest first. Newest first is the default. Both directions read the same index, and the paging by key works in either. On the ticket screens the tickets opened by the system still come first in either direction (see Ticket list order).
+- The choice is a setting of the screen and is not stored.
+
 ### Stock page
 
-The stock page shows one row for each warehouse item that is not deleted: the image, the name, the stock quantity (`available_quantity`), the button for changing the quantity, and the View button for the records of that item. A **View records** button at the top opens the records of all items. A `MANAGER` or an `ADMIN` also adds an item and deletes an item from this page. Every role reads it, and the change controls follow Manual stock changes.
+The stock page shows one row for each warehouse item that is not deleted: the image, the name, the stock quantity (`available_quantity`), the button for changing the quantity, and the View button for the records of that item. A **View records** button at the top opens the records of all items. A `MANAGER` or an `ADMIN` also adds an item and deletes an item from this page. Every role reads it, and the change controls follow Manual stock changes. The page has a search box for the name, like the product page: it narrows the rows to the items whose name matches the text typed, and it never finds a deleted item. The rows are ordered by name and then `id`. The search is a match on the text and not an index search, because the warehouse table is small.
 
 ### Logs
 
@@ -802,8 +825,8 @@ The program keeps two logs. The **product log** belongs to the product page and 
 **The three ways in.**
 
 1. **All records.** The **View records** button of the page asks which kind of record to read (the product page: listing records or order records; the stock page: item records or stock movements) and then shows that kind for all products or all items, newest first.
-2. **One chosen.** Inside that view a product (or item) picker narrows the records to one name (see The searchable picker). A range of days narrows them by time. Both filters can be used together.
-3. **The own log of one.** The View button on a row of the product page (or the stock page) opens the log of that single product (or item), with both kinds of record in two parts, newest first. A product that is delisted is no longer a row on the product page, and an item that is deleted is no longer a row on the stock page, so their records are read through the first two ways, and the records of a deleted item also through the Deleted items module.
+2. **One chosen.** Inside that view a product (or item) picker narrows the records to one name (see The searchable picker). The time filter narrows them by time (see The time filter). Both filters can be used together.
+3. **The own log of one.** The View button on a row of the product page (or the stock page) opens the log of that single product (or item), with both kinds of record in two parts, newest first by default. It has the time filter and the choice of direction, and no other filter. A product that is delisted is no longer a row on the product page, and an item that is deleted is no longer a row on the stock page, so their records are read through the first two ways, and the records of a deleted item also through the Deleted items module.
 
 **Deleted items.** The stock page has a third choice under View records, **Deleted items**, a module made to find an item that is gone from the warehouse. It lists the deleted items, newest deletion first, with the name, the SKU, the time of the deletion, and who deleted it, 10 to a page, with one text box that narrows the list by name or SKU. A row opens the own log of that item in four parts: its item records, its stock movements, and, if it ever had a product, the listing records and the order records of that product. This is the only place where a deleted item can be searched for, and the item and product pickers still do not offer it (see The searchable picker). The list reads the `inventory` rows whose `deleted_at` is set, ordered by `deleted_at` and then `id`, paged by key; the warehouse table is small and has no index for this list, and one is added only if it grows enough to need it. The module is read-only.
 
@@ -829,7 +852,7 @@ For a stock movement the amount is `+quantity` for `RESTOCK` and `ADJUST_IN` and
 **Rules of reading.**
 
 - **Only what was written is shown.** A stock movement exists only if its transaction committed. A refused order is shown because it is recorded on purpose as an attempt. A failure of the program itself, such as a database that is down, may leave nothing to show.
-- **Paging and the day range.** Every list is paged (two buttons, 10 rows). The only filters are the picker and a range of days, from one day to another, both included. A day is a day in the display time zone (`Australia/Sydney`). The service layer turns the range into a UTC range, from the start of the first day to the start of the day after the last.
+- **Paging and the day range.** Every list is paged (two buttons, 10 rows). The only filters are the picker and the time filter, with its two forms and its choice of direction (see The time filter).
 - **The indexes.** With a product or item chosen, the lists read `idx_product_events_product_created`, `idx_order_attempts_product_created`, `idx_item_events_inventory_created`, and `idx_inventory_tx_inventory_created`. Without one, they read the time indexes `idx_product_events_created`, `idx_order_attempts_created`, `idx_item_events_created`, and `idx_inventory_tx_created`, by time and then `id`.
 
 ### The searchable picker
@@ -839,31 +862,51 @@ Wherever a screen asks for a product or an item, it uses one shared control: a d
 - **The product picker** offers every product that was ever listed, delisted ones included, by its current name, except the products of deleted items. When two products have the same name, the SKU of the item is shown beside the name.
 - **The item picker** offers every warehouse item that is not deleted, by its name and SKU. A deleted item is gone from the warehouse and is offered nowhere, so that the backend search does not return options the screen cannot show. The records of a deleted item stay in the database and in the lists of all records (the first reading of each log), and it is found by name only in the Deleted items module of the warehouse log.
 - The name search is a match on the text typed and is not an index search; the lists are small enough. The picker returns the id, and the log is read by that id.
+
 ### Ticket search
 
 The ticket screens of `ADMIN`, `MANAGER`, and `VIEWER` can be searched. An `OPERATOR` has no search, because an operator sees only their own few tickets (see Ticket screens and who sees what).
 
 - **Each screen searches only its own status.** A search on the pool finds only `OPEN` tickets, on the archive only `CLOSED` tickets, and so on. The statuses are never searched together.
-- **The filters** are the kind (`source`, `SYSTEM` or `MANUAL`), the creator, the assignee, and the creation day range (a range of days, read like the logs). They can be combined. The creator and the assignee are picked by username.
+- **The filters** are the kind (`source`, `SYSTEM` or `MANUAL`), the creator, the assignee, and the creation days (see The time filter). They can be combined. The creator and the assignee are picked by username (see The user picker).
 - **The other ways to search are by one ticket number, or by one order number** (the tickets that name it), and nothing else. There is no search by title or description.
 - The filters use the indexes of Initial Constraints: `(status, source, created_at)` for the kind and the time, `tickets(created_by, status)` for the creator, `tickets(assignee_id, status)` for the assignee, and the unique key for the number. The sort order of Ticket list order always applies.
+
+### The user picker
+
+Three places need a person chosen by username: the creator and assignee filters of the ticket search, the user filter of the audit log page, and the choice of an assignee when a ticket is assigned or reassigned. None of them can use the list of the user page, which shows only the users the viewer can manage and is closed to `VIEWER`. A separate read serves them. It returns only the `id` and the `username` of each user, and never the email, the status, or the roles. It never returns the SYSTEM identity.
+
+| Use | Who may read it | Which users it returns |
+| --- | --- | --- |
+| The creator and assignee filters of the ticket search | `ADMIN`, `MANAGER`, `VIEWER` | Every user, disabled and soft-deleted users included, because their tickets remain. For example, a manager finds the tickets that a person who has left once created |
+| The user filter of the audit log page | `ADMIN`, `MANAGER` | The same users, because their records remain. The page adds one more choice, System, which finds the records of system actions (`operator_id` is empty). It is a choice of the page and not a user of the picker |
+| The assignee of an assignment or a reassignment | `ADMIN`, `MANAGER` | The eligible assignees the reader may assign to (see Who may take a ticket): all of them for a reader who holds `ADMIN`, and those who do not hold `ADMIN` for any other reader |
+
+An `OPERATOR` and a user with no role cannot read it. The list of eligible assignees is a help for the person choosing: the check under the lock on the assignee's user row still decides (see Concurrency by Module).
 
 ### User page
 
 Only `ADMIN` and `MANAGER` have a user page. It lists only the users the viewer is allowed to manage, so the list is a view of Authority over roles and accounts:
 
-- an `ADMIN` sees every user except the SYSTEM identity, managers and administrators included;
+- an `ADMIN` sees every user except the SYSTEM identity, managers and administrators included. Their own account is in the list, with no control to disable it, delete it, or change its roles;
 - a `MANAGER` sees only the users who hold neither `ADMIN` nor `MANAGER`, and never their own account;
 - both see users with no role (they are waiting for one) and disabled users, and neither sees soft-deleted users.
 
-The service layer filters the rows. The page lets the viewer grant and revoke roles (the roles offered are those the viewer may grant), disable and enable a user, and soft-delete a user. Role definitions have no page: creating, updating, and deleting a role is done through the backend.
+The list can be narrowed in two ways, which can be combined:
+
+- **A search box for the username.** It narrows the list to the users whose username matches the text typed.
+- **Role buttons**, of which several can be chosen at once. There is one button for each role the viewer may manage, and one more, **No role**, for the users who are waiting for a role: `ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER`, and No role for an `ADMIN`; `OPERATOR`, `VIEWER`, and No role for a `MANAGER`. With several buttons chosen, the list shows the users who hold any one of the chosen roles, and with No role also the users who hold none. With no button chosen, the list is not narrowed by role.
+
+Neither filter widens the list: a `MANAGER` who searches for the username of an administrator finds nothing. The rows are ordered by username and then `id`, and paged by key. The search is a match on the text and the role filter a join on `user_roles`, with no new index, because the table of users is small.
+
+The service layer filters the rows. The page lets the viewer grant and revoke roles (the roles offered are those the viewer may grant), disable and enable a user, and soft-delete a user. The roles themselves are fixed and have no page (see Role management).
 
 ### Audit log page
 
 `ADMIN` and `MANAGER` open the audit page to read the records of the background work: the work that is not production and the production work as well. The page is read-only and nobody can edit or delete a row. A role that cannot open it, such as `VIEWER`, still reads the order records on the product page and the stock records on the stock page, so an accountant with the `VIEWER` role sees the production records through those pages.
 
 - **A menu of seven areas.** The page opens on a menu with one entry for each area: Accounts, Roles and permissions, Tickets, Stock, Warehouse items, Products, and Orders. The first six read `operation_logs` filtered by `category` (see Categories). **Orders** reads `order_attempts`, the same records as the order records of the product log, so the order records are in two places and written once.
-- **A list for one area.** Choosing an area shows its records, newest first, 10 to a page with previous and next, paged by key. Three independent filters can be combined: the action (only the actions of that area), the time (a range of days in `Australia/Sydney`, turned into a UTC range), and the user (`operator_id`, or `user_id` for orders). For Orders the action filter is the result of the attempt (placed, delisted, changed, out of stock, invalid quantity, or busy). A system action shows the user as System.
+- **A list for one area.** Choosing an area shows its records, newest first, 10 to a page with previous and next, paged by key. Three independent filters can be combined: the action (only the actions of that area), the time (see The time filter, with its choice of direction), and the user (`operator_id`, or `user_id` for orders), chosen from the user picker or as System (see The user picker). For Orders the action filter is the result of the attempt (placed, delisted, changed, out of stock, invalid quantity, or busy). A system action shows the user as System.
 - **The indexes.** `operation_logs` is read through `(category, created_at)`, which also orders by `id`, and the user filter through `(operator_id, created_at)`. Orders are read through `idx_order_attempts_created` and `idx_order_attempts_user_created`. The index `(target_type, target_id)` finds the rows of one object.
 - **Each row shows itself.** Every row carries its labels (see Labels in audit rows), so it reads without a join. How a row is laid out is decided with the page design (Q-34).
 
@@ -873,14 +916,15 @@ The program has three account functions and nothing more: sign-up, login, and Fo
 
 ## Permission Matrix
 
-This section says what each seeded role may do in each module. It is a first version, kept as it stands for now and expected to be refined before the permission module is built. It sits on top of Authority over roles and accounts, which says who may change roles and accounts. A role that is not allowed an action is refused with 403, and the frontend hides the control.
+This section says what each seeded role may do in each module. The owner reviewed it on 2026-11-14, before the permission module is built ([database-v1.12.md](../iterations/database-v1.12.md)). It sits on top of Authority over roles and accounts, which says who may change roles and accounts. A role that is not allowed an action is refused with 403, and the frontend hides the control.
 
 Principles:
 
 - **Deny by default.** An action that is not listed is refused. A user with no role can do nothing (see Users without roles).
+- **Several roles add up.** A user may hold more than one role, and may do whatever any one of those roles allows. Where a role limits what is seen, the widest view wins: a user who holds `OPERATOR` and `VIEWER` sees everyone's tickets and can search them, as a `VIEWER` does, and can also work on tickets, as an `OPERATOR` does.
 - **`VIEWER` is read-only.** It never changes data in any module.
-- **`OPERATOR` runs the day-to-day flow**: orders, stock in, write-offs, and tickets. It does not change master data, set stock quantities directly, or see audit logs, user lists, or role lists.
-- **`MANAGER` can do everything `OPERATOR` can, plus master data, setting stock quantities directly, user and role assignment (below manager), and audit logs.**
+- **`OPERATOR` runs the day-to-day flow**: orders, stock in, write-offs, corrections, and tickets. It does not change master data, or see audit logs or the user page.
+- **`MANAGER` can do everything `OPERATOR` can, plus master data, user and role assignment (below manager), and audit logs.**
 - **`ADMIN` can do everything `MANAGER` can, plus the actions reserved for it in Authority over roles and accounts.**
 - A role counts only when the acting account is a usable account. System actions, such as the archive job and the cancellation of tickets by a delisting, have no acting user and are not covered by this matrix.
 
@@ -891,18 +935,18 @@ Principles:
 | Products | Delist a product, with no reason asked | Yes | Yes | No | No |
 | Inventory | Add an item to the warehouse (name, optional image, optional starting quantity; the SKU is generated), and edit the name or image of an item that is not listed | Yes | Yes | No | No |
 | Inventory | Delete an item (soft), with no reason asked | Yes | Yes | No | No |
-| Inventory | View the stock page and the warehouse log (item records and stock movements, all or of one item; see Logs) | Yes | Yes | Yes | Yes |
+| Inventory | View the stock page, search it by name, and read the warehouse log (item records and stock movements, all or of one item; see Logs) | Yes | Yes | Yes | Yes |
 | Inventory | Search the Deleted items module of the warehouse log (a read-only list of deleted items and the own log of one) | Yes | Yes | Yes | Yes |
 | Inventory | Stock in (`RESTOCK`), reason required | Yes | Yes | Yes | No |
 | Inventory | Write-off or stock out (`WRITE_OFF`), reason required | Yes | Yes | Yes | No |
-| Inventory | Set the quantity directly (`ADJUST_IN`, `ADJUST_OUT`), reason required | Yes | Yes | No | No |
+| Inventory | Correction: type the quantity that was counted (`ADJUST_IN`, `ADJUST_OUT`), reason required | Yes | Yes | Yes | No |
 | Orders | Place an order, from the product page (it completes at once). There is no order list or order page: an order is an action, and its record is kept for the history | Yes | Yes | Yes | No |
 | Tickets | View the pool, the in-progress and resolved screens of everyone's tickets, the archive screen of `CLOSED` tickets, the cancelled area, the follow-up links, and the assignment history | Yes | Yes | No | Yes |
 | Tickets | View the pool, and only their own tickets on the in-progress screen (assigned to them), the resolved screen (resolved by them), and the cancelled area (created or last held by them). No archive screen. See Ticket screens and who sees what | No | No | Yes | No |
-| Tickets | Search and filter each ticket screen (see Ticket search) | Yes | Yes | No | Yes |
+| Tickets | Search and filter each ticket screen (see Ticket search), and read the usernames for the creator and assignee filters (see The user picker) | Yes | Yes | No | Yes |
 | Tickets | Create manually, choosing zero or more warehouse items (links are written only at creation), or as a follow-up to a `RESOLVED` or `CLOSED` ticket | Yes | Yes | Yes | No |
 | Tickets | Take a ticket from the pool (it becomes `IN_PROGRESS` at once), if an eligible assignee | Yes | Yes | Yes | No |
-| Tickets | Assign a ticket from the pool, or reassign an `IN_PROGRESS` ticket, to an eligible assignee, with a reason (the only way to take a ticket from its assignee) | Yes | Yes | No | No |
+| Tickets | Assign a ticket from the pool, or reassign an `IN_PROGRESS` ticket, to an eligible assignee chosen from the user picker, with a reason (the only way to take a ticket from its assignee). Managers can assign tickets to each other | Yes, to an operator, a manager, or an administrator | Yes, to an operator or a manager, never to an administrator | No | No |
 | Tickets | Release a ticket back to the pool, with a reason | Yes, any | Yes, any | Only their own (assigned to them) | No |
 | Tickets | Move to `RESOLVED` | Yes | Yes | Only a ticket assigned to them | No |
 | Tickets | Cancel an `OPEN` or `IN_PROGRESS` ticket, with a reason | Yes, any | Yes, any | Only their own (assigned to them, or created by them while `OPEN`) | No |
@@ -910,16 +954,16 @@ Principles:
 | Tickets | Reopen a ticket | No one | No one | No one | No one |
 | Audit logs | Open the audit page, choose one of its seven areas, and filter by action, time, and user (see Audit log page). The order records are also on the product page, which every role can read | Yes | Yes | No | No |
 | Audit logs | Edit or delete | No one | No one | No one | No one |
-| Users | View the user page, which lists only the users the viewer can manage (see User page) | All users | Users who hold neither `ADMIN` nor `MANAGER` | No | No |
-| Users | Change status, soft-delete | See Authority over roles and accounts | See Authority over roles and accounts | No | No |
-| Roles | Choose the roles to grant on the user page | Every role | Roles below manager | No | No |
-| Roles | Create, update, delete roles, appoint managers and administrators. There is no page for role definitions: they are managed through the backend | Yes | No | No | No |
-| Roles | Assign roles below manager | Yes | Yes | No | No |
+| Users | View the user page, which lists only the users the viewer can manage, and narrow it by username and by role (see User page) | All users | Users who hold neither `ADMIN` nor `MANAGER` | No | No |
+| Users | Change the status of another user, or soft-delete one | See Authority over roles and accounts | See Authority over roles and accounts | No | No |
+| Users | Disable or soft-delete their own account, or change their own roles | No one | No one | No one | No one |
+| Roles | Grant and revoke roles on the user page | Every role | Roles below manager | No | No |
+| Roles | Create, update, or delete a role. The four roles are fixed (see Role management) | No one | No one | No one | No one |
 | Account | Change the password. There is no account page; the only way is Forgot password on the login page | Yes | Yes | Yes | Yes |
 
-Where the permissions live: for the four seeded roles, they are fixed in the application code and keyed by role code. A role created later by an administrator has no permissions until a mapping is added, so creating one grants nothing by itself. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role gets its permissions together with the code that implements them.
+Where the permissions live: they are fixed in the application code and keyed by role code. The roles are fixed too, so every role that exists has its permissions in the code. This is intended: the system is built for customers, and any new capability goes through the backend developers, so a new role arrives in one backend change, with its `roles` row and the code that implements its permissions.
 
-Several entries are working defaults and can be changed in this table before the permission module is built: `OPERATOR` may stock in and write off but not set the quantity directly, only `ADMIN` and `MANAGER` may archive a ticket or reassign it to someone else, an `OPERATOR` may cancel only their own tickets, and an `OPERATOR` may move only their own tickets forward.
+Confirmed in the review of 2026-11-14: only `ADMIN` and `MANAGER` may archive a ticket or give it to someone else, an `OPERATOR` may cancel only their own tickets, and an `OPERATOR` may move only their own tickets forward. Changed in the review: an `OPERATOR` may also make a correction.
 
 ## Concurrency by Module
 
@@ -959,10 +1003,12 @@ Order and inventory concurrency is specified under Order and Inventory Flow. Thi
 | Tickets | A batch archive, the system job (7 days, or 99 waiting), and a manager's archive or a cancel overlap | Each ticket is archived in its own transaction through the status gate, `WHERE id = ? AND status = 'RESOLVED'`. A ticket already moved is skipped. Running the same batch or the same job twice is safe. The count of 99 is read before the job starts and need not be exact: if a ticket is resolved or archived in the meantime, the job only archives a few more or fewer, and the next run corrects it. |
 | Tickets | A follow-up is opened as the earlier ticket changes | No lock is needed. The number is looked up in the creating transaction. A ticket that is `RESOLVED` or `CLOSED` never goes back, so the permission to follow it cannot be lost, and a number that matches no ticket is refused. The foreign key is the last line of defence. |
 | Tickets | A user is disabled or soft-deleted while their tickets are released, resolved, or taken | Disabling or deleting locks the user row exclusively, then sets every `IN_PROGRESS` ticket of that user back to `OPEN` in the same transaction, each by a conditional update on the status and the assignee, and writes the history and log rows. A take or an assignment for that user waits for the same row and then fails the eligibility check. A release or a resolve by the user at the same moment is a conditional update on the status, so whichever commits first wins and the other sees zero rows. Lock order: `users`, then `tickets`. |
-| Users and roles | Grant, revoke, replace, or disable at once, including two managers on the same user | Lock the target user's row first, then check the user is usable and the actor has authority, then change. The second request waits and sees the first one's result. |
-| Users and roles | The last administrator is removed twice at once | After the user row, lock the `ADMIN` row in `roles`, apply the change, and count usable holders, as under Administrator protection. |
-| Users and roles | The same role is granted twice | `UK(user_id, role_id)` rejects the second, and the program treats it as already granted. |
-| Users and roles | A role is granted while it is deleted | Deleting locks the role row and removes the grants. The grant's foreign key check needs a shared lock on the role row, so one waits for the other, and a grant after the delete fails. This order differs from the grant path, so a deadlock is possible, and the retry rule covers it. |
+| Users and roles | Two people change the same user at once: two replacements of the roles, a replacement and a disabling, or a disabling and a deletion | See Steps of a change to a user. Each locks the user rows of its actor and of the target with `FOR UPDATE` in ascending id, so the second waits. A second replacement then finds roles that differ from the ones its actor saw and is refused with "user changed, please reload", so it cannot silently undo the first. A second status change finds the status already changed and reports it. Lock order: `users`. |
+| Users and roles | The actor loses the role or the account that gives the authority, while acting | The actor's own user row is locked with the target's, and the actor's roles and status are read under that lock. A demotion or a disabling of the actor needs the same row, so one waits for the other, and an actor who was demoted first is refused. Lock order: `users`. |
+| Users and roles | Two administrators remove each other at once, or the last administrator is removed | Both transactions lock the same two user rows in the same order, so they run one after the other, and the second is refused because its actor is no longer an administrator. The lock on the `ADMIN` row in `roles` and the count after the change are a second line that does not depend on the first, as under Administrator protection. Lock order: `users`, then `roles`. |
+| Users and roles | The same role is granted twice | The user row lock makes the second request wait, and it then finds the role already held. `UK(user_id, role_id)` is the last line. |
+| Users and roles | A role is taken away while a request of that user is running | Accepted for one request, except in the paths that lock a user row and read the roles again (see Requests already on their way). |
+| Users and roles | A user is disabled, enabled, or deleted while their roles are replaced | The same user row, so one waits. A replacement that adds a role to a user who was just disabled or deleted is refused, and one that follows an enabling sees a usable account. |
 | Authentication | Two wrong passwords at once | Each login records its result in a short transaction that holds the user row with `FOR UPDATE` (see Login steps), so the two wait for each other. `UPDATE users SET failed_login_count = failed_login_count + 1 ...` is atomic as well, and the lock time is worked out from the new value in the same transaction, so both attempts count. |
 | Authentication | A password reset commits after a login has checked the old password and before it records the result | The password is checked outside the transaction. The login then locks the user row with `FOR UPDATE` and compares `password_hash` with the hash it checked. A different hash means the check is void: the login is refused with the general login error, with no token, and nothing is recorded. The reset updates the same row, so one waits for the other, and a login that commits first gets a token that the reset makes invalid through `password_changed_at`. Lock order: `users` only. |
 | Authentication | An account is disabled or soft-deleted while its owner logs in | Disabling and deleting lock the user row, and the login reads `status` and `deleted` again under the same lock. If the disabling commits first, the login answers `ACCOUNT_DISABLED` and issues no token. If the login commits first, the token is refused on its next request by the token check. Lock order: `users` only. |
@@ -987,7 +1033,7 @@ These values belong in application configuration, not in the database.
 | Login lock steps | 5 failures: 1 minute; 10: 5 minutes; 15: 15 minutes; 20: until midnight | Slows guessing while giving a person who mistyped a quick way back |
 | Failure count reset | Midnight in Sydney time (`Australia/Sydney`), configurable | A new day starts clean, on the clock the users live by |
 | Maximum quantity per order line | 9999 | A typing slip such as 99999 is refused with `INVALID_QUANTITY`, and the quantity stays small. It limits one order line only, not the stock, and the screen never shows the stock. |
-| Maximum quantity in one stock input | 999,999 | The starting quantity of an item, a stock-in, a write-off, and a direct set are refused above it, so a slip does not reach the stock. The stock itself is limited only by the `INT` column. |
+| Maximum quantity in one stock input | 999,999 | The starting quantity of an item, a stock-in, a write-off, and a correction are refused above it, so a slip does not reach the stock. The stock itself is limited only by the `INT` column. |
 | List page size | 10, and at most 10 | Two buttons, previous and next, and no count. The frontend sizes the blocks of a page to fit 10 rows or fewer. |
 | Item image | JPEG, PNG, or WebP, at most 2 MB | Keeps the product page light and refuses files that are not pictures. The type is checked from the file content. |
 | SKU and ticket number generation attempts | 5 | A generated SKU or ticket number that collides is replaced, and the creation fails with an error if all attempts collide, which is practically impossible with 36^8 values. |
@@ -1130,9 +1176,9 @@ To run it, use `powershell -STA -File db/verification/run-db-verification.ps1`. 
 - A ticket follows at most one earlier ticket, set only when the ticket is created. The foreign key `follows_ticket_id` rejects a missing ticket. The rule that the earlier ticket is `RESOLVED` or `CLOSED` is enforced in the service layer.
 - Include `created_at` and `updated_at` on primary business tables. Historical and frozen tables, such as `inventory_transactions` and `order_items`, must include at least a creation timestamp.
 - Refuse role grants to users who are not usable accounts (`status` is not `ACTIVE`, or `deleted` is true) in the service layer, because no foreign key can. Count a user's roles in a permission check only when the user is a usable account. Set `status` to `DISABLED` when a user is soft-deleted. Write a `ROLE_GRANTED` or `ROLE_REVOKED` row to `operation_logs` in the same transaction as every change to `user_roles`.
-- Never change `roles.code` after creation, and never delete the `ADMIN` role. When a role is deleted, delete its `user_roles` rows and write a `ROLE_REVOKED` row for each in the same transaction, then write `ROLE_DELETED`. Write `ROLE_CREATED`, `ROLE_UPDATED`, or `ROLE_DELETED` to `operation_logs` in the same transaction as every change to `roles`.
+- Never insert, update, or delete a `roles` row from the application. The four seeded roles are fixed, and a new role comes only with a migration and the code for its permissions.
 - Refuse any change that would leave no usable account holding `ADMIN`, after locking the `ADMIN` row in `roles`. A new user has no role until an administrator grants one.
-- Treat `ADMIN` and `MANAGER` as protected roles: never delete them and never change their `code`. Let only `ADMIN` create, update, or delete roles, and appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`.
+- Treat `ADMIN` and `MANAGER` as protected roles: let only `ADMIN` appoint or dismiss managers and administrators. Let `MANAGER` assign only roles below manager, and only to users who hold neither `ADMIN` nor `MANAGER`. Refuse any request to disable or soft-delete one's own account or to change one's own roles.
 - Create the first administrator on the server with a console command that asks for the password with hidden input. Never write that password to a file, an environment variable, or a log.
 - Lock an account after repeated wrong passwords on the schedule in Login security and account recovery, and refuse attempts without checking the password while it is locked. Store email codes as a keyed hash, and let the application account insert, update, and delete `email_verification_codes` and `email_code_request_counts`, the only two tables whose rows the application deletes in its normal work (expired codes and the counts of windows that are over, see Email codes). Tell a person who signs up that an address already has an account, answer a request for a recovery code the same way whether or not a mail is sent, and refuse a request beyond the limits per client address and for the whole system. On every request, load the account and its roles from the database, and refuse a token issued before `users.password_changed_at`.
 - Do not cascade deletes into history. Foreign keys from `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, and `operation_logs` must not delete or null out history rows.

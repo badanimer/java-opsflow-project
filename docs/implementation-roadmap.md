@@ -77,18 +77,18 @@ The first administrator comes first, because no one can be given a role without 
 
 | Task | What |
 | --- | --- |
-| T-27 | Review the Permission Matrix, then check every endpoint against the roles of the caller. Refuse by default, with a test that fails for an endpoint that declares no permission |
+| T-27 | Check every endpoint against the roles of the caller, as the Permission Matrix says (reviewed on 2026-11-14). Refuse by default, with a test that fails for an endpoint that declares no permission |
 | T-54 | The test of the package dependencies, now that there are two modules |
 | T-19, T-15 | A role counts only for a usable account; role grants are refused to other accounts and logged |
-| T-21 | Role management for `ADMIN`, and replacing a user's roles in one transaction |
+| T-21 | Replacing a user's roles in one transaction. The four roles are fixed |
 | T-26 | Authority over roles and accounts |
 | T-23 | Administrator protection, with a race test of two administrators removing each other |
 | T-22 | The backend part of the pending page: the account state and the distinct error codes |
-| T-06 | Grant `DELETE` on `user_roles` and `roles` |
-| T-48 | The user list and role management through the API. This is the first list, so build the paging with it (T-45) |
+| T-06 | Grant `DELETE` on `user_roles` |
+| T-48 | The user list and the granting of roles through the API. This is the first list, so build the paging with it (T-45) |
 | T-50 | The user and account logs and the role logs |
 
-**Done when:** the console command makes an administrator, who can create roles, give them to users, and see the list of users, while a manager and an operator get `403` where the matrix says so.
+**Done when:** the console command makes an administrator, who can give roles to users and see the list of users but cannot change their own account, while a manager and an operator get `403` where the matrix says so.
 
 ## Phase 4: Warehouse Items and Products
 
@@ -113,7 +113,7 @@ The core of the system and the hardest part.
 | T-10 | The order and inventory flows as specified, with the retry, the idempotency key, and an `order_attempts` row for every attempt |
 | T-12 | The order number |
 | T-11 | The order parameters: retry attempts, delays, and the maximum quantity |
-| T-41 | The quantity check for an order line, a stock-in, a write-off, and a direct set |
+| T-41 | The quantity check for an order line, a stock-in, a write-off, and a correction |
 | T-30 | Manual stock changes, with a race test against order creation and against the deletion of an item |
 | T-50 | The stock logs |
 | T-46 | The stock page, the warehouse log and the product log, the searchable picker, and the Deleted items module |
