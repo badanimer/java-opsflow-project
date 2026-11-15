@@ -497,7 +497,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('UPDATE order_items (frozen)', "UPDATE order_items SET quantity=9;"),
         @('DELETE order_items', "DELETE FROM order_items;"),
         @('UPDATE user_roles', "UPDATE user_roles SET role_id=1;"),
-        @('DELETE user_roles (until granted)', "DELETE FROM user_roles;"),
+        @('DELETE roles (the roles are fixed)', "DELETE FROM roles WHERE id=999;"),
         @('DELETE orders', "DELETE FROM orders;"),
         @('DELETE users', "DELETE FROM users WHERE id=3;"),
         @('DELETE products', "DELETE FROM products;"),
@@ -506,10 +506,8 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('DROP TABLE', "DROP TABLE ticket_inventory;")
     )
     foreach ($t in $refusals) { Check ('app is refused: ' + $t[0]) (Denied (As-App $t[1])) }
-    $g = Allowed (As-Admin "GRANT DELETE ON $DB.user_roles TO '$APP'@'localhost';")
     $d = Allowed (As-App "DELETE FROM user_roles WHERE user_id=2;")
-    Check 'app can delete user_roles once DELETE is granted on that table only' ($g -and $d)
-    $null = As-Admin "REVOKE DELETE ON $DB.user_roles FROM '$APP'@'localhost';"
+    Check 'app can delete from user_roles, to revoke a role' $d
     $null = As-Admin "INSERT INTO email_verification_codes(email,purpose,code_hash,expires_at) VALUES ('old@example.com','REGISTER','h',NOW(3) - INTERVAL 1 MINUTE), ('new@example.com','REGISTER','h',NOW(3) + INTERVAL 10 MINUTE);"
     $dc = Allowed (As-App "DELETE FROM email_verification_codes WHERE expires_at < NOW(3);")
     $left = Scalar "SELECT CONCAT('RESULT=', GROUP_CONCAT(email ORDER BY id)) FROM email_verification_codes WHERE email IN ('old@example.com','new@example.com');"

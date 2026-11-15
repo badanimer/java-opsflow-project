@@ -39,8 +39,8 @@ GRANT INSERT ON opsflow.order_attempts            TO 'opsflow_app'@'localhost';
 -- Frozen after the order is created: read and insert only
 GRANT INSERT ON opsflow.order_items TO 'opsflow_app'@'localhost';
 
--- Link rows are created and, later, removed, but never edited.
--- When the permission management feature is built, also run:
---   GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';
---   GRANT DELETE ON opsflow.roles      TO 'opsflow_app'@'localhost';
-GRANT INSERT ON opsflow.user_roles TO 'opsflow_app'@'localhost';
+-- Link rows are created and removed, but never edited: a role is granted with an INSERT and
+-- revoked with a DELETE (replacing the roles of a user, backend v1.7). The roles themselves are
+-- fixed, so `roles` gets no DELETE.
+-- On a server where this script ran before the DELETE was added, run this one line again.
+GRANT INSERT, DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';

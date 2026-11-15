@@ -75,4 +75,14 @@ class PageQueryFactoryTest {
 				e -> assertThat(e.code()).isEqualTo(ErrorCode.VALIDATION_FAILED));
 	}
 
+	@Test
+	void aListWithAFixedOrderOtherThanTheDefaultReadsInItsOrderAndRefusesAnOrderParameter() {
+		PageQuery query = factory.createInOrder(null, null, null, null, SortOrder.ASC);
+		assertThat(query.order()).isEqualTo(SortOrder.ASC);
+		assertThat(query.ascendingRead()).isTrue();
+		assertThat(factory.createInOrder(null, CursorCodec.encode(new Cursor("bob", 3)), "prev", null, SortOrder.ASC).ascendingRead()).isFalse();
+		assertRefused(() -> factory.createInOrder(null, null, null, "asc", SortOrder.ASC));
+		assertRefused(() -> factory.createInOrder(null, null, "prev", null, SortOrder.ASC));
+	}
+
 }

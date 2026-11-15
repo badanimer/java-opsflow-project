@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.5 | The first endpoints of the user module: the user page, `GET /users`, the first list of the API, with a search and role buttons; `PUT /users/{id}/roles`, which replaces the roles of a user and carries the roles the sender saw, `POST /users/{id}/disable`, `POST /users/{id}/enable`, and `DELETE /users/{id}` for a soft deletion, and three codes for their refusals: `USER_CHANGED`, `USER_NOT_ACTIVE`, and `LAST_ADMIN` | [api-v1.5.md](../iterations/api-v1.5.md) |
 | 2026-11-15 | 1.4 | `GET /auth/me` also returns `permissions`, what the user may do, so that the frontend shows a control by its permission and never by a role | [api-v1.4.md](../iterations/api-v1.4.md) |
 | 2026-11-12 | 1.3 | The answers of the login endpoint and of the token check for a disabled, soft-deleted, or just-reset account: `ACCOUNT_DISABLED` at login with no token, `ACCOUNT_DISABLED` on the next request after the account is disabled, and `UNAUTHENTICATED` for a soft-deleted account and for a login whose password was replaced while it was checked. The first endpoints: `POST /auth/login` and `GET /auth/me`. Extended on 2026-11-13 with the email codes, sign-up, and the password reset: `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset`, the codes `CODE_INVALID`, `USERNAME_TAKEN`, and `EMAIL_TAKEN`, and a wider meaning of `TOO_MANY_REQUESTS` | [api-v1.3.md](../iterations/api-v1.3.md) |
 | 2026-11-12 | 1.2 | Every response carries a request id in the header `X-Request-Id`, and every error body carries it as `requestId` | [api-v1.2.md](../iterations/api-v1.2.md) |
@@ -67,7 +68,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 403 | `NOT_ALLOWED` | The account is not usable or its role does not allow orders or tickets | Order and ticket results |
 | 403 | `ACCOUNT_DISABLED` | The account is disabled. At login it is the answer to the right password, with no token. On any other request it means the account was disabled after login. The frontend clears its login state and shows the message on the login page | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `ACCOUNT_NO_ROLE` | The account has no role yet, and the endpoint needs one. The pending page shows it | [Users without roles](../database/database-design.md#users-without-roles) |
-| 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists | General |
+| 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists. In a change to a user: the user does not exist, is soft-deleted, or is the SYSTEM identity | General |
 | 404 | `ORDER_NOT_FOUND` | The order number named on a ticket is not in `order_attempts` | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 404 | `FOLLOW_NOT_FOUND` | The ticket to follow does not exist | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not for this HTTP method | General |
@@ -78,6 +79,9 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 409 | `ITEM_CHANGED` | A chosen item no longer exists. The body names them | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 409 | `FOLLOW_NOT_ALLOWED` | The ticket to follow is not `RESOLVED` or `CLOSED` | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 409 | `LIMIT_REACHED` | The person already has 99 open tickets, or 99 in progress | [Ticket limits](../database/database-design.md#ticket-limits) |
+| 409 | `USER_CHANGED` | The user is not as the sender saw it: someone else changed the roles, or disabled or enabled the account, in which case the body carries the current status as `userStatus`. Nothing is changed, and the page reloads the user | [Steps of a change to a user](../database/database-design.md#steps-of-a-change-to-a-user) |
+| 409 | `USER_NOT_ACTIVE` | A role is to be given to a disabled user. Roles can still be taken away. The user is enabled first | [Role grants](../database/database-design.md#role-grants) |
+| 409 | `LAST_ADMIN` | The change would leave the system with no usable administrator | [Administrator protection](../database/database-design.md#administrator-protection) |
 | 409 | `USERNAME_TAKEN` | At sign-up, the username belongs to an account. The code is not used up, so the person picks another username and sends the same code | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 409 | `EMAIL_TAKEN` | The address already has an account. It is the answer to a request for a sign-up code, and to a sign-up whose address got an account after the code was mailed. The page says that the address is registered | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | The body is not JSON | General |
@@ -95,6 +99,7 @@ Rules for choosing a status:
 - On every other endpoint, `ACCOUNT_DISABLED` tells the frontend to clear its login state and go back to the login page, and `UNAUTHENTICATED` tells it to ask for a login. `ACCOUNT_NO_ROLE` sends the user to the pending page and keeps the login.
 - A request for a sign-up code for an address that has an account is refused with `EMAIL_TAKEN`: the owner chose the clear message. A request for a recovery code is answered with the same `204` whether or not a mail is sent, so Forgot password never shows whether an address is registered. Every problem with a code is the one `CODE_INVALID`, also for an address that never had a code.
 - `USERNAME_TAKEN` and `EMAIL_TAKEN` are `409`: the request was valid, and another choice fixes it. A username that breaks the username rule, or a password that breaks the password rule, is `VALIDATION_FAILED` with the field in `errors`, and so is a new password that equals the current one.
+- A change to a user that the sender has no authority for is `FORBIDDEN` with a detail for the person: a change to one's own account, a manager who changes a user who holds `ADMIN` or `MANAGER`, and a manager who gives one of those roles. The user page offers none of these controls. An account that changed after the request arrived gets the answer of the token check: `UNAUTHENTICATED`, `ACCOUNT_DISABLED`, or `ACCOUNT_NO_ROLE`.
 - A new module that needs a code adds it to this table in the same change.
 
 ## Authentication
@@ -120,6 +125,29 @@ The first endpoints of the API. The rules behind them are in [Login security and
 - A username is 3 to 64 letters and digits, with no space and no other character. A password is 8 to 24 characters with at least one letter and one digit. Both are checked before the code is looked at, so a refused value does not count as a wrong entry.
 - When `USERNAME_TAKEN` comes back, the same code can be sent again with another username.
 
+## Users
+
+The endpoints of the user page. The rules behind them are in [Authority over roles and accounts](../database/database-design.md#authority-over-roles-and-accounts) and [Steps of a change to a user](../database/database-design.md#steps-of-a-change-to-a-user). 
+| Endpoint | Who | Request | Answer |
+| --- | --- | --- | --- |
+| `GET /users` | A user with the permission `USER_VIEW` (an administrator or a manager) | The parameters of Paging, and `search` and `roles` (below) | `200` with a page: `{ "items": [ { "id": 9, "username": "bob", "status": "ACTIVE", "roles": ["OPERATOR"] } ], "nextCursor": "...", "prevCursor": null }` |
+| `PUT /users/{id}/roles` | A user with the permission `ROLE_ASSIGN` (an administrator or a manager), on another user | `{ "roles": ["OPERATOR", "VIEWER"], "expectedRoles": ["VIEWER"] }`. `roles` is the whole list the user is to hold afterwards, and an empty list leaves the user with no role. `expectedRoles` is the list the sender saw on the screen | `200` with `{ "id": 9, "username": "bob", "roles": ["OPERATOR", "VIEWER"] }`, the roles the user holds now, in the order of the codes |
+| `POST /users/{id}/disable` | A user with the permission `USER_MANAGE`, on another user | None | `200` with `{ "id": 9, "username": "bob", "status": "DISABLED" }` |
+| `POST /users/{id}/enable` | The same | None | `200` with the same fields and `"status": "ACTIVE"` |
+| `DELETE /users/{id}` | The same | None | `204`. The deletion is soft: the account is marked as removed and disabled, and its row, its roles, its username, and its email stay |
+
+- `GET /users` lists only the users the caller may manage, as [User page](../database/database-design.md#user-page) says: an administrator sees every user, their own account included, and a manager the users who hold neither `ADMIN` nor `MANAGER`, not their own account. Disabled users and users with no role are listed; soft-deleted users and the SYSTEM identity never are. The rows are ordered by username from A to Z, and then by `id`. The order is fixed, so `order` is refused.
+- `search` is a part of the username, matched without regard to case; it is at most 64 characters, and an empty or blank value is no search. `roles` holds the chosen role buttons, as role codes and `NONE` for No role, comma-separated (`roles=OPERATOR,NONE`) or repeated; the codes are read without regard to case, an unknown one is `VALIDATION_FAILED`, and an empty value is no button. With buttons chosen, a user who holds any one of the chosen roles is listed, and with `NONE` also a user who holds none. The two filters combine, and neither widens what the caller may see.
+- The order of the codes in a list does not matter, and a code named twice counts once.
+- A list equal to the roles of the user is answered `200` and changes nothing.
+- A role is given or taken away only as part of the whole list, in one transaction: either every difference is applied, or none.
+- The refusals: `VALIDATION_FAILED` (a missing list, or a code in `roles` that is not a role), `FORBIDDEN`, `NOT_FOUND`, `USER_CHANGED`, `USER_NOT_ACTIVE`, and `LAST_ADMIN`, as in the table of result codes. The table of each refusal is in [Steps of a change to a user](../database/database-design.md#steps-of-a-change-to-a-user).
+- Giving or taking away `ADMIN` or `MANAGER`, and changing the roles of a user who holds one of them, needs the permission `ROLE_ASSIGN_PROTECTED`. Disabling, enabling, or deleting such a user needs `USER_MANAGE_PROTECTED`. The frontend finds both in `permissions` of `GET /auth/me`.
+- Disabling starts from an active account and enabling from a disabled one. A request that finds the other status is refused with `USER_CHANGED` and `userStatus`, and changes nothing. A deletion accepts both.
+- A disabled user keeps the roles, which count for nothing until the account is enabled. The next request of a disabled user is answered `ACCOUNT_DISABLED`, and that of a deleted user `UNAUTHENTICATED`.
+- A user who was deleted does not exist for any later call: the answer is `NOT_FOUND`. There is no way to bring a deleted account back.
+- The refusals of the three: `FORBIDDEN`, `NOT_FOUND`, `USER_CHANGED`, and `LAST_ADMIN`.
+
 ## Paging
 
 Every list is paged by key and not by offset (see [Home page and paging](../database/database-design.md#home-page-and-paging)).
@@ -131,7 +159,7 @@ Request:
 | `limit` | The page size. The default and the most is 10 (an operating parameter) |
 | `cursor` | An opaque string from an earlier response. Absent for the first page |
 | `direction` | `next` (the default) or `prev` |
-| `order` | `desc` (the default) or `asc`, only on the lists whose direction the user may choose (the ticket lists, see T-37) |
+| `order` | `desc` (the default) or `asc`, only on the lists whose direction the user may choose (the ticket lists, see T-37). A list whose order is fixed reads in its own order, which is not always `desc`: the user page goes from A to Z |
 
 Response:
 

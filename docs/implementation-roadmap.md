@@ -19,7 +19,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
-| 3 | Roles and permissions. The console command that creates an administrator and the permission check of the endpoints are done | T-54, T-19, T-15, T-21, T-26, T-23, T-06, T-48, T-45 |
+| 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page | |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
@@ -78,14 +78,9 @@ The first administrator comes first, because no one can be given a role without 
 | Task | What |
 | --- | --- |
 | T-27 | Done ([backend-v1.6.md](iterations/backend-v1.6.md)): every endpoint is checked against the roles of the caller and refused by default, with a test that fails for an endpoint that declares no permission, and `ACCOUNT_NO_ROLE` for a user with no role. What stays is one line on each new endpoint |
-| T-54 | The test of the package dependencies, now that there are two modules |
-| T-19, T-15 | A role counts only for a usable account; role grants are refused to other accounts and logged |
-| T-21 | Replacing a user's roles in one transaction. The four roles are fixed |
-| T-26 | Authority over roles and accounts |
-| T-23 | Administrator protection, with a race test of two administrators removing each other |
-| T-06 | Grant `DELETE` on `user_roles` |
-| T-48 | The user list and the granting of roles through the API. This is the first list, so build the paging with it (T-45) |
-| T-50 | The user and account logs and the role logs |
+| T-54 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): the test of the package dependencies, in place before the second module is written |
+| T-21, T-19, T-15, T-26, T-23, T-06 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): replacing a user's roles, disabling, enabling, and soft-deleting, each in one transaction on the steps of a change to a user, with authority over roles and accounts, administrator protection, and their race tests. One part of T-21 moved to Phase 6: returning the tickets of a disabled or deleted user to the pool |
+| T-48, T-45 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): the user page, the first list, paged by key |
 
 **Done when:** the console command makes an administrator, who can give roles to users and see the list of users but cannot change their own account, while a manager and an operator get `403` where the matrix says so.
 
@@ -130,6 +125,7 @@ Tickets link to orders and to items, so they come after both.
 | T-12 | The ticket number |
 | T-33 | The status rules, the archive, and the jobs that archive tickets |
 | T-35 | Taking, assigning, reassigning, and the two limits, with their races |
+| T-21 | Return the tickets of a user to the pool when the user is disabled or soft-deleted |
 | T-36 | Exempt the SYSTEM identity from the limits |
 | T-39 | Add the ticket cancellation to deleting an item and delisting a product |
 | T-44 | The ticket screens and what each role sees, filtered in the backend |

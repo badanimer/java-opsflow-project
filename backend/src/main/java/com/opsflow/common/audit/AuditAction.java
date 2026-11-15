@@ -16,9 +16,6 @@ public enum AuditAction {
 
 	ROLE_GRANTED(AuditCategory.ROLE),
 	ROLE_REVOKED(AuditCategory.ROLE),
-	ROLE_CREATED(AuditCategory.ROLE),
-	ROLE_UPDATED(AuditCategory.ROLE),
-	ROLE_DELETED(AuditCategory.ROLE),
 
 	TICKET_CREATED(AuditCategory.TICKET),
 	TICKET_ASSIGNED(AuditCategory.TICKET),

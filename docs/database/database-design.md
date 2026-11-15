@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.13 | The user page is built, with the search defined as a part of the username without regard to case. The four changes to a user are built, so their refusals have result codes (`USER_CHANGED`, `USER_NOT_ACTIVE`, `LAST_ADMIN`), returning the tickets of a disabled or deleted user to the pool waits for the ticket module, the application account has `DELETE` on `user_roles` and keeps `UPDATE` on `roles` for the row lock, and the SYSTEM identity is refused after the locks and not before | [database-v1.13.md](../iterations/database-v1.13.md) |
 | 2026-11-14 | 1.12 | Reviewed the Permission Matrix with the owner before the permission module is built. The four seeded roles are fixed: no role is created, updated, or deleted while the program runs, and a new role comes only with a backend change. A user may hold several roles, and the permissions are the union. Nobody may disable or soft-delete their own account or change their own roles. Setting the quantity directly is renamed Correction and opened to `OPERATOR`. A user picker that returns only ids and usernames serves the ticket filters and the choice of an assignee. The other working defaults of the matrix are confirmed. No table changed | [database-v1.12.md](../iterations/database-v1.12.md) |
 | 2026-11-12 | 1.11 | Defined the login steps: the password is still checked outside the transaction, and the short transaction that records the result locks the user row and confirms that the hash it checked is still the current one, so a login cannot succeed with a password that a reset has just replaced. Defined what a disabled account gets: `ACCOUNT_DISABLED` and no token at login when the password is right, and `ACCOUNT_DISABLED` on the next request when it is disabled after login. The pending page is now only for a user with no role. Added the seed migration `V2` with the four roles and the SYSTEM identity, and made the token rule exact: a token is accepted only when it was issued after `password_changed_at`, to the millisecond. No table changed Extended on 2026-11-13 when sign-up and password recovery were built: sign-up says when an address already has an account (`EMAIL_TAKEN`), and a request for a recovery code is answered the same way whether or not a mail is sent; a sign-up logs the new user in, so the user goes straight to the pending page; requests are limited per client address (10 in an hour) and for the whole system (200 in a day), counted in the new table `email_code_request_counts` (migration `V3`, 17 tables); a code is stored as a keyed hash; the steps of sign-up and of the password reset are written down; a username is 3 to 64 letters and digits, with no space and no other character; and the mail goes out by SMTP from a Gmail account made for OpsFlow (Q-12) | [database-v1.11.md](../iterations/database-v1.11.md) |
 | 2026-11-03 | 1.10 | Shortened the keeping of email codes: a code is deleted as soon as it expires (10 minutes after it was made), by a job that runs once a minute, instead of 24 hours after it expires | [database-v1.10.md](../iterations/database-v1.10.md) |
@@ -451,7 +452,7 @@ An audit row must read on its own, without a join, and must still read after the
 
 #### Role management
 
-**The roles are fixed.** OpsFlow has exactly the four seeded roles, `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. The program has no way to create a role, to change the `code`, `name`, or `description` of one, or to delete one: no screen, no endpoint, and no console command. A new role is a backend change: a migration that inserts the `roles` row, together with the code that gives the role its permissions (see Permission Matrix). The application account therefore needs no `INSERT`, `UPDATE`, or `DELETE` on `roles`.
+**The roles are fixed.** OpsFlow has exactly the four seeded roles, `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`. The program has no way to create a role, to change the `code`, `name`, or `description` of one, or to delete one: no screen, no endpoint, and no console command. A new role is a backend change: a migration that inserts the `roles` row, together with the code that gives the role its permissions (see Permission Matrix). The application account therefore never inserts, updates, or deletes a row of `roles`, and has no `DELETE` there. It keeps the `UPDATE` privilege only because MySQL allows `SELECT ... FOR UPDATE` to an account that may change the table, and Administrator protection locks the `ADMIN` row.
 
 What the program manages is **which of the four roles a user holds**. A user may hold several roles, or none. The one operation is subject to Administrator protection and to Authority over roles and accounts, and it writes its `operation_logs` rows in the same transaction as the change, so that it rolls back if a log insert fails. The formats are in Role grant and revocation logs.
 
@@ -483,6 +484,7 @@ How the rules are applied:
 - A manager cannot change a user who holds `ADMIN` or `MANAGER`. Without this, a manager could disable an administrator or another manager.
 - When a manager replaces a user's roles, the list may not add or remove `ADMIN` or `MANAGER`.
 - Only `ADMIN` can appoint or dismiss a manager or an administrator. Administrator protection still applies to every operation on `ADMIN`.
+- In the code these rules are two permissions and a mark on the roles, so that a later role fits in without a change to the rules (see [Permissions](../backend/backend-design.md#permissions)): `ROLE_ASSIGN` opens the granting and revoking of roles, and `ROLE_ASSIGN_PROTECTED` is needed to give or take away a protected role and to change the roles of a user who holds one. `USER_MANAGE` opens disabling, enabling, and soft-deleting, and `USER_MANAGE_PROTECTED` is needed when the user holds a protected role. Each role says whether it is protected.
 - Nobody can delete or edit audit logs, `ADMIN` included, because the application account has only `SELECT` and `INSERT` on `operation_logs`. The database enforces this, not the service layer.
 
 #### Users without roles
@@ -598,9 +600,9 @@ The system must always have at least one usable account that holds the `ADMIN` r
 
 One user changes another in four ways: replacing the roles, disabling, enabling, and soft-deleting. All four follow the same steps, in one transaction, under the deadlock and lock-wait retry of every module.
 
-1. **Refuse at once** when the target is the actor (see Authority over roles and accounts) or the SYSTEM identity. This compares two ids and needs no lock.
+1. **Refuse at once** when the target is the actor (see Authority over roles and accounts). This compares two ids and needs no lock.
 2. **Lock the user rows of the actor and of the target** with `SELECT ... FOR UPDATE`, in ascending id.
-3. **Read the status and the roles of both under those locks.** The roles and the status of a user change only in a transaction that holds that user's row, so what is read here cannot change before the commit. Check that the actor is a usable account, that the target exists and is not soft-deleted, and that the actor has authority over the target as it is now and over the change that is asked for.
+3. **Read the status and the roles of both under those locks.** The roles and the status of a user change only in a transaction that holds that user's row, so what is read here cannot change before the commit. Check that the actor is a usable account, that the target exists, is not soft-deleted, and is not the SYSTEM identity, and that the actor has authority over the target as it is now and over the change that is asked for.
 4. **Compare with what the actor saw.** A replacement of roles carries the list of roles the actor saw on the screen. If the roles under the lock differ from it, someone else changed them in the meantime, and the request is refused with "user changed, please reload", like a stock correction or a reassignment. A status change needs no such list: disabling expects `ACTIVE`, enabling expects `DISABLED`, and a request that finds another status reports the current one and changes nothing.
 5. **If the target holds `ADMIN`**, lock the `ADMIN` row in `roles` with `FOR UPDATE`.
 6. **Apply the change.** A replacement deletes the `user_roles` rows of the roles removed and inserts the rows of the roles added. Adding a role needs a usable target; a replacement that only removes roles is also allowed on a disabled user. Disabling sets `status`, and soft-deleting sets `deleted` and `status`; both then return the `IN_PROGRESS` tickets of the user to the pool (see Concurrency by Module, Tickets). Enabling sets `status` back to `ACTIVE`, and the roles the user still holds take effect again.
@@ -608,6 +610,23 @@ One user changes another in four ways: replacing the roles, disabling, enabling,
 8. **Write the log rows** (see Role grant and revocation logs, and User and account logs), and commit.
 
 Lock order: `users` (ascending id), then `roles`, then `tickets`, as everywhere.
+
+The four changes are built except for one part of step 6: returning the `IN_PROGRESS` tickets of a disabled or soft-deleted user to the pool. It follows the ticket rules (the assignment history, the ticket logs, and the lock on the ticket rows), so it is added when the ticket module is built (T-21). Until then no ticket can be in progress, because nothing creates one.
+
+The result of each refusal, in the order of the steps (the codes are in [api-design.md](../api/api-design.md#result-codes-and-status-codes)):
+
+| Step | Refusal | Result |
+| --- | --- | --- |
+| 1 | The target is the actor | `FORBIDDEN` |
+| 3 | The actor was soft-deleted since the request arrived | `UNAUTHENTICATED` |
+| 3 | The actor was disabled since the request arrived | `ACCOUNT_DISABLED` |
+| 3 | The target does not exist, is soft-deleted, or is the SYSTEM identity | `NOT_FOUND` |
+| 3 | The actor holds no role any more | `ACCOUNT_NO_ROLE` |
+| 3 | The roles the actor holds now do not allow this change to this user | `FORBIDDEN` |
+| 4 | The roles of the target are not the ones the actor saw | `USER_CHANGED` |
+| 4 | A disabling finds the user disabled, or an enabling finds the user active | `USER_CHANGED`, with the current status in `userStatus` |
+| 6 | A role is to be added to a disabled user | `USER_NOT_ACTIVE` |
+| 7 | No usable administrator would be left | `LAST_ADMIN` |
 
 What the steps give:
 
@@ -894,10 +913,12 @@ Only `ADMIN` and `MANAGER` have a user page. It lists only the users the viewer 
 
 The list can be narrowed in two ways, which can be combined:
 
-- **A search box for the username.** It narrows the list to the users whose username matches the text typed.
+- **A search box for the username.** It narrows the list to the users whose username contains the text typed, without regard to case: `ali` finds `alice` and `Natalie`. Spaces around the text are ignored, and `%` and `_` are plain characters.
 - **Role buttons**, of which several can be chosen at once. There is one button for each role the viewer may manage, and one more, **No role**, for the users who are waiting for a role: `ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER`, and No role for an `ADMIN`; `OPERATOR`, `VIEWER`, and No role for a `MANAGER`. With several buttons chosen, the list shows the users who hold any one of the chosen roles, and with No role also the users who hold none. With no button chosen, the list is not narrowed by role.
 
-Neither filter widens the list: a `MANAGER` who searches for the username of an administrator finds nothing. The rows are ordered by username and then `id`, and paged by key. The search is a match on the text and the role filter a join on `user_roles`, with no new index, because the table of users is small.
+Neither filter widens the list: a `MANAGER` who searches for the username of an administrator finds nothing.
+
+In the code, who sees whom follows the permissions and not the role names (see [Permissions](../backend/backend-design.md#permissions)): a viewer who may change users who hold a protected role (`USER_MANAGE_PROTECTED` or `ROLE_ASSIGN_PROTECTED`) sees every user, their own account included; any other viewer with `USER_VIEW` sees only the users who hold no protected role, and never their own account. Today these are the administrator and the manager. The rows are ordered by username and then `id`, and paged by key. The search is a match on the text and the role filter a join on `user_roles`, with no new index, because the table of users is small.
 
 The service layer filters the rows. The page lets the viewer grant and revoke roles (the roles offered are those the viewer may grant), disable and enable a user, and soft-delete a user. The roles themselves are fixed and have no page (see Role management).
 

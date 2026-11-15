@@ -28,6 +28,21 @@ public class PageQueryFactory {
 	 * @param orderChoosable whether this list lets the user choose the order (the ticket lists, T-37)
 	 */
 	public PageQuery create(Integer limit, String cursor, String direction, String order, boolean orderChoosable) {
+		return build(limit, cursor, direction, order, orderChoosable, SortOrder.DESC);
+	}
+
+	/**
+	 * For a list whose order is fixed and is not the default {@code desc}, such as the user page, which is
+	 * ordered by username from A to Z. An {@code order} parameter is refused, as on every list whose order is fixed.
+	 *
+	 * @param listOrder the one order of this list
+	 */
+	public PageQuery createInOrder(Integer limit, String cursor, String direction, String order, SortOrder listOrder) {
+		return build(limit, cursor, direction, order, false, listOrder);
+	}
+
+	private PageQuery build(Integer limit, String cursor, String direction, String order, boolean orderChoosable,
+			SortOrder defaultOrder) {
 		int size = limit == null ? pageSize : limit;
 		if (size < 1 || size > pageSize) {
 			throw ApiException.invalid("limit", "must be between 1 and " + pageSize);
@@ -36,7 +51,7 @@ public class PageQueryFactory {
 		if (order != null && !orderChoosable) {
 			throw ApiException.invalid("order", "is not allowed on this list");
 		}
-		SortOrder sort = order == null ? SortOrder.DESC : parse(SortOrder.class, "order", order);
+		SortOrder sort = order == null ? defaultOrder : parse(SortOrder.class, "order", order);
 		Cursor position = cursor == null ? null : CursorCodec.decode(cursor);
 		if (position == null && travel == Direction.PREV) {
 			throw ApiException.invalid("direction", "'prev' needs a cursor");

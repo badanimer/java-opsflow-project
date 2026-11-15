@@ -9,6 +9,7 @@ import static com.opsflow.common.security.Permission.PRODUCT_DELIST;
 import static com.opsflow.common.security.Permission.PRODUCT_LIST;
 import static com.opsflow.common.security.Permission.PRODUCT_VIEW;
 import static com.opsflow.common.security.Permission.ROLE_ASSIGN;
+import static com.opsflow.common.security.Permission.ROLE_ASSIGN_PROTECTED;
 import static com.opsflow.common.security.Permission.STOCK_CORRECT;
 import static com.opsflow.common.security.Permission.STOCK_IN;
 import static com.opsflow.common.security.Permission.STOCK_VIEW;
@@ -24,6 +25,7 @@ import static com.opsflow.common.security.Permission.TICKET_TAKE;
 import static com.opsflow.common.security.Permission.TICKET_VIEW;
 import static com.opsflow.common.security.Permission.TICKET_VIEW_ALL;
 import static com.opsflow.common.security.Permission.USER_MANAGE;
+import static com.opsflow.common.security.Permission.USER_MANAGE_PROTECTED;
 import static com.opsflow.common.security.Permission.USER_VIEW;
 
 import java.util.Collections;
@@ -51,7 +53,7 @@ public enum Role {
 			TICKET_VIEW, TICKET_VIEW_ALL, TICKET_SEARCH, TICKET_CREATE, TICKET_TAKE, TICKET_ASSIGN, TICKET_RELEASE,
 			TICKET_RESOLVE, TICKET_CANCEL, TICKET_ARCHIVE,
 			AUDIT_VIEW,
-			USER_VIEW, USER_MANAGE, ROLE_ASSIGN),
+			USER_VIEW, USER_MANAGE, USER_MANAGE_PROTECTED, ROLE_ASSIGN, ROLE_ASSIGN_PROTECTED),
 
 	MANAGER(
 			PRODUCT_VIEW, PRODUCT_LIST, PRODUCT_DELIST,
@@ -91,6 +93,18 @@ public enum Role {
 
 	public boolean grants(Permission permission) {
 		return permissions.contains(permission);
+	}
+
+	/**
+	 * Whether the role is protected: only a user with {@link Permission#ROLE_ASSIGN_PROTECTED} may give
+	 * it or take it away or change the roles of a user who holds it, and only a user with
+	 * {@link Permission#USER_MANAGE_PROTECTED} may disable, enable, or soft-delete a user who holds it
+	 * (see Authority over roles and accounts in
+	 * docs/database/database-design.md). A new role is below manager, and so not protected, unless the
+	 * change that adds it says otherwise here.
+	 */
+	public boolean isProtected() {
+		return this == ADMIN || this == MANAGER;
 	}
 
 	/** The role with this {@code roles.code}, or empty for a code the program does not know. */

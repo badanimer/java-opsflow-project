@@ -83,9 +83,16 @@ public enum Permission {
 
 	/** View the user page. Which users it lists is decided by Authority over roles and accounts. */
 	USER_VIEW,
-	/** Disable, enable, or soft-delete another user, within Authority over roles and accounts. */
+	/** Disable, enable, or soft-delete another user who holds no protected role. */
 	USER_MANAGE,
-	/** Grant and revoke roles, within Authority over roles and accounts. */
-	ROLE_ASSIGN
+	/** Disable, enable, or soft-delete a user who holds a protected role too ({@link Role#isProtected}). */
+	USER_MANAGE_PROTECTED,
+	/** Grant and revoke the roles that are not protected, on a user who holds no protected role. */
+	ROLE_ASSIGN,
+	/**
+	 * Grant and revoke the protected roles too ({@link Role#isProtected}), and change the roles of a user
+	 * who holds one. See Authority over roles and accounts.
+	 */
+	ROLE_ASSIGN_PROTECTED
 
 }
