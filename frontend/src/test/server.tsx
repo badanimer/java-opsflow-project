@@ -59,6 +59,8 @@ export class FakeServer {
   constructor() {
     vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => this.handle(String(input), init))
     this.on('GET /auth/session-events', () => this.sessionEvents.answer())
+    // The home page is the product page: a test that is not about it sees an empty one.
+    this.on('GET /products', { status: 200, body: { items: [], nextCursor: null, prevCursor: null } })
   }
 
   /** Sets the answer for a request such as 'POST /auth/login'. The path is the one under /api/v1. */
@@ -77,7 +79,8 @@ export class FakeServer {
     const call: Call = {
       method: init?.method ?? 'GET',
       path: url.replace('/api/v1', ''),
-      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      // A multipart upload is kept as the FormData it is; every other body is JSON.
+      body: init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined,
       authorization: headers.get('Authorization'),
     }
     this.calls.push(call)

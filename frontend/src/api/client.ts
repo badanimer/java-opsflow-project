@@ -85,14 +85,16 @@ interface Options {
 
 export async function api<T = void>(path: string, { method = 'GET', body, auth = true }: Options = {}): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' }
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  // A file goes as multipart: the browser sets that type itself, with the boundary of the parts.
+  const multipart = body instanceof FormData
+  if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json'
   const startedAt = new Date()
   const token = auth ? loadSession(startedAt)?.token : undefined
   if (token) headers['Authorization'] = `Bearer ${token}`
 
   let response: Response
   try {
-    response = await fetch(BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    response = await fetch(BASE + path, { method, headers, body: body === undefined ? undefined : multipart ? body : JSON.stringify(body) })
   } catch {
     throw new NetworkError()
   }

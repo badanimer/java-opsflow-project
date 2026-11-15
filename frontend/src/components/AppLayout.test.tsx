@@ -53,17 +53,18 @@ describe('the navigation', () => {
     new FakeServer().on('GET /auth/me', me(['ADMIN'])).on('GET /users', { status: 200, body: { items: [], nextCursor: null, prevCursor: null } })
     const user = openApp('/')
     const nav = await screen.findByRole('menu', { name: 'Main navigation' })
-    expect(within(nav).getByText('Stock').closest('li')).toHaveAttribute('aria-disabled', 'true')
+    expect(within(nav).getByText('Stock').closest('li')).not.toHaveAttribute('aria-disabled', 'true')
+    expect(within(nav).getByText('Pool').closest('li')).toHaveAttribute('aria-disabled', 'true')
     expect(within(nav).getByText('Audit log').closest('li')).toHaveAttribute('aria-disabled', 'true')
     await user.click(within(nav).getByText('Users'))
     expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument()
   })
 
-  it('holds the place of the product page on the home page', async () => {
+  it('opens the product page as the home page', async () => {
     storeToken()
     new FakeServer().on('GET /auth/me', me(['VIEWER']))
     openApp('/')
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Products' })).toBeInTheDocument()
   })
 })
@@ -76,7 +77,7 @@ describe('pages that cannot be opened', () => {
     expect(await screen.findByText('You do not have permission to open this page.')).toBeInTheDocument()
     expect(server.callsTo('GET /users')).toHaveLength(0)
     await user.click(screen.getByRole('button', { name: 'Go to Products' }))
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 
   it('says Page not found for an unknown address', async () => {
@@ -104,7 +105,7 @@ describe('loading the account', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     fail = false
     await user.click(screen.getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 })
 
@@ -114,7 +115,7 @@ describe('a small screen', () => {
     storeToken()
     new FakeServer().on('GET /auth/me', me(['OPERATOR']))
     const user = openApp('/')
-    await screen.findByText('Products are coming soon')
+    await screen.findByText('No products on sale')
     expect(screen.queryByRole('menu', { name: 'Main navigation' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Menu/ }))
     const nav = await screen.findByRole('menu', { name: 'Main navigation' })

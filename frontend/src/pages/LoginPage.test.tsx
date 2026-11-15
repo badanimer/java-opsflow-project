@@ -20,7 +20,7 @@ describe('the login page', () => {
 
     await signIn(user)
 
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
     expect(server.callsTo('POST /auth/login')[0].body).toEqual({ username: 'alice', password: 'correct-horse-1' })
     // The login itself carries no token, and the request that follows carries the new one.
     expect(server.callsTo('POST /auth/login')[0].authorization).toBeNull()
@@ -85,7 +85,7 @@ describe('the login page', () => {
     new FakeServer().on('GET /auth/me', me(['VIEWER'], { id: 7, username: 'alice' }))
     openApp('/login')
 
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 })
 
@@ -128,7 +128,7 @@ describe('what ends a login', () => {
     server.on('GET /auth/me', me(['ADMIN'], { id: 7, username: 'alice' }))
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 
   it('signs out: the token is removed and the login page opens', async () => {

@@ -50,9 +50,9 @@ The authoritative description is [OpsFlow API](../api/api-design.md). This file 
 | --- | --- |
 | [API design document](../api/api-design.md) | Updated: Result Codes And Status Codes, Warehouse Items, Images, and Products (new), and the Change Log |
 | Backend | Built in [backend-v1.9.md](backend-v1.9.md) |
-| Frontend | The stock page scope in [frontend-v1.6.md](frontend-v1.6.md); not built |
+| Frontend | Built in [frontend-v1.6.md](frontend-v1.6.md) |
 | [README.md](../../README.md) | Updated: Project Log |
 
 ## Open Items
 
-- The frontend of these endpoints, on the branch `phase-4-frontend` (T-39, T-42, and the first part of T-46).
+None: the frontend uses every endpoint ([frontend-v1.6.md](frontend-v1.6.md)).

@@ -16,7 +16,7 @@ describe('the pending page', () => {
 
     expect(await screen.findByText(TEXT.pendingTitle)).toBeInTheDocument()
     expect(screen.getByText('alice')).toBeInTheDocument()
-    expect(screen.queryByText('Products are coming soon')).not.toBeInTheDocument()
+    expect(screen.queryByText('No products on sale')).not.toBeInTheDocument()
   })
 
   it('is skipped by a user who has a role', async () => {
@@ -24,7 +24,7 @@ describe('the pending page', () => {
     new FakeServer().on('GET /auth/me', WITH_ROLE)
     openApp('/pending')
 
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 
   it('keeps the session and opens the pending page when a protected request reports a revoked role', async () => {
@@ -33,7 +33,7 @@ describe('the pending page', () => {
       .on('GET /auth/me', WITH_ROLE)
       .on('GET /orders', problem(403, 'ACCOUNT_NO_ROLE'))
     openApp('/')
-    await screen.findByText('Products are coming soon')
+    await screen.findByText('No products on sale')
 
     await act(async () => {
       await expect(api('/orders')).rejects.toMatchObject({ code: 'ACCOUNT_NO_ROLE' })
@@ -63,7 +63,7 @@ describe('the pending page', () => {
     server.on('GET /auth/me', WITH_ROLE)
     await user.click(screen.getByRole('button', { name: TEXT.checkAgain }))
 
-    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
+    expect(await screen.findByText('No products on sale')).toBeInTheDocument()
   })
 
   it('goes back to the login page with the message when the account was disabled in the meantime', async () => {

@@ -23,7 +23,7 @@ export interface NavEntry {
 
 export const NAVIGATION: readonly NavEntry[] = [
   { key: 'products', label: TEXT.nav.products, path: '/', permission: 'PRODUCT_VIEW', built: true, icon: <ShopOutlined /> },
-  { key: 'stock', label: TEXT.nav.stock, path: '/stock', permission: 'STOCK_VIEW', built: false, icon: <InboxOutlined /> },
+  { key: 'stock', label: TEXT.nav.stock, path: '/stock', permission: 'STOCK_VIEW', built: true, icon: <InboxOutlined /> },
   {
     key: 'tickets',
     label: TEXT.nav.tickets,

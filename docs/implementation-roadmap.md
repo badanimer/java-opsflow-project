@@ -20,7 +20,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
 | 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page. The frontend of the phase is built and checked by the owner | |
-| 4 | Warehouse items and products | T-39, T-42, T-41 |
+| 4 | Done: warehouse items, their pictures, and products, with the product page and the first part of the stock page, checked by the owner | |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
 | 7 | Frontend. Started beside the backend, with the account pages | Q-34, T-27, T-30, T-37 |
@@ -94,11 +94,11 @@ Orders need products on sale, so this comes first.
 | Task | What |
 | --- | --- |
 | T-39 | Adding a warehouse item, the catalog, listing, delisting, editing, deleting softly, and the product page |
-| T-42 | Item images |
+| T-42 | Item images. Built: the upload checked in the page and by the server, random names, and the pictures on both pages ([backend-v1.9.md](iterations/backend-v1.9.md), [frontend-v1.6.md](iterations/frontend-v1.6.md)) |
 | T-41 | The quantity check, starting with the starting quantity of an item |
 | T-46 (first part) | The stock page without its quantity changes and logs: the rows, the search, the paging, and adding, editing, and deleting an item, so that a manager has a page to add items on (the owner's decision, 2026-11-15) |
 
-The Order button of the product page waits for Phase 5 (T-10), with the stock changes it shares its locks with. The API and the backend of this phase are built ([api-v1.7.md](iterations/api-v1.7.md), [backend-v1.9.md](iterations/backend-v1.9.md)); the Figma design and the frontend remain.
+The Order button of the product page waits for Phase 5 (T-10), with the stock changes it shares its locks with. The API, the backend, the Figma design, and the frontend of this phase are built ([api-v1.7.md](iterations/api-v1.7.md), [backend-v1.9.md](iterations/backend-v1.9.md), [frontend-v1.6.md](iterations/frontend-v1.6.md)), and the owner checked them against the running backend on 2026-11-16.
 
 **One part waits.** Deleting an item and delisting a product also cancel the linked tickets. No ticket exists yet, so build them without that step and add the cancellation in Phase 6, where the ticket rules are. Write the reminder in the code and in the to-do item.
 

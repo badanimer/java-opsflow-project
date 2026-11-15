@@ -325,6 +325,6 @@ All three services should show `Running` / `Automatic`, which means they start o
 ## 5. Follow-Up Tasks and Suggestions
 
 - [ ] Create the business database manually: `CREATE DATABASE opsflow ...` (see 2.3)
-- [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE (see chapter 3 of the learning documents)
+- [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE
 - [ ] When the backend is created, read the MySQL and RabbitMQ credentials from the environment variables in section 3, as in the section 2 examples, and keep `application-local.yml` out of git
 - [x] Frontend: React with TypeScript, created with Vite (`npm create vite@latest`), and Ant Design for the components. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files)

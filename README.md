@@ -2,11 +2,11 @@
 
 OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a realistic back-office system with transactional consistency, role-based access control, exception handling, and auditability.
 
-The repository contains the Spring Boot backend, the React account pages, the database migrations, and the project design and learning documents.
+The repository contains the Spring Boot backend, the React frontend, the database migrations, and the project design documents.
 
 ## Design Documents
 
-The current project design is documented separately from the learning guide:
+The current project design is documented here:
 
 - [Database Structure And Business Flow](docs/database/database-design.md)
 - [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) - a concise overview for the README and project introduction.
@@ -30,8 +30,6 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 - [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md) puts the open tasks in the order in which they can be built, in phases, with what each phase is done when.
 - [`docs/future-ideas.md`](docs/future-ideas.md) keeps rough ideas for features that can be added after the program is complete. An idea goes in only after the owner approves it.
 - [`docs/documentation-sync-rules.md`](docs/documentation-sync-rules.md) defines which documents must be updated together and how iterations are recorded. Read it before changing any design document or diagram.
-- [`opsflow_learning_docs_en`](opsflow_learning_docs_en/) contains the English learning path.
-- [`汉化说明书`](汉化说明书/) contains the Chinese learning path.
 - [`ENVIRONMENT_SETUP.md`](ENVIRONMENT_SETUP.md) records the local development environment setup.
 
 ## Project Log
@@ -42,7 +40,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 | --- | --- | --- | --- | --- |
 | 2026-11-15 | 1.7 | API | Phase 4: the endpoints of warehouse items, item images, and products, and six result codes | [api-v1.7.md](docs/iterations/api-v1.7.md) |
 | 2026-11-15 | 1.9 | Backend | Phase 4: the `warehouse` module with its five write paths and their locks, the image store, and the shared quantity rule, with 37 tests | [backend-v1.9.md](docs/iterations/backend-v1.9.md) |
-| 2026-11-15 | 1.6 | Frontend | The stock page is built in two steps, the first in Phase 4; an item is edited only while it is not on sale | [frontend-v1.6.md](docs/iterations/frontend-v1.6.md) |
+| 2026-11-15 | 1.6 | Frontend | Phase 4: the product page with List item and Delist, and the first part of the stock page with adding, editing, and deleting an item and its picture; prices in Australian dollars | [frontend-v1.6.md](docs/iterations/frontend-v1.6.md) |
 | 2026-11-15 | 1.15 | Database | The application account loses `INSERT` on `roles`, which the fixed roles never need | [database-v1.15.md](docs/iterations/database-v1.15.md) |
 | 2026-11-15 | 1.14 | Database | One signed-in device per account: `users.session_id`, written by each login and carried by its token, so the newest login ends the earlier ones; a delisting takes its time after the lock | [database-v1.14.md](docs/iterations/database-v1.14.md) |
 | 2026-11-15 | 1.8 | Backend | One signed-in device: the token check refuses an earlier login with `SESSION_REPLACED`, and an event stream tells its open page at once | [backend-v1.8.md](docs/iterations/backend-v1.8.md) |
@@ -95,6 +93,6 @@ The initial system scope includes:
 
 ## Implementation Direction
 
-The backend will be implemented with Spring Boot and MySQL. Database changes will be managed as versioned migrations alongside the application code. Redis and RabbitMQ will be introduced when the corresponding idempotency, rate-limiting, and asynchronous-processing requirements are implemented.
+The backend will be implemented with Spring Boot and MySQL. Database changes will be managed as versioned migrations alongside the application code. Redis and RabbitMQ are not used. Duplicate submissions, the limits on email codes, and the login lock are kept in MySQL, in the same transaction as the change they protect, so they cannot disagree with it. Redis becomes necessary when the backend runs on more than one server: the event of one signed-in device must then reach the pages connected to the other servers, through Redis publish and subscribe (see One signed-in device in the [database design](docs/database/database-design.md#login-security-and-account-recovery)).
 
-The learning documents remain available as supporting material, while `README.md` and `docs/` define the current project scope and implementation decisions.
+`README.md` and `docs/` define the current project scope and implementation decisions.

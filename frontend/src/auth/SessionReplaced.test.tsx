@@ -19,7 +19,7 @@ describe('a page whose account signed in on another device', () => {
     storeToken()
     const server = new FakeServer().on('GET /auth/me', me(['VIEWER']))
     const user = openApp('/')
-    await screen.findByText('Products are coming soon')
+    await screen.findByText('No products on sale')
     await waitFor(() => expect(server.sessionEvents.opened).toBe(1))
 
     act(() => server.sessionEvents.send('session-replaced'))
@@ -52,7 +52,7 @@ describe('a page whose account signed in on another device', () => {
     storeToken()
     const server = new FakeServer().on('GET /auth/me', me(['VIEWER']))
     openApp('/')
-    await screen.findByText('Products are coming soon')
+    await screen.findByText('No products on sale')
     const before = server.callsTo('GET /auth/me').length
 
     server.on('GET /auth/me', problem(401, 'SESSION_REPLACED'))
@@ -74,7 +74,7 @@ describe('a page whose account signed in on another device', () => {
     storeToken()
     const server = new FakeServer().on('GET /auth/me', me(['VIEWER'], { username: 'alice' }))
     openApp('/')
-    await screen.findByText('Products are coming soon')
+    await screen.findByText('No products on sale')
     await waitFor(() => expect(server.sessionEvents.opened).toBe(1))
 
     // Another tab signed in as bob: the stored token is now bob's, and the server ends alice's login.

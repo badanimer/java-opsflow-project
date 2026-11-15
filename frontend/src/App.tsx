@@ -3,11 +3,12 @@ import { AuthProvider } from './auth/AuthProvider'
 import { GuestOnly, RequireNoRole, RequirePermission, RequireRole } from './auth/guards'
 import { AppLayout } from './components/AppLayout'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
-import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { PendingPage } from './pages/PendingPage'
+import { ProductsPage } from './pages/products/ProductsPage'
 import { SignUpPage } from './pages/SignUpPage'
 import { NotFoundPage } from './pages/StatusPages'
+import { StockPage } from './pages/stock/StockPage'
 import { UsersPage } from './pages/users/UsersPage'
 
 /**
@@ -24,7 +25,8 @@ export function App() {
         <Route path="/forgot-password" element={<GuestOnly><ForgotPasswordPage /></GuestOnly>} />
         <Route path="/pending" element={<RequireNoRole><PendingPage /></RequireNoRole>} />
         <Route element={<RequireRole><AppLayout /></RequireRole>}>
-          <Route index element={<RequirePermission permission="PRODUCT_VIEW"><HomePage /></RequirePermission>} />
+          <Route index element={<RequirePermission permission="PRODUCT_VIEW"><ProductsPage /></RequirePermission>} />
+          <Route path="stock" element={<RequirePermission permission="STOCK_VIEW"><StockPage /></RequirePermission>} />
           <Route path="users" element={<RequirePermission permission="USER_VIEW"><UsersPage /></RequirePermission>} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>

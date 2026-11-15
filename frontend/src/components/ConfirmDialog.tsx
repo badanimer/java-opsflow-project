@@ -16,6 +16,12 @@ export interface ConfirmDialogProps {
   running: boolean
   /** A refusal that keeps the dialog open, shown under the text. */
   notice?: Notice | null
+  /**
+   * The action cannot go on (the target is gone, or the permission was lost): the dialog shows the
+   * notice and one button, `closeLabel`, which calls `onCancel`. Used by the stock and product pages.
+   */
+  finished?: boolean
+  closeLabel?: string
   onConfirm: () => void
   onCancel: () => void
 }
@@ -37,6 +43,8 @@ export function ConfirmDialog({
   danger,
   running,
   notice,
+  finished,
+  closeLabel,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -49,14 +57,22 @@ export function ConfirmDialog({
       keyboard={!running}
       onCancel={running ? undefined : onCancel}
       destroyOnClose
-      footer={[
-        <Button key="cancel" onClick={onCancel} disabled={running} autoFocus>
-          {cancelLabel}
-        </Button>,
-        <Button key="confirm" type="primary" danger={danger} onClick={onConfirm} loading={running}>
-          {running ? runningLabel : confirmLabel}
-        </Button>,
-      ]}
+      footer={
+        finished
+          ? [
+              <Button key="close" onClick={onCancel} autoFocus>
+                {closeLabel ?? cancelLabel}
+              </Button>,
+            ]
+          : [
+              <Button key="cancel" onClick={onCancel} disabled={running} autoFocus>
+                {cancelLabel}
+              </Button>,
+              <Button key="confirm" type="primary" danger={danger} onClick={onConfirm} loading={running}>
+                {running ? runningLabel : confirmLabel}
+              </Button>,
+            ]
+      }
     >
       <div className="dialog-body">
         {children}

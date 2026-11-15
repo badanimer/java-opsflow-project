@@ -8,7 +8,11 @@ import type { Account } from '../api/auth'
  */
 export type Permission =
   | 'PRODUCT_VIEW'
+  | 'PRODUCT_LIST'
+  | 'PRODUCT_DELIST'
   | 'STOCK_VIEW'
+  | 'ITEM_MANAGE'
+  | 'ITEM_DELETE'
   | 'TICKET_VIEW'
   | 'TICKET_VIEW_ALL'
   | 'AUDIT_VIEW'

@@ -28,6 +28,5 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 | The temporary-database check of the schema, privileges, and concurrency rules, and the log of every test | [db/verification/](db/verification/), the log is [concurrency-tests.md](db/verification/concurrency-tests.md) |
 | Local setup: MySQL accounts, environment variables, services, follow-up tasks | [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) |
 | Diagrams: Simplified ERD, Physical ERD, Business Process Flowchart (Figma boards, not in git) | The Design Diagrams table in [docs/database/database-design.md](docs/database/database-design.md) |
-| Learning material (English and Chinese) | [opsflow_learning_docs_en/](opsflow_learning_docs_en/) and [汉化说明书/](汉化说明书/) |
 
 Secrets never go into the repository. Real passwords come from environment variables, and the files only hold placeholders.
