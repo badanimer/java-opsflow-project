@@ -13,6 +13,7 @@ public enum ErrorCode {
 	INVALID_QUANTITY(HttpStatus.BAD_REQUEST, "Invalid quantity"),
 	CODE_INVALID(HttpStatus.BAD_REQUEST, "Invalid code"),
 	UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "Unauthenticated"),
+	SESSION_REPLACED(HttpStatus.UNAUTHORIZED, "Signed in elsewhere"),
 	FORBIDDEN(HttpStatus.FORBIDDEN, "Forbidden"),
 	NOT_ALLOWED(HttpStatus.FORBIDDEN, "Not allowed"),
 	ACCOUNT_DISABLED(HttpStatus.FORBIDDEN, "Account disabled"),

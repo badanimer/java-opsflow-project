@@ -1,15 +1,19 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
-import { GuestOnly, RequireNoRole, RequireRole } from './auth/guards'
+import { GuestOnly, RequireNoRole, RequirePermission, RequireRole } from './auth/guards'
+import { AppLayout } from './components/AppLayout'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
 import { PendingPage } from './pages/PendingPage'
 import { SignUpPage } from './pages/SignUpPage'
+import { NotFoundPage } from './pages/StatusPages'
+import { UsersPage } from './pages/users/UsersPage'
 
 /**
  * The routes. Three pages are for people who are not logged in, one is for a logged-in user with no
- * role, and everything else needs a role. A new page of the application is added inside RequireRole.
+ * role, and everything else needs a role and sits in the frame of the application. A new page is added
+ * inside that frame, with the permission that opens it, and gets its entry in components/navigation.
  */
 export function App() {
   return (
@@ -19,8 +23,11 @@ export function App() {
         <Route path="/sign-up" element={<GuestOnly><SignUpPage /></GuestOnly>} />
         <Route path="/forgot-password" element={<GuestOnly><ForgotPasswordPage /></GuestOnly>} />
         <Route path="/pending" element={<RequireNoRole><PendingPage /></RequireNoRole>} />
-        <Route path="/" element={<RequireRole><HomePage /></RequireRole>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route element={<RequireRole><AppLayout /></RequireRole>}>
+          <Route index element={<RequirePermission permission="PRODUCT_VIEW"><HomePage /></RequirePermission>} />
+          <Route path="users" element={<RequirePermission permission="USER_VIEW"><UsersPage /></RequirePermission>} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
       </Routes>
     </AuthProvider>
   )

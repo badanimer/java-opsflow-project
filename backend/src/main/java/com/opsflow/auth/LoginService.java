@@ -21,7 +21,8 @@ import com.opsflow.common.retry.TransactionRetry;
  * get the general login error. A locked account is refused without a password check.</li>
  * <li>Check the password, still with no transaction, because the check is slow.</li>
  * <li>{@link LoginRecorder} locks the user row, confirms that the hash that was checked is still the
- * current one, and records the result.</li>
+ * current one, and records the result. A success writes a new session id, which ends every earlier
+ * login of the account; after the commit, {@link SessionEvents} tells their open pages.</li>
  * </ol>
  *
  * This class has no transaction of its own. The answer never says whether the username exists: every
@@ -37,17 +38,19 @@ public class LoginService {
 	private final LoginRecorder recorder;
 	private final TransactionRetry retry;
 	private final TokenService tokens;
+	private final SessionEvents sessionEvents;
 	private final Clock clock;
 	/** Checked when there is no account to check, so that the answer takes as long as for a real one. */
 	private final String decoyHash;
 
 	LoginService(AuthRepository repository, PasswordHasher hasher, LoginRecorder recorder, TransactionRetry retry,
-			TokenService tokens, Clock clock) {
+			TokenService tokens, SessionEvents sessionEvents, Clock clock) {
 		this.repository = repository;
 		this.hasher = hasher;
 		this.recorder = recorder;
 		this.retry = retry;
 		this.tokens = tokens;
+		this.sessionEvents = sessionEvents;
 		this.clock = clock;
 		this.decoyHash = hasher.hash(UUID.randomUUID().toString());
 	}
@@ -66,7 +69,12 @@ public class LoginService {
 
 		Outcome outcome = retry.run(() -> recorder.record(account.id(), account.passwordHash(), matched, ipAddress));
 		return switch (outcome.kind()) {
-			case SUCCESS -> tokens.issue(account.id(), outcome.issuedAt());
+			case SUCCESS -> {
+				// The login has committed, so the earlier logins of the account are already refused by the
+				// token check. Their open pages are told now.
+				sessionEvents.loggedIn(account.id(), outcome.sessionId());
+				yield tokens.issue(account.id(), outcome.issuedAt(), outcome.sessionId());
+			}
 			case DISABLED -> throw new ApiException(ErrorCode.ACCOUNT_DISABLED, DISABLED_MESSAGE);
 			case LOCKED -> throw locked(outcome.lockedUntil());
 			case WRONG_PASSWORD, VOID -> throw wrongUsernameOrPassword();

@@ -42,7 +42,7 @@ class TokenCheckTest extends AuthIntegrationSupport {
 	void aTokenThatThisServerDidNotSignIsRefusedAndTheBodyDoesNotSayWhy() throws Exception {
 		long alice = account("alice");
 		String foreign = new TokenService(Base64.getEncoder().encodeToString(new byte[32]), Duration.ofHours(12), clock)
-				.issue(alice, clock.instant()).value();
+				.issue(alice, clock.instant(), "0123456789abcdef0123456789abcdef").value();
 
 		for (String token : new String[] { foreign, "not-a-token" }) {
 			me(token).andExpect(status().isUnauthorized())

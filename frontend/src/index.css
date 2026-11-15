@@ -196,6 +196,201 @@ body {
   max-width: 448px;
 }
 
+/* The frame of the application: the top bar, the navigation on the left, and the page */
+
+.top-bar__start {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.app-shell {
+  flex: 1;
+  background: var(--bg-layout);
+}
+
+.app-shell .app-shell__sider {
+  background: var(--bg-container);
+  border-right: 1px solid var(--border);
+}
+
+.app-nav.ant-menu-inline {
+  border-inline-end: none;
+  padding: 8px;
+}
+
+.app-shell__content {
+  min-width: 0;
+  padding: 24px 32px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-header .page-header__title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.4;
+}
+
+.page-header__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.panel {
+  background: var(--bg-container);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.panel--list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel__empty-icon {
+  font-size: 48px;
+  color: var(--text-secondary);
+}
+
+.panel__empty-title {
+  display: block;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.filter-bar .filter-bar__search {
+  max-width: 360px;
+}
+
+.filter-bar__toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.page-notice {
+  margin: 0;
+}
+
+.list-loading,
+.list-failure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px 16px;
+}
+
+.list-failure .ant-alert {
+  width: 100%;
+}
+
+.cursor-pager {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.username-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.username-cell .username-cell__name {
+  max-width: 240px;
+}
+
+.row-actions .ant-btn-link {
+  padding-inline: 4px;
+}
+
+.user-item.ant-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.user-item__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dialog-title {
+  overflow-wrap: anywhere;
+}
+
+.dialog-body .dialog-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dialog-tags {
+  margin-top: 8px;
+}
+
+.role-choice {
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+
+.role-choice legend {
+  margin-bottom: 8px;
+}
+
+.role-choice__options.ant-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* A screen below 768 px: the navigation is in a drawer, and the list is stacked */
+
+@media (max-width: 767px) {
+  .app-shell__content {
+    padding: 16px;
+  }
+
+  .filter-bar .filter-bar__search {
+    max-width: none;
+  }
+
+  .username-cell .username-cell__name {
+    max-width: 160px;
+  }
+}
+
 /* A phone: less padding, and the button for the code under the address */
 
 @media (max-width: 480px) {

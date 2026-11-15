@@ -42,11 +42,12 @@ public class LoginRecorder {
 	/**
 	 * @param lockedUntil for {@code LOCKED}, when the lock ends
 	 * @param issuedAt for {@code SUCCESS}, the issue time of the token
+	 * @param sessionId for {@code SUCCESS}, the id of this login, which ends every earlier login of the account
 	 */
-	record Outcome(Kind kind, Instant lockedUntil, Instant issuedAt) {
+	record Outcome(Kind kind, Instant lockedUntil, Instant issuedAt, String sessionId) {
 
 		static Outcome of(Kind kind) {
-			return new Outcome(kind, null, null);
+			return new Outcome(kind, null, null, null);
 		}
 	}
 
@@ -73,7 +74,7 @@ public class LoginRecorder {
 			return Outcome.of(Kind.VOID);
 		}
 		if (account.lockedUntil() != null && account.lockedUntil().isAfter(now)) {
-			return new Outcome(Kind.LOCKED, account.lockedUntil(), null);
+			return new Outcome(Kind.LOCKED, account.lockedUntil(), null, null);
 		}
 		if (!passwordMatched) {
 			recordFailure(account, now, ipAddress);
@@ -82,8 +83,9 @@ public class LoginRecorder {
 		if (account.disabled()) {
 			return Outcome.of(Kind.DISABLED);
 		}
-		repository.recordSuccess(account.id(), now);
-		return new Outcome(Kind.SUCCESS, null, issueTime(account, now));
+		String sessionId = SessionIds.newId();
+		repository.recordSuccess(account.id(), now, sessionId);
+		return new Outcome(Kind.SUCCESS, null, issueTime(account, now), sessionId);
 	}
 
 	private void recordFailure(Account account, Instant now, String ipAddress) {

@@ -2,7 +2,7 @@ import { screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { loadSession } from '../auth/session'
-import { FakeServer, TOKEN, openApp, problem, storeToken } from '../test/server'
+import { FakeServer, TOKEN, openApp, problem, storeToken, me } from '../test/server'
 import { TEXT } from '../text'
 
 async function signIn(user: UserEvent, username = 'alice', password = 'correct-horse-1') {
@@ -15,12 +15,12 @@ describe('the login page', () => {
   it('logs a user with a role in and opens the application', async () => {
     const server = new FakeServer()
       .on('POST /auth/login', { status: 200, body: TOKEN })
-      .on('GET /auth/me', { status: 200, body: { id: 7, username: 'alice', roles: ['OPERATOR'] } })
+      .on('GET /auth/me', me(['OPERATOR'], { id: 7, username: 'alice' }))
     const user = openApp('/login')
 
     await signIn(user)
 
-    expect(await screen.findByText('You are signed in')).toBeInTheDocument()
+    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
     expect(server.callsTo('POST /auth/login')[0].body).toEqual({ username: 'alice', password: 'correct-horse-1' })
     // The login itself carries no token, and the request that follows carries the new one.
     expect(server.callsTo('POST /auth/login')[0].authorization).toBeNull()
@@ -31,7 +31,7 @@ describe('the login page', () => {
   it('sends a user with no role to the pending page', async () => {
     new FakeServer()
       .on('POST /auth/login', { status: 200, body: TOKEN })
-      .on('GET /auth/me', { status: 200, body: { id: 7, username: 'alice', roles: [] } })
+      .on('GET /auth/me', me([], { id: 7, username: 'alice' }))
     const user = openApp('/login')
 
     await signIn(user)
@@ -82,10 +82,10 @@ describe('the login page', () => {
 
   it('opens the application when a valid token is already stored', async () => {
     storeToken()
-    new FakeServer().on('GET /auth/me', { status: 200, body: { id: 7, username: 'alice', roles: ['VIEWER'] } })
+    new FakeServer().on('GET /auth/me', me(['VIEWER'], { id: 7, username: 'alice' }))
     openApp('/login')
 
-    expect(await screen.findByText('You are signed in')).toBeInTheDocument()
+    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
   })
 })
 
@@ -125,15 +125,15 @@ describe('what ends a login', () => {
     expect(await screen.findByText(TEXT.cannotReach)).toBeInTheDocument()
     expect(loadSession()?.token).toBe(TOKEN.token)
 
-    server.on('GET /auth/me', { status: 200, body: { id: 7, username: 'alice', roles: ['ADMIN'] } })
+    server.on('GET /auth/me', me(['ADMIN'], { id: 7, username: 'alice' }))
     await user.click(screen.getByRole('button', { name: 'Try again' }))
 
-    expect(await screen.findByText('You are signed in')).toBeInTheDocument()
+    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
   })
 
   it('signs out: the token is removed and the login page opens', async () => {
     storeToken()
-    new FakeServer().on('GET /auth/me', { status: 200, body: { id: 7, username: 'alice', roles: ['ADMIN'] } })
+    new FakeServer().on('GET /auth/me', me(['ADMIN'], { id: 7, username: 'alice' }))
     const user = openApp('/')
 
     await user.click(await screen.findByRole('button', { name: TEXT.signOut }))

@@ -412,17 +412,20 @@ proc: BEGIN
 
     SET p_cancelled = 0;
     START TRANSACTION;
-    -- Status gate on the product.
-    UPDATE products
-    SET status = 'UNLISTED', delisted_at = NOW(3), delisted_by = p_operator
-    WHERE id = p_product_id AND status = 'LISTED';
-
-    IF ROW_COUNT() = 0 THEN
-        SELECT status INTO v_status FROM products WHERE id = p_product_id;
+    -- Lock the product row first, and take the time only once the lock is held. NOW() is fixed when a
+    -- statement starts, so an UPDATE that sets delisted_at and then waits for the shared locks of the
+    -- orders would date the delisting before orders that commit while it waits.
+    SELECT status INTO v_status FROM products WHERE id = p_product_id FOR UPDATE;
+    IF v_status IS NULL OR v_status <> 'LISTED' THEN
         ROLLBACK;
         IF v_status IS NULL THEN SET p_result = 'NOT_FOUND'; ELSE SET p_result = 'ALREADY_DELISTED'; END IF;
         LEAVE proc;
     END IF;
+
+    -- Status gate on the product, under the lock.
+    UPDATE products
+    SET status = 'UNLISTED', delisted_at = NOW(3), delisted_by = p_operator
+    WHERE id = p_product_id AND status = 'LISTED';
 
     INSERT INTO product_listing_events (product_id, inventory_id, action, name, price, operator_id)
     SELECT id, inventory_id, 'DELISTED', name, price, p_operator FROM products WHERE id = p_product_id;

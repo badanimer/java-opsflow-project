@@ -14,10 +14,11 @@ interface Values {
 }
 
 /** Why the login page was opened, passed by the page or the event that sent the user here. */
-type Reason = 'expired' | 'disabled' | 'reset'
+type Reason = 'expired' | 'disabled' | 'reset' | 'replaced'
 
 const REASONS: Record<Reason, Notice> = {
   expired: { type: 'info', message: TEXT.sessionExpired },
+  replaced: { type: 'warning', message: TEXT.signedInElsewhere },
   disabled: { type: 'error', message: TEXT.disabled },
   reset: { type: 'success', message: TEXT.passwordReset },
 }

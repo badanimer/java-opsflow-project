@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document collects the page design of OpsFlow: which pages exist, who sees them, what each one shows, and what it does. It is the starting point for the UI design, and it records the owner's ideas while they are still rough. It is a first version. The frontend stack is chosen and the visual design has started with the account pages (see Frontend Stack And Design Files); the other pages are not drawn yet.
+This document collects the page design of OpsFlow: which pages exist, who sees them, what each one shows, and what it does. It is the starting point for the UI design, and it records the owner's ideas while they are still rough. It is a first version. The frontend stack is chosen, and the account pages, the frame of the application, and the user page are drawn and built (see Frontend Stack And Design Files); the other pages are not drawn yet.
 
 The pages are designed backwards from the database: the screens decide what the database must be able to answer. The rules that reach into the database or the service layer are in [Screens and Lists](../database/database-design.md#screens-and-lists), and the rules of each flow are in [database-design.md](../database/database-design.md). This document does not repeat them in full. Where a rule matters to a page, it is summarized here with a link.
 
@@ -12,6 +12,7 @@ This document always describes the current page design. Entries are listed newes
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.5 | A second confirmation before an action that is hard to take back, and where it is asked; quick ranges in the time filter. The frame of the application with the navigation by permission, the user page, and its dialogs are drawn in Figma and built; the font is the system font. One signed-in device: a page whose account signed in elsewhere shows a dialog, and the login page says why | [frontend-v1.5.md](../iterations/frontend-v1.5.md) |
 | 2026-11-14 | 1.4 | After the review of the Permission Matrix: an operator can also make a correction on the stock page, the creator and assignee filters and the choice of an assignee use a user picker that shows usernames only, an administrator sees their own account on the user page with no control to change it, and a user with several roles sees what any of them allows | [frontend-v1.4.md](../iterations/frontend-v1.4.md) |
 | 2026-11-14 | 1.3 | Implemented the four account pages, the route guards, and the shared API client in `frontend/` | [frontend-v1.3.md](../iterations/frontend-v1.3.md) |
 | 2026-11-13 | 1.2 | The frontend stack is chosen (React, TypeScript, Vite, Ant Design), the interface is in English, the token is kept in `localStorage`, and every page is drawn in Figma before it is built. The four account pages are drawn as a first draft | [frontend-v1.2.md](../iterations/frontend-v1.2.md) |
@@ -24,6 +25,7 @@ This document always describes the current page design. Entries are listed newes
 | --- | --- |
 | Framework | React with TypeScript, built with Vite. The project lives in `frontend/`, next to `backend/` |
 | Components | Ant Design. Its default look is the starting point of the visual design |
+| Font | The system font of the device, which is Ant Design's default. The Figma file draws with Inter as a stand-in; the difference is in the letter shapes only, not in the layout (the owner's decision, 2026-11-15) |
 | Language of the interface | English, for every text on every page |
 | Login token | Kept in the `localStorage` of the browser, so a refresh keeps the user logged in until the token expires after 12 hours. On `UNAUTHENTICATED` or `ACCOUNT_DISABLED` the frontend removes it |
 | Design before code | Each page is drawn in Figma first, reviewed by the owner, and then built against the finished endpoints |
@@ -32,10 +34,15 @@ This document always describes the current page design. Entries are listed newes
 The UI design file is [OpsFlow UI in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU). It is not tracked by git. Its page "Login and Sign-up" holds the design of the account pages, which the owner reviewed and accepted on 2026-11-14:
 
 - **Components**: a field (label, input, and a helper or error line), three buttons (primary, default, disabled), three alerts (error, info, warning), and the logo. The colours are variables with the default values of Ant Design.
-- **Login**: the empty page, and its states: wrong username or password, locked after failed attempts, account disabled, empty fields, signing in, after a password reset (a success message), session expired, something went wrong (with the request id as a reference to report), and cannot reach the server.
+- **Login**: the empty page, and its states: wrong username or password, locked after failed attempts, account disabled, empty fields, signing in, after a password reset (a success message), session expired, signed in elsewhere (added on 2026-11-15, a warning), something went wrong (with the request id as a reference to report), and cannot reach the server.
 - **Sign-up**: the empty page, and its states: code sent (the button for a new code is disabled for 60 seconds), email already registered, wrong or expired code, username taken (the code is kept), too many requests, invalid username, invalid email, invalid password, a code that is not 6 digits, empty fields, sending the code, and creating the account.
 - **Forgot password**: the empty page, and its states: code sent, a new password equal to the current one, invalid password, wrong or expired code, too many requests, and resetting.
 - **Pending**: the page of a user with no role, with a button that checks again and a link to sign out, and the state after a check that still found no role.
+
+Two more pages of the file were drawn for Phase 3 and reviewed by the owner on 2026-11-15:
+
+- **App shell and Users**: the frame of the application for each role and for a user with two roles, loading the account, cannot reach the server, a fault with its reference, Not allowed, Page not found, the navigation in a drawer on a small screen; the user page for an administrator, a manager, a viewer who may change nothing, and one who may only change roles, with its filters, paging, empty lists, and failures; and Change roles, Disable, Enable, and Delete with their second confirmations, their running states, and each answer of the server; and `Session / Signed in elsewhere`, the dialog of a page whose account signed in on another device. Each frame has a note for the builder: the permission, the Ant Design component, and the result code.
+- **Shared components**: tags, the filter bar, the paged list, the confirm dialog, the dialog that requires a reason, the result message, the time filter with its quick ranges, the user picker, and the searchable picker. The last four are for later pages.
 
 Rules that the states follow:
 
@@ -44,28 +51,30 @@ Rules that the states follow:
 - **While a request runs** the button is disabled and says what is happening ("Signing in…"), so a second click sends nothing.
 - **A failure that is not the user's** has two messages: "Something went wrong" with the request id for `INTERNAL_ERROR` and `BUSY`, and "Cannot reach the server" when no answer came.
 - **After a password reset** the user is sent to the login page, which says that the password was reset. **After `UNAUTHENTICATED` on any page** the login page says that the session has expired.
+- **One signed-in device.** When the account signs in on another device, every signed-in page, the pending page included, shows the dialog "You have been signed out" at once. It cannot be closed; its one button, Sign in again, removes the token and opens the login page, which says "You were signed out because your account signed in on another device. If this was not you, reset your password." The page learns it from the event stream `GET /auth/session-events`, from `SESSION_REPLACED` on any request, and by asking for the account when the person comes back to the tab. When another tab of the same browser signed in again, no dialog is shown: the page loads the new account. See One signed-in device in the [database design](../database/database-design.md#login-security-and-account-recovery).
 
 ## Running the Frontend Locally
 
 From `frontend/`, run `npm ci` to install the locked dependencies, then `npm run dev`. Open `http://localhost:5173`. Vite forwards `/api` to Spring Boot at `http://localhost:8080` by default. Set `OPSFLOW_API_TARGET` in the shell that starts Vite if the backend runs at a different address. The backend setup is described in [OpsFlow Backend](../backend/backend-design.md).
 
-Run `npm test`, `npm run lint`, and `npm run build` from `frontend/` to check the project. The frontend tests substitute API responses. The owner clicked through the four pages against the running backend on 2026-11-14, signed up with a code from a real mail, and logged in.
+Run `npm test`, `npm run lint`, and `npm run build` from `frontend/` to check the project. The frontend tests substitute API responses. The owner clicked through the four pages against the running backend on 2026-11-14, signed up with a code from a real mail, and logged in. On 2026-11-15 the owner clicked through the frame of the application and the user page with every role, and signed in to one account on two browsers to see the first one signed out.
 
 The project needs Node 20 or later. It uses Vite 5 and jsdom 25, because the newest versions of both need a newer Node than the 21.7 on the development machine; raise them together with Node.
 
 | Path in `frontend/` | Content |
 | --- | --- |
-| `src/api` | `client.ts`, the one place that calls the backend, and `auth.ts`, the endpoints of Authentication |
-| `src/auth` | The stored token (`session.ts`), the login state (`AuthProvider.tsx`, `context.ts`), and the route guards (`guards.tsx`) |
-| `src/pages` | The four account pages, the placeholder of the product page, and what they share (`useEmailCode.ts`, `failure.ts`) |
-| `src/components` | The frame of the account pages, the top bar, and the logo |
+| `src/api` | `client.ts`, the one place that calls the backend, with `readEventStream` for the event stream; `auth.ts` and `users.ts`, the endpoints of Authentication and Users; `paging.ts`, the page and the cursors of every list |
+| `src/auth` | The stored token (`session.ts`), the login state (`AuthProvider.tsx`, `context.ts`; it also keeps the event stream open and checks the account when the tab is shown again), the route guards (`guards.tsx`, with `RequirePermission`), and `permissions.ts`, the permission names and `can` |
+| `src/pages` | The four account pages, the placeholder of the product page, Not allowed and Page not found (`StatusPages.tsx`), what they share (`useEmailCode.ts`, `failure.ts`), and `users/`: the user page, the Change roles dialog, the tags, and `userRules.ts`, which decides from the permissions which controls a row shows and where a refusal is shown |
+| `src/components` | The frame of the application (`AppLayout.tsx`, `navigation.tsx` with every page of the Page Map and its permission, `TopBar.tsx`, `PageHeader.tsx`), the frame of the account pages, the logo, the shared `ConfirmDialog.tsx` and `CursorPager.tsx`, and `SessionReplacedDialog.tsx` |
+| `src/roles.ts` | The four roles as the interface names them, and which are protected |
 | `src/text.ts`, `src/validation.ts` | Every text of the interface, and the checks a page makes before it sends a value |
-| `src/test` | The set-up of the tests and the fake server |
+| `src/test` | The set-up of the tests, the fake server, the screen width (`screen.ts`), and the users of the user page tests (`users.ts`) |
 | `vite.config.ts` | The development proxy and the test configuration |
 
-The tests are next to the code they test, in files that end in `.test.ts` or `.test.tsx`: `validation.test.ts`, `api/client.test.ts`, and one for each of the four pages. They open the whole application at a path and set the answers of the server themselves, so they need no backend. The latest run, on 2026-11-14, had 87 tests in 6 files, all passed. GitHub Actions runs `npm ci`, the lint, the tests, and the build on every push, with Node 22, in [`.github/workflows/frontend-tests.yml`](../../.github/workflows/frontend-tests.yml). The job needs no backend and no secret.
+The tests are next to the code they test, in files that end in `.test.ts` or `.test.tsx`: `validation.test.ts`, `api/client.test.ts`, one for each of the four account pages, `components/AppLayout.test.tsx` for the navigation of each role and the pages that cannot be opened, `pages/users/UsersPage.test.tsx` and `UserChanges.test.tsx` for the user page and its four changes, and `auth/SessionReplaced.test.tsx` for one signed-in device. They open the whole application at a path and set the answers of the server themselves, so they need no backend. The answer of `GET /auth/me` in a test carries the permissions that the backend's `Role` gives, from a copy kept in `test/server.tsx`; the application itself has no such table. A test of a small screen sets the width in `test/screen.ts`. The fake server answers the event stream with one that stays open, and a test sends an event on it. The latest run, on 2026-11-15, had 143 tests in 10 files, all passed. GitHub Actions runs `npm ci`, the lint, the tests, and the build on every push, with Node 22, in [`.github/workflows/frontend-tests.yml`](../../.github/workflows/frontend-tests.yml). The job needs no backend and no secret.
 
-The root route currently shows a placeholder for signed-in users with a role. A response of `ACCOUNT_NO_ROLE` from a protected API call sends the signed-in user to Pending and keeps the token.
+Every page of a user with a role sits in the frame of the application. The navigation shows the entries of the user's permissions only, and an entry whose page is not built yet is shown disabled. A page whose permission the user lacks says Not allowed, and an unknown address says Page not found. The root route shows the placeholder of the product page. A response of `ACCOUNT_NO_ROLE` from a protected API call sends the signed-in user to Pending and keeps the token.
 
 ## Principles
 
@@ -75,7 +84,37 @@ The root route currently shows a placeholder for signed-in users with a role. A 
 - **Each role sees only what it needs.** An operator sees only its own tickets after the pool. A viewer reads everything that a manager reads, and changes nothing.
 - **Lists have two buttons.** Previous and next, 10 rows by default, the page sized to the layout. No page numbers, no total (see [Home page and paging](../database/database-design.md#home-page-and-paging)).
 - **Times are shown in the display time zone** (`Australia/Sydney`) and stored in UTC.
-- **No notifications, no comments, no dashboard** in the first version. A person finds out about a change by looking at the screen.
+- **No notifications, no comments, no dashboard** in the first version. A person finds out about a change by looking at the screen. The one exception is a security notice, not a notification centre: a page is told at once when its account signs in on another device (see One signed-in device under Frontend Stack And Design Files).
+- **An action that is hard to take back asks for a second confirmation** (see Second Confirmation).
+
+## Second Confirmation
+
+The owner decided on 2026-11-15 that a key decision is confirmed a second time. A second confirmation is asked when an action:
+
+- cannot be undone;
+- takes access away from a person at once; or
+- gives or takes away a protected role (Administrator or Manager), or leaves a user with no role.
+
+It is not asked for an action that is frequent and easily reversed, or where the dialog already makes the person type a reason or a quantity and shows what will change. Too many confirmations teach people to click through them.
+
+How it looks: a dialog that names the target and says what will happen, with a confirm button that repeats the verb ("Delete", "Disable", never "OK"), in the danger style when the action removes something, and Cancel as the safe choice. While the request runs, both buttons are disabled.
+
+| Action | Second confirmation | Why |
+| --- | --- | --- |
+| Delete a user | Yes | It cannot be undone |
+| Disable a user | Yes | The person loses access at once |
+| Enable a user | No | It gives back what was there, and Disable undoes it |
+| Change roles, when the new set adds or removes Administrator or Manager | Yes, after Save, naming the change | It hands out or takes away the highest authority |
+| Change roles, when the new set is empty | Yes, after Save | The user is sent to the pending page and can use nothing |
+| Change roles, any other change | No | Save in the dialog is the confirmation |
+| Delete a warehouse item | Yes | It cannot be undone, delists its product, and cancels its open tickets |
+| Delist a product | Yes | It cancels the open tickets linked to it |
+| Archive tickets, singly or in a batch | Yes, naming how many | Archived tickets cannot be moved again |
+| Cancel a ticket | No second step | The reason dialog is the confirmation; it says that a cancelled ticket cannot be reopened |
+| Release or reassign a ticket | No second step | The reason dialog is the confirmation |
+| Stock in, write-off, correction | No second step | The reason dialog is the confirmation, and it shows the quantity before and after |
+| Place an order | No | The order dialog is the confirmation, and a repeated click is caught by the idempotency key |
+| Sign out | No | Nothing is lost |
 
 ## Page Map
 
@@ -188,7 +227,7 @@ The two pages that keep logs work the same way. The product page has the product
 
 An operator who needs the number of an order that failed opens the order records, filters by the product and the day, and copies the number into the ticket form (see Create ticket). Every list is paged with two buttons, 10 rows a page.
 
-**The time filter.** One template is used wherever a list is filtered by time: the two logs, the own log of one product or item, the search on the ticket screens, and the audit log page. The person picks either a start day and an end day (both included, the end day today at the latest), or a start day alone, which means from that day until now. Beside it, the person chooses newest first (the default) or oldest first. See [The time filter](../database/database-design.md#the-time-filter).
+**The time filter.** One template is used wherever a list is filtered by time: the two logs, the own log of one product or item, the search on the ticket screens, and the audit log page. The person picks either a start day and an end day (both included, the end day today at the latest), or a start day alone, which means from that day until now. Beside it, the person chooses newest first (the default) or oldest first. A **quick range** fills both days at once: Last 1 day, 3 days, 7 days, 15 days, 1 month, or 3 months. The end day is today in `Australia/Sydney`. For N days the start day is today minus N−1 days, so Last 1 day is today from midnight. For months, the start day is the same day 1 or 3 months earlier (the last day of that month when it is shorter), plus one day: on 15 November, Last 1 month starts on 16 October. Changing either day by hand clears the quick range. Days after today cannot be picked. The quick range is worked out in the page and sent as the two days, so the server needs nothing new. See [The time filter](../database/database-design.md#the-time-filter).
 
 **The searchable picker.** One shared control is used wherever a screen asks for a product or an item. It is a dropdown list sorted alphabetically by name, with a scroll bar when it is long, and a text box in it that narrows the list as the person types. The product picker offers every product ever listed except those of deleted items, and the item picker every item that is not deleted, with the SKU shown beside the name so that equal names can be told apart. A deleted item is offered nowhere.
 ### Ticket screens
@@ -251,13 +290,12 @@ For managers and administrators. The page opens on a menu of seven areas: Accoun
 
 These are not designed yet. Each is a question for the UI design, or for the owner.
 
-- The visual design of every page but the account pages: layout, colour, and the navigation between pages. The account pages have a first draft in Figma.
-- The font. The draft uses Inter; Ant Design shows the system font of the device.
+- The visual design of the pages after Phase 3: products, stock, the logs, the ticket screens, and the audit log. The frame, the navigation, and the shared components they will use are drawn (see Frontend Stack And Design Files).
 - Where the page for the log of one item opens (a dialog or a page), and what the dialog for changing a quantity looks like in detail.
-- How the user is picked in the ticket filters (a typed username is the first idea).
-- The look of the audit log filters, and how each log row is shown (Q-34).
-- The empty states and the error messages of each page.
+- The look of the audit log filters, and how each log row is shown (Q-34). The user picker is drawn as a select with a typed search of usernames.
+- The empty states and the error messages of the pages after Phase 3. Those of the user page are drawn and built.
 - How the choice between the two kinds of record, the picker, the day range, and the two parts of the own log are laid out.
 - Whether an operator can filter the order records by who ordered, to find their own orders faster.
 - Whether the stock page also shows whether an item is listed.
-- Mobile and small-screen behaviour.
+
+Settled on 2026-11-15: the font is the system font, the navigation is a menu on the left that moves into a drawer below 768 px, and a list on a small screen is stacked (see [frontend-v1.5.md](../iterations/frontend-v1.5.md)).

@@ -22,8 +22,12 @@ import com.opsflow.common.security.CurrentUser;
  *
  * <ul>
  * <li>No such user, a soft-deleted account, or the SYSTEM identity: refused as unauthenticated.</li>
- * <li>A token that was not issued after {@code password_changed_at}: refused as unauthenticated.</li>
+ * <li>A token that was not issued after {@code password_changed_at}, or that carries no session id (a token
+ * issued before sessions were kept): refused as unauthenticated.</li>
  * <li>A disabled account: refused with {@link DisabledException}, which becomes {@code ACCOUNT_DISABLED}.</li>
+ * <li>A token of an earlier login, whose session id is no longer {@code users.session_id} because the
+ * account logged in again: refused with {@link SessionReplacedException}, which becomes
+ * {@code SESSION_REPLACED}.</li>
  * </ul>
  */
 @Component
@@ -35,11 +39,18 @@ public class TokenAuthenticator {
 		private static final long serialVersionUID = 1L;
 
 		private final transient CurrentUser user;
+		private final String sessionId;
 
-		CurrentUserAuthentication(CurrentUser user) {
+		CurrentUserAuthentication(CurrentUser user, String sessionId) {
 			super(user.roles().stream().map(code -> new SimpleGrantedAuthority("ROLE_" + code)).toList());
 			this.user = user;
+			this.sessionId = sessionId;
 			setAuthenticated(true);
+		}
+
+		/** The id of the login the token of this request belongs to. */
+		String sessionId() {
+			return sessionId;
 		}
 
 		@Override
@@ -55,6 +66,16 @@ public class TokenAuthenticator {
 		@Override
 		public String getName() {
 			return user.username();
+		}
+	}
+
+	/** The account logged in again after this token was issued: only the newest login is signed in. */
+	static final class SessionReplacedException extends BadCredentialsException {
+
+		private static final long serialVersionUID = 1L;
+
+		SessionReplacedException() {
+			super("The account signed in on another device");
 		}
 	}
 
@@ -77,11 +98,18 @@ public class TokenAuthenticator {
 		if (account.passwordChangedAt() != null && !issuedAt.isAfter(account.passwordChangedAt())) {
 			throw new BadCredentialsException("The token is older than the password");
 		}
+		String sessionId = TokenService.sessionId(jwt);
+		if (sessionId == null) {
+			throw new BadCredentialsException("The token belongs to no login");
+		}
 		if (account.disabled()) {
 			throw new DisabledException("The account is disabled");
 		}
+		if (!sessionId.equals(account.sessionId())) {
+			throw new SessionReplacedException();
+		}
 		List<String> roles = repository.roleCodes(account.id());
-		return new CurrentUserAuthentication(new CurrentUser(account.id(), account.username(), roles));
+		return new CurrentUserAuthentication(new CurrentUser(account.id(), account.username(), roles), sessionId);
 	}
 
 }

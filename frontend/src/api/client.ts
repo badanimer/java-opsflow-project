@@ -13,6 +13,8 @@ import { loadSession } from '../auth/session'
  *   page. The same codes from the login endpoint itself are ordinary answers, because that request
  *   carries no token.
  * - ACCOUNT_NO_ROLE keeps the token and tells the login state that the account must wait for a role.
+ * - SESSION_REPLACED: the account signed in on another device. The login state shows a dialog that says
+ *   so, and the person goes to the login page from there.
  */
 
 const BASE = '/api/v1'
@@ -21,6 +23,7 @@ export type ResultCode =
   | 'VALIDATION_FAILED'
   | 'CODE_INVALID'
   | 'UNAUTHENTICATED'
+  | 'SESSION_REPLACED'
   | 'FORBIDDEN'
   | 'ACCOUNT_DISABLED'
   | 'ACCOUNT_NO_ROLE'
@@ -65,7 +68,7 @@ export class NetworkError extends Error {
   }
 }
 
-export type SessionProblem = 'expired' | 'disabled' | 'noRole'
+export type SessionProblem = 'expired' | 'disabled' | 'noRole' | 'replaced'
 let sessionProblemListener: ((reason: SessionProblem) => void) | null = null
 
 /** Called by the login state, once. Passing null removes the listener. */
@@ -104,8 +107,72 @@ export async function api<T = void>(path: string, { method = 'GET', body, auth =
     if (error.code === 'UNAUTHENTICATED') sessionProblemListener?.('expired')
     if (error.code === 'ACCOUNT_DISABLED') sessionProblemListener?.('disabled')
     if (error.code === 'ACCOUNT_NO_ROLE') sessionProblemListener?.('noRole')
+    if (error.code === 'SESSION_REPLACED') sessionProblemListener?.('replaced')
   }
   throw error
+}
+
+/**
+ * Reads a stream of Server-Sent Events with the login token, and calls `onEvent` with the name of each
+ * event. `fetch` is used and not `EventSource`, because `EventSource` cannot send the `Authorization`
+ * header. The promise ends when the server closes the stream or `signal` aborts it. A refusal is handled
+ * like the refusal of any request (the login state is told about an ended login) and is thrown.
+ */
+export async function readEventStream(path: string, onEvent: (name: string) => void, signal: AbortSignal): Promise<void> {
+  const startedAt = new Date()
+  const token = loadSession(startedAt)?.token
+  const headers: Record<string, string> = { Accept: 'text/event-stream' }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  let response: Response
+  try {
+    response = await fetch(BASE + path, { headers, signal })
+  } catch {
+    throw new NetworkError()
+  }
+  if (!response.ok || !response.body) {
+    const error = await readError(response)
+    if (token && token === loadSession(startedAt)?.token) {
+      if (error.code === 'UNAUTHENTICATED') sessionProblemListener?.('expired')
+      if (error.code === 'ACCOUNT_DISABLED') sessionProblemListener?.('disabled')
+      if (error.code === 'SESSION_REPLACED') sessionProblemListener?.('replaced')
+    }
+    throw error
+  }
+
+  const reader = response.body.getReader()
+  const onAbort = () => void reader.cancel().catch(() => {})
+  signal.addEventListener('abort', onAbort)
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let eventName = ''
+  try {
+    for (;;) {
+      let chunk: ReadableStreamReadResult<Uint8Array>
+      try {
+        chunk = await reader.read()
+      } catch {
+        if (signal.aborted) return
+        throw new NetworkError()
+      }
+      if (chunk.done) return
+      buffer += decoder.decode(chunk.value, { stream: true })
+      let end: number
+      while ((end = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, end).replace(/\r$/, '')
+        buffer = buffer.slice(end + 1)
+        // A blank line ends an event; a line that starts with ':' is a comment that keeps the stream open.
+        if (line === '') {
+          if (eventName) onEvent(eventName)
+          eventName = ''
+        } else if (line.startsWith('event:')) {
+          eventName = line.slice('event:'.length).trim()
+        }
+      }
+    }
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 async function readError(response: Response): Promise<ApiError> {

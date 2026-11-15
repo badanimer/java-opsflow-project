@@ -46,6 +46,8 @@ public class SecurityConfig {
 			.authorizeHttpRequests(requests -> requests
 				// The error page of the container only renders a failure that was already decided.
 				.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+				// The second dispatch of an event stream that was already allowed, when the stream ends.
+				.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
 				// Every other request is decided by what its controller method declares.
 				.anyRequest().access(permissions))
 			.oauth2ResourceServer(server -> server

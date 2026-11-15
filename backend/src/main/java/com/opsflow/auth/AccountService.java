@@ -51,7 +51,7 @@ public class AccountService {
 		String passwordHash = hasher.hash(password);
 
 		Created created = retry.run(() -> writer.create(codeId, username, email, passwordHash, ipAddress));
-		return new NewAccount(created.id(), username, tokens.issue(created.id(), created.issuedAt()));
+		return new NewAccount(created.id(), username, tokens.issue(created.id(), created.issuedAt(), created.sessionId()));
 	}
 
 	public void resetPassword(String email, String code, String newPassword, String ipAddress) {

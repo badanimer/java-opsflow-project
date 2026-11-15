@@ -29,8 +29,8 @@ import com.opsflow.common.error.ErrorCode;
 @Component
 public class AccountWriter {
 
-	/** A new account and the issue time of its first token. */
-	public record Created(long id, Instant issuedAt) {
+	/** A new account, the issue time of its first token, and the id of that first login. */
+	public record Created(long id, Instant issuedAt, String sessionId) {
 	}
 
 	private final AuthRepository repository;
@@ -55,8 +55,9 @@ public class AccountWriter {
 	 *
 	 * The new user is logged in at once, so the transaction also gives the issue time of the first token
 	 * and stores it as {@code last_login_at}: a later password reset is then never earlier than that token.
+	 * It also stores the id of this first login as {@code session_id}, which the token carries.
 	 *
-	 * @return the id of the new user and the issue time of its first token
+	 * @return the id of the new user, the issue time of its first token, and the id of the login
 	 */
 	@Transactional
 	public Created create(long codeId, String username, String email, String passwordHash, String ipAddress) {
@@ -70,9 +71,10 @@ public class AccountWriter {
 		if (!codes.consume(codeId, now, maxWrongEntries)) {
 			throw EmailCodeService.invalidCode();
 		}
+		String sessionId = SessionIds.newId();
 		long id;
 		try {
-			id = repository.insertUser(username, email, passwordHash, now);
+			id = repository.insertUser(username, email, passwordHash, now, sessionId);
 		}
 		catch (DuplicateKeyException sameMoment) {
 			// Another sign-up took the name or the address after the two reads above. The unique keys decide.
@@ -83,7 +85,7 @@ public class AccountWriter {
 		after.put("email", email);
 		// The new user is the operator of their own sign-up.
 		audit.write(AuditAction.USER_REGISTERED, id, AuditLogWriter.TARGET_USER, id, null, after, ipAddress, null);
-		return new Created(id, now);
+		return new Created(id, now, sessionId);
 	}
 
 	/**

@@ -27,22 +27,23 @@ class TokenServiceTest {
 	}
 
 	@Test
-	void theTokenCarriesOnlyTheUserIdAndItsIssueTimeToTheMillisecond() {
+	void theTokenCarriesOnlyTheUserIdItsIssueTimeToTheMillisecondAndItsLogin() {
 		TokenService tokens = service(KEY, ISSUED);
 
-		IssuedToken token = tokens.issue(42, ISSUED);
+		IssuedToken token = tokens.issue(42, ISSUED, "0123456789abcdef0123456789abcdef");
 		Jwt jwt = tokens.decoder().decode(token.value());
 
 		assertThat(TokenService.userId(jwt)).isEqualTo(42L);
 		assertThat(TokenService.issuedAt(jwt)).isEqualTo(ISSUED);
-		assertThat(jwt.getClaims()).containsOnlyKeys("sub", "iat", "exp", "iat_ms");
+		assertThat(TokenService.sessionId(jwt)).isEqualTo("0123456789abcdef0123456789abcdef");
+		assertThat(jwt.getClaims()).containsOnlyKeys("sub", "iat", "exp", "iat_ms", "sid");
 		assertThat(token.expiresAt()).isEqualTo(Instant.parse("2026-11-13T13:00:00Z"));
 		assertThat(jwt.getExpiresAt()).isEqualTo(token.expiresAt());
 	}
 
 	@Test
 	void theTokenIsRefusedFromTheMomentItExpires() {
-		String token = service(KEY, ISSUED).issue(42, ISSUED).value();
+		String token = service(KEY, ISSUED).issue(42, ISSUED, "0123456789abcdef0123456789abcdef").value();
 		Instant expiry = Instant.parse("2026-11-13T13:00:00Z");
 
 		assertThat(service(KEY, expiry.minusSeconds(1)).decoder().decode(token)).isNotNull();
@@ -51,7 +52,7 @@ class TokenServiceTest {
 
 	@Test
 	void aTokenSignedWithAnotherKeyOrChangedAfterwardsIsRefused() {
-		String token = service(KEY, ISSUED).issue(42, ISSUED).value();
+		String token = service(KEY, ISSUED).issue(42, ISSUED, "0123456789abcdef0123456789abcdef").value();
 		String[] parts = token.split("\\.");
 		String forged = parts[0] + "." + Base64.getUrlEncoder().withoutPadding()
 				.encodeToString("{\"sub\":\"1\",\"iat_ms\":1,\"exp\":99999999999}".getBytes()) + "." + parts[2];

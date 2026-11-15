@@ -19,7 +19,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 0 | Done: schema, privileges, backend skeleton, decisions, test infrastructure | |
 | 1 | Done: foundations that every module uses | T-13 and T-11 continue with each module |
 | 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
-| 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page | |
+| 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page. The frontend of the phase is built and checked by the owner | |
 | 4 | Warehouse items and products | T-39, T-42, T-41 |
 | 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
@@ -81,6 +81,9 @@ The first administrator comes first, because no one can be given a role without 
 | T-54 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): the test of the package dependencies, in place before the second module is written |
 | T-21, T-19, T-15, T-26, T-23, T-06 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): replacing a user's roles, disabling, enabling, and soft-deleting, each in one transaction on the steps of a change to a user, with authority over roles and accounts, administrator protection, and their race tests. One part of T-21 moved to Phase 6: returning the tickets of a disabled or deleted user to the pool |
 | T-48, T-45 | Done ([backend-v1.7.md](iterations/backend-v1.7.md)): the user page, the first list, paged by key |
+| T-65 | Built: one signed-in device per account, decided on 2026-11-15 and built before Phase 4 while the authentication code is fresh ([backend-v1.8.md](iterations/backend-v1.8.md), [frontend-v1.5.md](iterations/frontend-v1.5.md)) |
+| T-66 | Done ([database-v1.14.md](iterations/database-v1.14.md)): the time of a delisting is taken after the lock, found by the verification run of 2026-11-15. The Java code of T-39 follows the same rule |
+| T-64 | Built ([frontend-v1.5.md](iterations/frontend-v1.5.md)): the frame of the application with the navigation by permission, and the user page with its four changes. The owner checked it against the running backend on 2026-11-15 |
 
 **Done when:** the console command makes an administrator, who can give roles to users and see the list of users but cannot change their own account, while a manager and an operator get `403` where the matrix says so.
 

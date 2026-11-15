@@ -2,7 +2,7 @@ import { act, screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { loadSession } from '../auth/session'
-import { FakeServer, TOKEN, openApp, problem } from '../test/server'
+import { FakeServer, TOKEN, openApp, problem, me } from '../test/server'
 import { TEXT } from '../text'
 
 const CREATED = { status: 201, body: { id: 9, username: 'alice', ...TOKEN } }
@@ -88,7 +88,7 @@ describe('the sign-up page', () => {
   it('creates the account, keeps the token of the sign-up, and opens the pending page', async () => {
     const server = new FakeServer()
       .on('POST /auth/sign-up', CREATED)
-      .on('GET /auth/me', { status: 200, body: { id: 9, username: 'alice', roles: [] } })
+      .on('GET /auth/me', me([], { id: 9, username: 'alice' }))
     const user = openApp('/sign-up')
     await fill(user, VALID)
 
@@ -158,7 +158,7 @@ describe('the sign-up page', () => {
     const server = new FakeServer().on('POST /auth/sign-up', (call) =>
       (call.body as { username: string }).username === 'alice' ? problem(409, 'USERNAME_TAKEN') : CREATED,
     )
-    server.on('GET /auth/me', { status: 200, body: { id: 9, username: 'alice2', roles: [] } })
+    server.on('GET /auth/me', me([], { id: 9, username: 'alice2' }))
     const user = openApp('/sign-up')
     await fill(user, VALID)
     await user.click(screen.getByRole('button', { name: 'Create account' }))

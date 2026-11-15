@@ -2,11 +2,11 @@ import { act, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { api } from '../api/client'
 import { loadSession } from '../auth/session'
-import { FakeServer, openApp, problem, storeToken } from '../test/server'
+import { FakeServer, openApp, problem, storeToken, me } from '../test/server'
 import { TEXT } from '../text'
 
-const NO_ROLE = { status: 200, body: { id: 7, username: 'alice', roles: [] } }
-const WITH_ROLE = { status: 200, body: { id: 7, username: 'alice', roles: ['OPERATOR'] } }
+const NO_ROLE = me([], { id: 7, username: 'alice' })
+const WITH_ROLE = me(['OPERATOR'], { id: 7, username: 'alice' })
 
 describe('the pending page', () => {
   it('is the only page of a user with no role, whatever page was asked for', async () => {
@@ -16,7 +16,7 @@ describe('the pending page', () => {
 
     expect(await screen.findByText(TEXT.pendingTitle)).toBeInTheDocument()
     expect(screen.getByText('alice')).toBeInTheDocument()
-    expect(screen.queryByText('You are signed in')).not.toBeInTheDocument()
+    expect(screen.queryByText('Products are coming soon')).not.toBeInTheDocument()
   })
 
   it('is skipped by a user who has a role', async () => {
@@ -24,7 +24,7 @@ describe('the pending page', () => {
     new FakeServer().on('GET /auth/me', WITH_ROLE)
     openApp('/pending')
 
-    expect(await screen.findByText('You are signed in')).toBeInTheDocument()
+    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
   })
 
   it('keeps the session and opens the pending page when a protected request reports a revoked role', async () => {
@@ -33,7 +33,7 @@ describe('the pending page', () => {
       .on('GET /auth/me', WITH_ROLE)
       .on('GET /orders', problem(403, 'ACCOUNT_NO_ROLE'))
     openApp('/')
-    await screen.findByText('You are signed in')
+    await screen.findByText('Products are coming soon')
 
     await act(async () => {
       await expect(api('/orders')).rejects.toMatchObject({ code: 'ACCOUNT_NO_ROLE' })
@@ -63,7 +63,7 @@ describe('the pending page', () => {
     server.on('GET /auth/me', WITH_ROLE)
     await user.click(screen.getByRole('button', { name: TEXT.checkAgain }))
 
-    expect(await screen.findByText('You are signed in')).toBeInTheDocument()
+    expect(await screen.findByText('Products are coming soon')).toBeInTheDocument()
   })
 
   it('goes back to the login page with the message when the account was disabled in the meantime', async () => {

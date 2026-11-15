@@ -24,6 +24,7 @@ import jakarta.servlet.http.HttpServletResponse;
  *
  * <ul>
  * <li>No token, or a token that is not accepted: {@code UNAUTHENTICATED} (401).</li>
+ * <li>A token of an earlier login, after the account logged in again: {@code SESSION_REPLACED} (401).</li>
  * <li>A token of a disabled account: {@code ACCOUNT_DISABLED} (403).</li>
  * <li>A user with no role on an endpoint that needs one: {@code ACCOUNT_NO_ROLE} (403).</li>
  * <li>A request that is not allowed for this user: {@code FORBIDDEN} (403).</li>
@@ -49,6 +50,11 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
 			return;
 		}
 		response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+		if (failure instanceof TokenAuthenticator.SessionReplacedException) {
+			resolver.resolveException(request, response, null,
+					new ApiException(ErrorCode.SESSION_REPLACED, "This account signed in on another device"));
+			return;
+		}
 		resolver.resolveException(request, response, null, new ApiException(ErrorCode.UNAUTHENTICATED, "Log in to continue"));
 	}
 

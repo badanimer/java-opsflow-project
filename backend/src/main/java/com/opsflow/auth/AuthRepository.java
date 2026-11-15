@@ -26,12 +26,12 @@ class AuthRepository {
 	/** What login and the token check need to know about an account. */
 	record Account(long id, String username, String passwordHash, Instant passwordChangedAt, boolean disabled,
 			boolean deleted, boolean system, int failedLoginCount, Instant lastFailedLoginAt, Instant lockedUntil,
-			Instant lastLoginAt) {
+			Instant lastLoginAt, String sessionId) {
 	}
 
 	private static final String SELECT = """
 			SELECT id, username, password_hash, password_changed_at, status, deleted, is_system,
-			       failed_login_count, last_failed_login_at, locked_until, last_login_at
+			       failed_login_count, last_failed_login_at, locked_until, last_login_at, session_id
 			FROM users
 			""";
 
@@ -66,9 +66,15 @@ class AuthRepository {
 				failedLoginCount, UtcTime.toLocalDateTime(at), UtcTime.toLocalDateTime(lockedUntil), id);
 	}
 
-	void recordSuccess(long id, Instant at) {
-		jdbc.update("UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?",
-				UtcTime.toLocalDateTime(at), id);
+	/** Called with the row locked. The new session id ends every earlier login of the account. */
+	void recordSuccess(long id, Instant at, String sessionId) {
+		jdbc.update("UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ?, session_id = ? WHERE id = ?",
+				UtcTime.toLocalDateTime(at), sessionId, id);
+	}
+
+	/** The id of the newest login of the account, read without a lock: null when it has none. */
+	String sessionId(long id) {
+		return jdbc.queryForList("SELECT session_id FROM users WHERE id = ?", String.class, id).stream().findFirst().orElse(null);
 	}
 
 	/** The account of an email address, soft-deleted accounts and the SYSTEM identity included: their addresses stay reserved. */
@@ -84,16 +90,19 @@ class AuthRepository {
 	 * A new account: active, with no role. The unique keys on the username and the email refuse a second one.
 	 *
 	 * @param loggedInAt the moment of the first login when the account is logged in at once, or null
+	 * @param sessionId the id of that first login, or null
 	 */
-	long insertUser(String username, String email, String passwordHash, Instant loggedInAt) {
+	long insertUser(String username, String email, String passwordHash, Instant loggedInAt, String sessionId) {
 		KeyHolder key = new GeneratedKeyHolder();
 		jdbc.update(connection -> {
 			PreparedStatement statement = connection.prepareStatement(
-					"INSERT INTO users (username, email, password_hash, last_login_at) VALUES (?, ?, ?, ?)", Statement.RETURN_GENERATED_KEYS);
+					"INSERT INTO users (username, email, password_hash, last_login_at, session_id) VALUES (?, ?, ?, ?, ?)",
+					Statement.RETURN_GENERATED_KEYS);
 			statement.setString(1, username);
 			statement.setString(2, email);
 			statement.setString(3, passwordHash);
 			statement.setObject(4, UtcTime.toLocalDateTime(loggedInAt));
+			statement.setString(5, sessionId);
 			return statement;
 		}, key);
 		return key.getKey().longValue();
@@ -122,7 +131,7 @@ class AuthRepository {
 		return new Account(rs.getLong("id"), rs.getString("username"), rs.getString("password_hash"),
 				instant(rs, "password_changed_at"), "DISABLED".equals(rs.getString("status")), rs.getBoolean("deleted"),
 				rs.getBoolean("is_system"), rs.getInt("failed_login_count"), instant(rs, "last_failed_login_at"),
-				instant(rs, "locked_until"), instant(rs, "last_login_at"));
+				instant(rs, "locked_until"), instant(rs, "last_login_at"), rs.getString("session_id"));
 	}
 
 	private static Instant instant(ResultSet rs, String column) throws SQLException {

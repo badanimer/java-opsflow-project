@@ -57,7 +57,7 @@ public class AdminCreator {
 		}
 		long id;
 		try {
-			id = repository.insertUser(username, email, passwordHash, null);
+			id = repository.insertUser(username, email, passwordHash, null, null);
 		}
 		catch (DuplicateKeyException sameMoment) {
 			throw new Refused("This username or email address was taken a moment ago.");

@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.List;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -11,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import com.opsflow.auth.AccountService.NewAccount;
 import com.opsflow.auth.TokenService.IssuedToken;
@@ -79,11 +82,13 @@ public class AuthController {
 	private final LoginService loginService;
 	private final EmailCodeService emailCodes;
 	private final AccountService accounts;
+	private final SessionEvents sessionEvents;
 
-	AuthController(LoginService loginService, EmailCodeService emailCodes, AccountService accounts) {
+	AuthController(LoginService loginService, EmailCodeService emailCodes, AccountService accounts, SessionEvents sessionEvents) {
 		this.loginService = loginService;
 		this.emailCodes = emailCodes;
 		this.accounts = accounts;
+		this.sessionEvents = sessionEvents;
 	}
 
 	@Public
@@ -97,6 +102,18 @@ public class AuthController {
 	@GetMapping("/me")
 	public AccountResponse me(@AuthenticationPrincipal CurrentUser user) {
 		return new AccountResponse(user.id(), user.username(), user.roles(), List.copyOf(user.permissions()));
+	}
+
+	/**
+	 * The event stream of a signed-in page: it gets {@code session-replaced} as soon as the account signs
+	 * in on another device, and then ends. Open to a user with no role too, because the pending page is
+	 * signed in as well. See {@link SessionEvents}.
+	 */
+	@AnyAccount
+	@GetMapping(path = "/session-events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public SseEmitter sessionEvents(Authentication authentication) {
+		TokenAuthenticator.CurrentUserAuthentication current = (TokenAuthenticator.CurrentUserAuthentication) authentication;
+		return sessionEvents.open(current.getPrincipal().id(), current.sessionId());
 	}
 
 	/** The answer is the same whether or not a mail is sent, so it does not show which addresses are registered. */

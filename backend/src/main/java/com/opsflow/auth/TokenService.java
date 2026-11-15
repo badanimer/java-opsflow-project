@@ -30,9 +30,10 @@ import com.opsflow.common.config.OpsflowProperties;
 /**
  * Issues and reads the login token: a JWT signed with HMAC-SHA256.
  *
- * The token carries only the id of the user ({@code sub}) and the time it was issued. Nothing else about
- * the user is in it, because every request loads the user from the database (see Token checks in
- * docs/database/database-design.md). The issue time is also stored in milliseconds
+ * The token carries only the id of the user ({@code sub}), the time it was issued, and the id of the login
+ * it belongs to ({@value #SESSION_ID}), which the token check compares with {@code users.session_id} so
+ * that only the newest login of an account is signed in. Nothing else about the user is in it, because
+ * every request loads the user from the database (see Token checks in docs/database/database-design.md). The issue time is also stored in milliseconds
  * ({@value #ISSUED_AT_MILLIS}), because the standard {@code iat} is in whole seconds and
  * {@code users.password_changed_at} is not: with seconds alone, a login in the same second as a password
  * reset could not be told from one before it.
@@ -43,6 +44,8 @@ import com.opsflow.common.config.OpsflowProperties;
 public class TokenService {
 
 	static final String ISSUED_AT_MILLIS = "iat_ms";
+
+	static final String SESSION_ID = "sid";
 
 	private static final int MIN_KEY_BYTES = 32;
 
@@ -70,13 +73,15 @@ public class TokenService {
 		this.decoder = nimbus;
 	}
 
-	public IssuedToken issue(long userId, Instant issuedAt) {
+	/** @param sessionId the id that the login wrote to {@code users.session_id} in its transaction */
+	public IssuedToken issue(long userId, Instant issuedAt, String sessionId) {
 		Instant expiresAt = issuedAt.plus(ttl);
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 				.subject(Long.toString(userId))
 				.issuedAt(issuedAt)
 				.expiresAt(expiresAt)
 				.claim(ISSUED_AT_MILLIS, issuedAt.toEpochMilli())
+				.claim(SESSION_ID, sessionId)
 				.build();
 		JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
 		// The token holds its expiry in whole seconds, so that is the time reported to the client.
@@ -105,6 +110,11 @@ public class TokenService {
 	/** The time the token was issued, to the millisecond, or null when the token does not carry it. */
 	static Instant issuedAt(Jwt jwt) {
 		return jwt.getClaim(ISSUED_AT_MILLIS) instanceof Number millis ? Instant.ofEpochMilli(millis.longValue()) : null;
+	}
+
+	/** The id of the login the token belongs to, or null when the token does not carry one. */
+	static String sessionId(Jwt jwt) {
+		return jwt.getClaim(SESSION_ID) instanceof String id ? id : null;
 	}
 
 	/** The expiry is read on the clock of the application, the same clock that issued the token. */
