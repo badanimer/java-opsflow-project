@@ -49,14 +49,17 @@ export class ApiError extends Error {
   readonly requestId?: string
   /** The refused fields of a VALIDATION_FAILED. */
   readonly errors: FieldError[]
+  /** The number of a refused attempt to order, which the person may name in a ticket. */
+  readonly orderNo?: string
 
-  constructor(status: number, code: ResultCode, detail?: string, requestId?: string, errors: FieldError[] = []) {
+  constructor(status: number, code: ResultCode, detail?: string, requestId?: string, errors: FieldError[] = [], orderNo?: string) {
     super(detail ?? code)
     this.name = 'ApiError'
     this.status = status
     this.code = code
     this.requestId = requestId
     this.errors = errors
+    this.orderNo = orderNo
   }
 }
 
@@ -81,10 +84,12 @@ interface Options {
   body?: unknown
   /** false for the endpoints that need no login. The default is true. */
   auth?: boolean
+  /** Headers of the request, such as `Idempotency-Key`. */
+  headers?: Record<string, string>
 }
 
-export async function api<T = void>(path: string, { method = 'GET', body, auth = true }: Options = {}): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+export async function api<T = void>(path: string, { method = 'GET', body, auth = true, headers: extra }: Options = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json', ...extra }
   // A file goes as multipart: the browser sets that type itself, with the boundary of the parts.
   const multipart = body instanceof FormData
   if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json'
@@ -185,6 +190,7 @@ async function readError(response: Response): Promise<ApiError> {
       detail?: string
       requestId?: string
       errors?: FieldError[]
+      orderNo?: string
     }
     if (typeof problem.code === 'string') {
       return new ApiError(
@@ -193,6 +199,7 @@ async function readError(response: Response): Promise<ApiError> {
         problem.detail,
         problem.requestId ?? requestId,
         Array.isArray(problem.errors) ? problem.errors : [],
+        typeof problem.orderNo === 'string' ? problem.orderNo : undefined,
       )
     }
   } catch {

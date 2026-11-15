@@ -48,10 +48,16 @@ describe('the rows', () => {
     expect(within(row('Document wallets')).getByText('Not on sale')).toBeInTheDocument()
   })
 
-  it('shows a viewer and an operator the items with no controls and no Actions column', async () => {
-    await openStock(['OPERATOR', 'VIEWER'], [PAPER])
+  it('shows a viewer the items with no controls and no Actions column', async () => {
+    await openStock(['VIEWER'], [PAPER])
     expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument()
     expect(within(row('A4 paper')).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(row('A4 paper')).queryByText('Delist on Products to edit.')).not.toBeInTheDocument()
+  })
+
+  it('gives an operator Adjust quantity and nothing that changes the item itself', async () => {
+    await openStock(['OPERATOR'], [PAPER])
+    expect(within(row('A4 paper')).getAllByRole('button').map((button) => button.textContent)).toEqual(['Adjust quantity'])
     expect(within(row('A4 paper')).queryByText('Delist on Products to edit.')).not.toBeInTheDocument()
   })
 

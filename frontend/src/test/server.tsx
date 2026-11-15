@@ -14,6 +14,7 @@ export interface Call {
   path: string
   body: unknown
   authorization: string | null
+  idempotencyKey: string | null
 }
 
 type Answer = { status: number; body?: unknown } | { status: 200; stream: ReadableStream<Uint8Array> } | 'network-error'
@@ -82,6 +83,7 @@ export class FakeServer {
       // A multipart upload is kept as the FormData it is; every other body is JSON.
       body: init?.body instanceof FormData ? init.body : init?.body ? JSON.parse(String(init.body)) : undefined,
       authorization: headers.get('Authorization'),
+      idempotencyKey: headers.get('Idempotency-Key'),
     }
     this.calls.push(call)
     const handler = this.handlers.get(`${call.method} ${call.path}`)

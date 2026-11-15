@@ -12,6 +12,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { usePagedList } from '../../hooks/usePagedList'
 import { TEXT } from '../../text'
 import { failureNotice, type Notice } from '../../lib/failure'
+import { AdjustQuantityDialog } from './AdjustQuantityDialog'
 import { ItemDialog } from './ItemDialog'
 
 const SEARCH_MAX = 200
@@ -41,9 +42,19 @@ export function StockPage() {
   /** The Add or Edit dialog: `null` item adds one. */
   const [editing, setEditing] = useState<{ item: Item | null } | null>(null)
 
+  const [adjusting, setAdjusting] = useState<Item | null>(null)
+
   const mayManage = can(account, 'ITEM_MANAGE')
   const mayDelete = can(account, 'ITEM_DELETE')
-  const showActions = mayManage || mayDelete
+  const mayAdjust = can(account, 'STOCK_IN') || can(account, 'STOCK_WRITE_OFF') || can(account, 'STOCK_CORRECT')
+  const showActions = mayManage || mayDelete || mayAdjust
+
+  /** Reads the page shown again, as the dialog of a quantity change asks, and returns the item from it. */
+  async function reloadItem(id: number): Promise<Item | null> {
+    const fresh = await listItems(list.search, list.request)
+    list.reload()
+    return fresh.items.find((item) => item.id === id) ?? null
+  }
 
   function clearSearch() {
     setSearchText('')
@@ -101,6 +112,11 @@ export function StockPage() {
         {mayDelete && (
           <Button type="link" size="small" danger onClick={() => { setNotice(null); setDeletion({ item, running: false, notice: null, finished: false }) }}>
             {TEXT.stock.delete}
+          </Button>
+        )}
+        {mayAdjust && (
+          <Button size="small" onClick={() => { setNotice(null); setAdjusting(item) }}>
+            {TEXT.adjust.button}
           </Button>
         )}
       </Space>
@@ -192,12 +208,28 @@ export function StockPage() {
               { title: TEXT.stock.sku, dataIndex: 'sku', key: 'sku', width: 120 },
               { title: TEXT.stock.quantity, dataIndex: 'availableQuantity', key: 'quantity', width: 90 },
               { title: TEXT.stock.listingStatus, key: 'status', width: 220, render: (_, item) => statusOf(item) },
-              ...(showActions ? [{ title: TEXT.stock.actions, key: 'actions', width: 200, render: (_: unknown, item: Item) => actionsOf(item) }] : []),
+              ...(showActions ? [{ title: TEXT.stock.actions, key: 'actions', width: 280, render: (_: unknown, item: Item) => actionsOf(item) }] : []),
             ]}
           />
         )}
         {page && !error && !loading && <CursorPager page={page} onPage={list.goTo} />}
       </section>
+
+      {adjusting && (
+        <AdjustQuantityDialog
+          item={adjusting}
+          reloadItem={() => reloadItem(adjusting.id)}
+          onSaved={(message) => {
+            setAdjusting(null)
+            setNotice({ type: 'success', message })
+            list.reload()
+          }}
+          onClose={(stale) => {
+            setAdjusting(null)
+            if (stale) list.reload()
+          }}
+        />
+      )}
 
       {editing && (
         <ItemDialog

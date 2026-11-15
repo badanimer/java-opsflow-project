@@ -14,6 +14,7 @@ import { formatPrice } from '../../lib/format'
 import { TEXT } from '../../text'
 import { failureNotice, type Notice } from '../../lib/failure'
 import { ListItemDialog } from './ListItemDialog'
+import { OrderDialog } from './OrderDialog'
 
 const SEARCH_MAX = 200
 
@@ -38,9 +39,11 @@ export function ProductsPage() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [delisting, setDelisting] = useState<Delisting | null>(null)
   const [listing, setListing] = useState(false)
+  const [ordering, setOrdering] = useState<ShopProduct | null>(null)
 
   const mayList = can(account, 'PRODUCT_LIST')
   const mayDelist = can(account, 'PRODUCT_DELIST')
+  const mayOrder = can(account, 'ORDER_PLACE')
 
   function clearSearch() {
     setSearchText('')
@@ -134,10 +137,16 @@ export function ProductsPage() {
                     <Typography.Paragraph className="product-card__name" ellipsis={{ rows: 2, tooltip: product.name }}>
                       {product.name}
                     </Typography.Paragraph>
+                    <Typography.Text strong className="product-card__price">
+                      {formatPrice(product.price)}
+                    </Typography.Text>
                     <div className="product-card__foot">
-                      <Typography.Text strong className="product-card__price">
-                        {formatPrice(product.price)}
-                      </Typography.Text>
+                      {mayOrder && (
+                        <Button type="primary" size="small" onClick={() => { setNotice(null); setOrdering(product) }}>
+                          {TEXT.order.order}
+                        </Button>
+                      )}
+                      <span className="product-card__spacer" />
                       {mayDelist && (
                         <Button type="link" size="small" danger onClick={() => { setNotice(null); setDelisting({ product, running: false, notice: null, finished: false }) }}>
                           {TEXT.products.delist}
@@ -152,6 +161,16 @@ export function ProductsPage() {
         )}
         {page && !error && !loading && <CursorPager page={page} onPage={list.goTo} />}
       </section>
+
+      {ordering && (
+        <OrderDialog
+          product={ordering}
+          onClose={(reload) => {
+            setOrdering(null)
+            if (reload) list.reload()
+          }}
+        />
+      )}
 
       {listing && (
         <ListItemDialog

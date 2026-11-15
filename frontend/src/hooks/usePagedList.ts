@@ -9,6 +9,8 @@ export interface PagedList<T> {
   error: unknown
   /** The search that was applied. */
   search: string
+  /** The page asked for: the first, or one after or before a cursor. */
+  request: PageRequest
   applySearch: (search: string) => void
   goTo: (request: PageRequest) => void
   /** Loads the same page with the same search again, for example after a change. */
@@ -60,5 +62,5 @@ export function usePagedList<T>(load: (search: string, request: PageRequest) => 
   }, [])
   const reload = useCallback(() => setReloads((count) => count + 1), [])
 
-  return { page, loading, error, search, applySearch, goTo: setRequest, reload }
+  return { page, loading, error, search, request, applySearch, goTo: setRequest, reload }
 }

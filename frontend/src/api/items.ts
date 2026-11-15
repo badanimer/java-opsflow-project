@@ -59,6 +59,21 @@ export function imagePathOf(url: string | null): string | null {
   return url && url.startsWith(IMAGE_URL_PREFIX) ? url.slice(IMAGE_URL_PREFIX.length) : null
 }
 
+/** The three manual stock changes; each answers with the item and its new stock. */
+export type StockChange = 'STOCK_IN' | 'WRITE_OFF' | 'CORRECTION'
+
+const STOCK_CHANGE_PATH: Record<StockChange, string> = { STOCK_IN: 'stock-in', WRITE_OFF: 'write-off', CORRECTION: 'correction' }
+
+/**
+ * A stock-in or a write-off takes the quantity moved; a correction takes the number that was counted and
+ * the stock the person saw (`expectedQuantity`), which the server compares under its lock.
+ */
+export function changeStock(id: number, change: StockChange, quantity: number, reason: string, expectedQuantity: number): Promise<Item> {
+  const body: Record<string, unknown> = { quantity, reason }
+  if (change === 'CORRECTION') body.expectedQuantity = expectedQuantity
+  return api<Item>(`/items/${id}/${STOCK_CHANGE_PATH[change]}`, { method: 'POST', body })
+}
+
 /** The deletion is soft and cannot be undone: the item leaves the list, and its product is delisted. */
 export function deleteItem(id: number): Promise<void> {
   return api(`/items/${id}`, { method: 'DELETE' })
