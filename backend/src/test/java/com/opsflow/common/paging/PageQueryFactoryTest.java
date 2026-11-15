@@ -15,13 +15,24 @@ import com.opsflow.common.error.ErrorCode;
 class PageQueryFactoryTest {
 
 	private final PageQueryFactory factory = new PageQueryFactory(
-			new OpsflowProperties(new OpsflowProperties.Retry(3, List.of(Duration.ofMillis(50))), new OpsflowProperties.Paging(10), null, null, null, null, null, null, null, null, null));
+			new OpsflowProperties(new OpsflowProperties.Retry(3, List.of(Duration.ofMillis(50))), new OpsflowProperties.Paging(10, 16, 24), null, null, null, null, null, null, null, null, null));
 
 	@Test
 	void theDefaultsAreTheFirstPageOfTenNewestFirst() {
 		PageQuery query = factory.create(null, null, null, null, false);
 
 		assertThat(query).isEqualTo(new PageQuery(10, null, Direction.NEXT, SortOrder.DESC));
+	}
+
+	@Test
+	void theProductPageHoldsItsOwnNumberOfCardsByNameAndRefusesAnOrder() {
+		PageQuery query = factory.createProductPage(null, null, null, null);
+		assertThat(query).isEqualTo(new PageQuery(16, null, Direction.NEXT, SortOrder.ASC));
+		assertThat(factory.createProductPage(8, null, null, null).limit()).isEqualTo(8);
+		assertThat(factory.createProductPage(24, null, null, null).limit()).isEqualTo(24);
+		assertRefused(() -> factory.createProductPage(25, null, null, null));
+		assertRefused(() -> factory.createProductPage(null, null, null, "desc"));
+		assertRefused(() -> factory.create(11, null, null, null, false));
 	}
 
 	@Test

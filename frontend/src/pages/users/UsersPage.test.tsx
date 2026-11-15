@@ -123,7 +123,7 @@ describe('the paging', () => {
 
     await user.type(screen.getByRole('searchbox', { name: 'Search by username' }), 'a{Enter}')
     await findInList('adam')
-    expect(screen.queryByRole('button', { name: 'Previous' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await findInList('alice')
@@ -131,7 +131,7 @@ describe('the paging', () => {
 
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await findInList('chloe')
-    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
 
     await user.click(screen.getByRole('button', { name: 'Previous' }))
     expect(await findInList('alice')).toBeInTheDocument()

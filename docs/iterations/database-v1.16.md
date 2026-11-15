@@ -34,6 +34,7 @@ The authoritative design is [OpsFlow Database Design](../database/database-desig
 | The order dialog | `NOT_ALLOWED` when the account or its role does not allow orders | `FORBIDDEN`, from the permission check of every endpoint (T-27), and `ACCOUNT_DISABLED` for a disabled account |
 | Order attempts | `NOT_ALLOWED` is not recorded | A refusal of the permissions is not recorded, nor a request whose shape is wrong, which is no attempt |
 | Operating Parameters | No limit on the lines of an order; the generation attempts named SKUs and ticket numbers; the zone of the time filter only in its text | 20 lines in one order; the 5 attempts cover order numbers too; the display time zone, `Australia/Sydney` |
+| Home page and paging | No page numbers; 10 rows a page on every list | The number of the page shown ("Page 3"), counted by the page, still with no total; on the product page the person chooses 8, 16 (the default), or 24 cards a page, and a full page fills its rows (the owner's request on 2026-11-16, after seeing 8 cards in a row and 2 in the next) |
 | Logs, finding by order number | The box turns the number to lower case, because the numbers are lower case | The numbers start with `ORD-` in upper case: the number is written that way, and the rest in lower case, before the exact match |
 | The searchable picker | The item picker offers every item that is not deleted | The same, and it reads the rows of the stock page (`GET /items`) |
 
@@ -50,7 +51,7 @@ The authoritative design is [OpsFlow Database Design](../database/database-desig
 
 | Artifact | Status |
 | --- | --- |
-| [Database design document](../database/database-design.md) | Updated: Manual stock changes, Order attempts, Create order, The order dialog, Logs, The searchable picker, Operating Parameters, and the Change Log |
+| [Database design document](../database/database-design.md) | Updated: Manual stock changes, Order attempts, Create order, The order dialog, Home page and paging, Logs, The searchable picker, Operating Parameters, and the Change Log |
 | Migrations, Physical ERD, Simplified ERD, Business Process Flowchart | Not changed: no table, column, or flow changed |
 | [`run-db-verification.ps1`](../../db/verification/run-db-verification.ps1), [`concurrency-fixtures.sql`](../../db/verification/concurrency-fixtures.sql), [`restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql) | Not changed and not run again: the schema, the privileges, and the order and stock flows of the procedures are the same. The last run, on 2026-11-15, had 162 passed |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the application tests of the order module and the stock changes repeat D1, D2, D3, and the order rows of D4 and D5 |

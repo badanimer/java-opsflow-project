@@ -27,6 +27,8 @@ opsflow:
     delays: 50ms, 150ms   # before the 2nd and the 3rd try; a random extra of up to half is added
   paging:
     page-size: 10         # the default and the most
+    product-page-size: 16 # the product page when it asks for no size; the person chooses 8, 16, or 24
+    product-page-max: 24  # the most cards a page of the product page may ask for
   login:
     lock-steps:           # failures in a row: how long the account is locked
       5: 1m

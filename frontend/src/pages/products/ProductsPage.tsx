@@ -1,10 +1,14 @@
 import { useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Spin, Typography } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { RecordsChooser } from '../logs/RecordsChooser'
 import { ApiError } from '../../api/client'
-import { delistProduct, listProducts, type ShopProduct } from '../../api/products'
+import { DEFAULT_PRODUCT_PAGE_SIZE, delistProduct, listProducts, type ProductPageSize, type ShopProduct } from '../../api/products'
+import { PageSizeSwitch } from '../../components/PageSizeSwitch'
 import { useAuth } from '../../auth/context'
 import { can } from '../../auth/permissions'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { pageNumberOf } from '../../api/paging'
 import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
@@ -34,12 +38,16 @@ interface Delisting {
  */
 export function ProductsPage() {
   const { account, refresh } = useAuth()
-  const list = usePagedList(listProducts)
+  const [pageSize, setPageSize] = useState<ProductPageSize>(DEFAULT_PRODUCT_PAGE_SIZE)
+  // A new size starts again at page 1.
+  const list = usePagedList((search, request) => listProducts(search, request, pageSize), String(pageSize))
   const [searchText, setSearchText] = useState('')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [delisting, setDelisting] = useState<Delisting | null>(null)
   const [listing, setListing] = useState(false)
   const [ordering, setOrdering] = useState<ShopProduct | null>(null)
+  const [choosing, setChoosing] = useState(false)
+  const navigate = useNavigate()
 
   const mayList = can(account, 'PRODUCT_LIST')
   const mayDelist = can(account, 'PRODUCT_DELIST')
@@ -86,15 +94,18 @@ export function ProductsPage() {
       <PageHeader
         title={TEXT.nav.products}
         actions={
-          mayList && (
-            <Button type="primary" onClick={() => { setNotice(null); setListing(true) }}>
-              {TEXT.products.listItem}
-            </Button>
-          )
+          <>
+            <Button onClick={() => setChoosing(true)}>{TEXT.viewRecords}</Button>
+            {mayList && (
+              <Button type="primary" onClick={() => { setNotice(null); setListing(true) }}>
+                {TEXT.products.listItem}
+              </Button>
+            )}
+          </>
         }
       />
 
-      <section className="panel filter-bar" aria-label="Filters">
+      <section className="panel filter-bar filter-bar--row" aria-label="Filters">
         <Input.Search
           placeholder={TEXT.stock.searchPlaceholder}
           aria-label={TEXT.stock.searchPlaceholder}
@@ -108,11 +119,14 @@ export function ProductsPage() {
           onSearch={(value) => list.applySearch(value)}
           className="filter-bar__search"
         />
+        <div className="filter-bar__end">
+          <PageSizeSwitch value={pageSize} onChange={setPageSize} />
+        </div>
       </section>
 
       {notice && <Alert type={notice.type} showIcon message={notice.message} closable onClose={() => setNotice(null)} role="alert" className="page-notice" />}
 
-      <section className="panel panel--list" aria-label={TEXT.products.listLabel}>
+      <section className="panel panel--list product-list" aria-label={TEXT.products.listLabel}>
         {error ? (
           <ListFailure error={error} onRetry={() => { if (error instanceof ApiError && error.code === 'FORBIDDEN') refresh().catch(() => {}); list.reload() }} onClear={clearSearch} />
         ) : !page ? (
@@ -130,37 +144,47 @@ export function ProductsPage() {
           )
         ) : (
           <Spin spinning={loading}>
-            <ul className="product-grid">
+            <ul className={`product-grid product-grid--${pageSize}`}>
               {page.items.map((product) => (
                 <li key={product.id}>
                   <Card className="product-card" size="small" cover={<ItemThumbnail url={product.imageUrl} size={140} />}>
-                    <Typography.Paragraph className="product-card__name" ellipsis={{ rows: 2, tooltip: product.name }}>
+                    <span className="product-card__name" title={product.name}>
                       {product.name}
-                    </Typography.Paragraph>
+                    </span>
                     <Typography.Text strong className="product-card__price">
                       {formatPrice(product.price)}
                     </Typography.Text>
-                    <div className="product-card__foot">
-                      {mayOrder && (
-                        <Button type="primary" size="small" onClick={() => { setNotice(null); setOrdering(product) }}>
-                          {TEXT.order.order}
-                        </Button>
-                      )}
-                      <span className="product-card__spacer" />
+                    {/* The secondary actions as small links, and the order, the main action of a card, below them across the card. */}
+                    <div className="product-card__links">
+                      <Button
+                        type="link"
+                        size="small"
+                        aria-label={`${TEXT.view} ${product.name}`}
+                        onClick={() => navigate(`/products/${product.id}/records`, { state: { name: product.name } })}
+                      >
+                        {TEXT.view}
+                      </Button>
                       {mayDelist && (
                         <Button type="link" size="small" danger onClick={() => { setNotice(null); setDelisting({ product, running: false, notice: null, finished: false }) }}>
                           {TEXT.products.delist}
                         </Button>
                       )}
                     </div>
+                    {mayOrder && (
+                      <Button type="primary" block className="product-card__order" onClick={() => { setNotice(null); setOrdering(product) }}>
+                        {TEXT.order.order}
+                      </Button>
+                    )}
                   </Card>
                 </li>
               ))}
             </ul>
           </Spin>
         )}
-        {page && !error && !loading && <CursorPager page={page} onPage={list.goTo} />}
+        {page && !error && !loading && <CursorPager page={page} number={pageNumberOf(list.request)} onPage={list.goTo} />}
       </section>
+
+      {choosing && <RecordsChooser area="products" onClose={() => setChoosing(false)} />}
 
       {ordering && (
         <OrderDialog

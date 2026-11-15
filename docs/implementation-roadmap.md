@@ -21,7 +21,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 2 | Accounts and login. Done in the backend: login, sign-up, password recovery, and the cleanup job. Left: two rules that wait for the user module | T-43, T-36 |
 | 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page. The frontend of the phase is built and checked by the owner | |
 | 4 | Done: warehouse items, their pictures, and products, with the product page and the first part of the stock page, checked by the owner | |
-| 5 | Orders and stock | T-10, T-12, T-41, T-30, T-46, T-50 |
+| 5 | Done: orders, the three stock changes, the two logs with the time filter, the picker, and Deleted items, in the backend and the frontend, checked by the owner | |
 | 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
 | 7 | Frontend. Started beside the backend, with the account pages | Q-34, T-27, T-30, T-37 |
 | 8 | Hardening and the rest | T-17, T-34, Q-07, T-08, Q-32, Q-28 |
@@ -119,7 +119,7 @@ The core of the system and the hardest part.
 | T-46 | The stock page, the warehouse log and the product log, the searchable picker, and the Deleted items module |
 | T-17 | The first pass: repeat the concurrency checks of [concurrency-tests.md](../db/verification/concurrency-tests.md) against this code |
 
-**Built so far** (2026-11-16, on `phase-5-backend`): the backend of the whole phase, that is the order flow and the three manual stock changes with their race tests, and the two logs with the time filter, the Deleted items module, and the product picker ([backend-v1.10.md](iterations/backend-v1.10.md), [api-v1.8.md](iterations/api-v1.8.md)). Next: the Figma design and the frontend of the phase (T-10, T-30, T-41, T-46).
+**Built so far** (2026-11-16, on `phase-5-backend`): the backend of the whole phase, that is the order flow and the three manual stock changes with their race tests, and the two logs with the time filter, the Deleted items module, and the product picker ([backend-v1.10.md](iterations/backend-v1.10.md), [api-v1.8.md](iterations/api-v1.8.md)). The Figma design was reviewed and the frontend built on 2026-11-16 ([frontend-v1.8.md](iterations/frontend-v1.8.md)), and the owner checked the phase against the running backend the same day. Phase 5 is done.
 
 **Done when:** many threads ordering the same product never take the stock below zero, every attempt leaves its `order_attempts` row, a repeated key adds nothing, and the race tests for stock changes pass.
 

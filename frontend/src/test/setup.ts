@@ -1,7 +1,13 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { DESKTOP_WIDTH, screenWidth, setScreenWidth } from './screen'
+
+/**
+ * How long `findBy...` and `waitFor` wait for the page. The default of one second is too short for a page
+ * with tabs and date pickers while every test file runs at once; the limit of a whole test stays 15 s.
+ */
+configure({ asyncUtilTimeout: 3000 })
 
 /**
  * Ant Design asks the browser about the screen width, which the test browser does not answer. This

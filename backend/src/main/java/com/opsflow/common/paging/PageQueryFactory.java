@@ -15,9 +15,13 @@ import com.opsflow.common.error.ApiException;
 public class PageQueryFactory {
 
 	private final int pageSize;
+	private final int productPageSize;
+	private final int productPageMax;
 
 	public PageQueryFactory(OpsflowProperties properties) {
 		this.pageSize = properties.paging().pageSize();
+		this.productPageSize = properties.paging().productPageSize();
+		this.productPageMax = properties.paging().productPageMax();
 	}
 
 	/**
@@ -41,11 +45,25 @@ public class PageQueryFactory {
 		return build(limit, cursor, direction, order, false, listOrder);
 	}
 
+	/**
+	 * For the product page, ordered by name: {@code opsflow.paging.product-page-size} cards by default, and at
+	 * most {@code product-page-max}, because the person chooses how many cards a page shows (Home page and
+	 * paging in the database design).
+	 */
+	public PageQuery createProductPage(Integer limit, String cursor, String direction, String order) {
+		return build(limit, cursor, direction, order, false, SortOrder.ASC, productPageSize, productPageMax);
+	}
+
 	private PageQuery build(Integer limit, String cursor, String direction, String order, boolean orderChoosable,
 			SortOrder defaultOrder) {
-		int size = limit == null ? pageSize : limit;
-		if (size < 1 || size > pageSize) {
-			throw ApiException.invalid("limit", "must be between 1 and " + pageSize);
+		return build(limit, cursor, direction, order, orderChoosable, defaultOrder, pageSize, pageSize);
+	}
+
+	private PageQuery build(Integer limit, String cursor, String direction, String order, boolean orderChoosable,
+			SortOrder defaultOrder, int defaultSize, int maxSize) {
+		int size = limit == null ? defaultSize : limit;
+		if (size < 1 || size > maxSize) {
+			throw ApiException.invalid("limit", "must be between 1 and " + maxSize);
 		}
 		Direction travel = direction == null ? Direction.NEXT : parse(Direction.class, "direction", direction);
 		if (order != null && !orderChoosable) {

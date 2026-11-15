@@ -10,10 +10,20 @@ export interface Page<T> {
   prevCursor: string | null
 }
 
-/** Which page to read: the first page (no cursor), or the page after or before a cursor. */
+/**
+ * Which page to read: the first page (no cursor), or the page after or before a cursor. `number` is the
+ * place of that page counted from the first, for the person only: Previous and Next count it, and any new
+ * search or filter starts again at the first page, which is page 1. It is never sent.
+ */
 export interface PageRequest {
   cursor?: string
   direction?: 'next' | 'prev'
+  number?: number
+}
+
+/** The number of the page a request reads: 1 for the first page. */
+export function pageNumberOf(request: PageRequest): number {
+  return request.number ?? 1
 }
 
 export const FIRST_PAGE: PageRequest = {}

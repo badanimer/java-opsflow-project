@@ -280,6 +280,40 @@ body {
   max-width: 360px;
 }
 
+/* A filter bar on one line, with a control at its far end (the page size of the product page). */
+.filter-bar--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-bar__end {
+  margin-left: auto;
+}
+
+/* The page size of the product page: the choice that is on is filled with the primary colour. */
+.page-size-switch.ant-segmented {
+  padding: 3px;
+}
+
+.page-size-switch .ant-segmented-item-selected,
+.page-size-switch .ant-segmented-thumb {
+  background: #1677ff;
+  color: #fff;
+}
+
+.page-size-switch .ant-segmented-item:not(.ant-segmented-item-selected) {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.page-size-switch__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+}
+
 .filter-bar__toggles {
   display: flex;
   flex-wrap: wrap;
@@ -303,10 +337,19 @@ body {
   width: 100%;
 }
 
+/* The pager sits centred at the foot of a list, with the number of the page as its most visible part. */
 .cursor-pager {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.cursor-pager .cursor-pager__number {
+  min-width: 72px;
+  font-size: 16px;
+  text-align: center;
 }
 
 .username-cell {
@@ -323,6 +366,39 @@ body {
 
 .row-actions .ant-btn-link {
   padding-inline: 4px;
+}
+
+/* In a table the actions of a row stay on one line. */
+.row-actions--inline {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+/*
+ * The spacing of the columns of a table: a short column has a width, the column of a name takes the room
+ * that is left, and the column of actions is only as wide as its links (width 1% with no wrapping makes a
+ * cell shrink to its content in an automatic table layout).
+ */
+.ant-table-cell.cell-shrink {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.ant-table-cell.cell-grow {
+  min-width: 160px;
+}
+
+/*
+ * A text in a cell that may run to two lines and then ends in "…": a long name breaks between its words,
+ * or inside a long word. The whole text is in its title.
+ */
+.cell-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .user-item.ant-list-item {
@@ -415,6 +491,7 @@ body {
 
 .listing-status__note {
   font-size: 12px;
+  line-height: 1.4;
 }
 
 .stock-item.ant-list-item {
@@ -467,13 +544,78 @@ body {
 
 /* The product page: cards with the picture, the name, and the price */
 
+/*
+ * The cards of the product page. The person chooses 8, 16, or 24 a page, and each choice is one size of
+ * card smaller than the one before, at any width of the list (a container query). The columns divide the
+ * page, so a full page always fills its rows:
+ *   width of the list   8 a page   16 a page   24 a page
+ *   900 px and more     4          8           12
+ *   500 to 899 px       4          4           6
+ *   less than 500 px    2          2           3
+ */
+.product-list {
+  container-type: inline-size;
+}
+
 .product-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.product-grid--24 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@container (min-width: 500px) {
+  .product-grid--8,
+  .product-grid--16 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .product-grid--24 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 900px) {
+  .product-grid--16 {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .product-grid--24 {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+  }
+}
+
+/* The small cards of 24 a page: a smaller name and price, so that "$1500.00" stays inside the card. */
+.product-grid--24 .product-card .ant-card-body {
+  padding: 10px;
+}
+
+.product-grid--24 .product-card .product-card__name {
+  font-size: 13px;
+  line-height: 18px;
+  min-height: 36px;
+}
+
+.product-grid--24 .product-card .product-card__price {
+  font-size: 15px;
+}
+
+/* The large cards of 8 a page: a larger name and price. */
+.product-grid--8 .product-card .product-card__name {
+  font-size: 16px;
+  line-height: 24px;
+  min-height: 48px;
+}
+
+.product-grid--8 .product-card .product-card__price {
+  font-size: 24px;
 }
 
 .product-card {
@@ -490,24 +632,49 @@ body {
   width: 100% !important;
 }
 
-.product-card .product-card__name {
-  min-height: 44px;
-  margin-bottom: 8px;
-}
-
-.product-card__foot {
+/* The card is a column, so that the order button sits at its foot on every card of a row. */
+.product-card {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
+  flex-direction: column;
 }
 
-.product-card__spacer {
+.product-card .ant-card-body {
+  display: flex;
   flex: 1;
+  flex-direction: column;
 }
 
-.product-card__price {
-  font-size: 16px;
+/* Up to two lines of the name, the same height on every card, cut by CSS with the whole name on hover. */
+.product-card .product-card__name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  min-height: 44px;
+  margin-bottom: 4px;
+  line-height: 22px;
+}
+
+.product-card .product-card__price {
+  font-size: 20px;
+}
+
+/* The links and the order button sit together at the foot of the card. */
+.product-card__links {
+  display: flex;
+  justify-content: space-between;
+  margin: auto -4px 0;
+  padding-top: 4px;
+}
+
+.product-card__links .ant-btn-link {
+  padding-inline: 4px;
+}
+
+.product-card .product-card__order {
+  margin-top: 12px;
 }
 
 .chosen-item {
@@ -538,7 +705,6 @@ body {
   }
 
   .product-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
 
@@ -628,4 +794,114 @@ body {
 
 .field-error--inline {
   margin-top: 0;
+}
+
+/* The logs */
+.back-link {
+  display: inline-block;
+  margin-bottom: 8px;
+}
+
+.own-log__subtitle {
+  display: block;
+  margin: -8px 0 12px;
+}
+
+.log-filters {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.log-filters__row,
+.time-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.time-filter__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.time-filter__select {
+  min-width: 150px;
+}
+
+.record-picker__select {
+  min-width: 220px;
+}
+
+.order-number-search {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.order-number-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.order-number-search__input {
+  max-width: 360px;
+}
+
+.record-order-number {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+}
+
+.record-order-number__text {
+  max-width: 170px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.amount--in {
+  color: #389e0d;
+}
+
+.amount--out {
+  color: #cf1322;
+}
+
+.record-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.record-stack__row {
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.record-stack__pair {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.records-chooser {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.records-chooser__choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fafafa;
 }

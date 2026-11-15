@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Empty, Grid, Input, List, Space, Spin, Table, Typography } from 'antd'
 import { ApiError, NetworkError } from '../../api/client'
-import { FIRST_PAGE, type Page, type PageRequest } from '../../api/paging'
+import { FIRST_PAGE, pageNumberOf, type Page, type PageRequest } from '../../api/paging'
 import { deleteUser, disableUser, enableUser, listUsers, type ListedUser, type UserFilter } from '../../api/users'
 import { useAuth } from '../../auth/context'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
@@ -155,7 +155,7 @@ export function UsersPage() {
       )
     }
     return (
-      <Space size={4} wrap className="row-actions">
+      <Space size={4} wrap={small} className={small ? 'row-actions' : 'row-actions row-actions--inline'}>
         {allowed.changeRoles && (
           <Button type="link" size="small" onClick={() => openDialog({ kind: 'roles', user })}>
             {TEXT.users.changeRoles}
@@ -269,15 +269,16 @@ export function UsersPage() {
             dataSource={page.items}
             rowKey="id"
             pagination={false}
+            tableLayout="auto"
             columns={[
               { title: TEXT.users.username, key: 'username', render: (_, user) => usernameOf(user), width: '30%' },
-              { title: TEXT.users.status, key: 'status', render: (_, user) => <StatusTag status={user.status} />, width: '14%' },
-              { title: TEXT.users.roles, key: 'roles', render: (_, user) => <RoleTags roles={user.roles} /> },
-              ...(showActions ? [{ title: TEXT.users.actions, key: 'actions', render: (_: unknown, user: ListedUser) => actionsOf(user) }] : []),
+              { title: TEXT.users.status, key: 'status', render: (_, user) => <StatusTag status={user.status} />, width: 110 },
+              { title: TEXT.users.roles, key: 'roles', className: 'cell-grow', render: (_, user) => <RoleTags roles={user.roles} /> },
+              ...(showActions ? [{ title: TEXT.users.actions, key: 'actions', className: 'cell-shrink', render: (_: unknown, user: ListedUser) => actionsOf(user) }] : []),
             ]}
           />
         )}
-        {page && !loadError && !loading && <CursorPager page={page} onPage={setRequest} />}
+        {page && !loadError && !loading && <CursorPager page={page} number={pageNumberOf(request)} onPage={setRequest} />}
       </section>
 
       {dialog?.kind === 'roles' && (

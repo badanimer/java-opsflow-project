@@ -22,9 +22,15 @@ export interface PagedList<T> {
  * product page, and the catalog of List item use it. A new search starts again at the first page. A
  * page that a change emptied falls back to the first page, as on the user page.
  */
-export function usePagedList<T>(load: (search: string, request: PageRequest) => Promise<Page<T>>): PagedList<T> {
+export function usePagedList<T>(load: (search: string, request: PageRequest) => Promise<Page<T>>, setting = ''): PagedList<T> {
   const [search, setSearch] = useState('')
   const [request, setRequest] = useState<PageRequest>(FIRST_PAGE)
+  const [shownSetting, setShownSetting] = useState(setting)
+  // `setting` is a choice of the page that `load` reads, such as the size of a page: a new one starts at page 1.
+  if (setting !== shownSetting) {
+    setShownSetting(setting)
+    setRequest(FIRST_PAGE)
+  }
   const [reloads, setReloads] = useState(0)
   const [page, setPage] = useState<Page<T> | null>(null)
   const [loading, setLoading] = useState(true)
@@ -54,7 +60,7 @@ export function usePagedList<T>(load: (search: string, request: PageRequest) => 
     }
     // `load` is a module function of the API; the list reloads on a new search, page, or reload.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, request, reloads])
+  }, [search, request, reloads, setting])
 
   const applySearch = useCallback((next: string) => {
     setSearch(next.trim())

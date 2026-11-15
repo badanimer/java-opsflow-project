@@ -48,16 +48,17 @@ describe('the rows', () => {
     expect(within(row('Document wallets')).getByText('Not on sale')).toBeInTheDocument()
   })
 
-  it('shows a viewer the items with no controls and no Actions column', async () => {
+  it('gives a viewer View and View records only', async () => {
     await openStock(['VIEWER'], [PAPER])
-    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument()
-    expect(within(row('A4 paper')).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(row('A4 paper')).getAllByRole('button').map((button) => button.textContent)).toEqual(['View'])
     expect(within(row('A4 paper')).queryByText('Delist on Products to edit.')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View records' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add item' })).not.toBeInTheDocument()
   })
 
-  it('gives an operator Adjust quantity and nothing that changes the item itself', async () => {
+  it('gives an operator Adjust quantity and View, and nothing that changes the item itself', async () => {
     await openStock(['OPERATOR'], [PAPER])
-    expect(within(row('A4 paper')).getAllByRole('button').map((button) => button.textContent)).toEqual(['Adjust quantity'])
+    expect(within(row('A4 paper')).getAllByRole('button').map((button) => button.textContent)).toEqual(['Adjust quantity', 'View'])
     expect(within(row('A4 paper')).queryByText('Delist on Products to edit.')).not.toBeInTheDocument()
   })
 
@@ -104,7 +105,7 @@ describe('the search and the paging', () => {
     await within(await list()).findByText('A4 paper')
     await user.click(screen.getByRole('button', { name: 'Next' }))
     expect(await within(await list()).findByText('Kraft packing tape')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Previous' })).toBeInTheDocument()
   })
 })

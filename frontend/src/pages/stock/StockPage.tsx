@@ -5,6 +5,7 @@ import { deleteItem, listItems, type Item } from '../../api/items'
 import { useAuth } from '../../auth/context'
 import { can } from '../../auth/permissions'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
+import { pageNumberOf } from '../../api/paging'
 import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
@@ -12,6 +13,9 @@ import { PageHeader } from '../../components/PageHeader'
 import { usePagedList } from '../../hooks/usePagedList'
 import { TEXT } from '../../text'
 import { failureNotice, type Notice } from '../../lib/failure'
+import { useNavigate } from 'react-router-dom'
+import { RecordsChooser } from '../logs/RecordsChooser'
+import { CellText } from '../../components/RecordTable'
 import { AdjustQuantityDialog } from './AdjustQuantityDialog'
 import { ItemDialog } from './ItemDialog'
 
@@ -47,7 +51,8 @@ export function StockPage() {
   const mayManage = can(account, 'ITEM_MANAGE')
   const mayDelete = can(account, 'ITEM_DELETE')
   const mayAdjust = can(account, 'STOCK_IN') || can(account, 'STOCK_WRITE_OFF') || can(account, 'STOCK_CORRECT')
-  const showActions = mayManage || mayDelete || mayAdjust
+  const [choosing, setChoosing] = useState(false)
+  const navigate = useNavigate()
 
   /** Reads the page shown again, as the dialog of a quantity change asks, and returns the item from it. */
   async function reloadItem(id: number): Promise<Item | null> {
@@ -103,7 +108,21 @@ export function StockPage() {
 
   function actionsOf(item: Item) {
     return (
-      <Space size={4} wrap className="row-actions">
+      // One line in the table, the danger link last; on a small screen the row may wrap.
+      <Space size={4} wrap={small} className={small ? 'row-actions' : 'row-actions row-actions--inline'}>
+        {mayAdjust && (
+          <Button type="link" size="small" onClick={() => { setNotice(null); setAdjusting(item) }}>
+            {TEXT.adjust.button}
+          </Button>
+        )}
+        <Button
+          type="link"
+          size="small"
+          aria-label={`${TEXT.view} ${item.name}`}
+          onClick={() => navigate(`/stock/${item.id}/records`, { state: { name: item.name, sku: item.sku } })}
+        >
+          {TEXT.view}
+        </Button>
         {mayManage && !item.listed && (
           <Button type="link" size="small" onClick={() => { setNotice(null); setEditing({ item }) }}>
             {TEXT.stock.edit}
@@ -114,20 +133,13 @@ export function StockPage() {
             {TEXT.stock.delete}
           </Button>
         )}
-        {mayAdjust && (
-          <Button size="small" onClick={() => { setNotice(null); setAdjusting(item) }}>
-            {TEXT.adjust.button}
-          </Button>
-        )}
       </Space>
     )
   }
 
   function nameOf(item: Item) {
     return (
-      <Typography.Text ellipsis={{ tooltip: item.name }} className="item-name">
-        {item.name}
-      </Typography.Text>
+      <CellText text={item.name} />
     )
   }
 
@@ -137,13 +149,17 @@ export function StockPage() {
       <PageHeader
         title={TEXT.stock.title}
         actions={
-          mayManage && (
-            <Button type="primary" onClick={() => { setNotice(null); setEditing({ item: null }) }}>
-              {TEXT.stock.addItem}
-            </Button>
-          )
+          <>
+            <Button onClick={() => setChoosing(true)}>{TEXT.viewRecords}</Button>
+            {mayManage && (
+              <Button type="primary" onClick={() => { setNotice(null); setEditing({ item: null }) }}>
+                {TEXT.stock.addItem}
+              </Button>
+            )}
+          </>
         }
       />
+      {choosing && <RecordsChooser area="stock" onClose={() => setChoosing(false)} />}
 
       <section className="panel filter-bar" aria-label="Filters">
         <Input.Search
@@ -191,7 +207,7 @@ export function StockPage() {
                   {nameOf(item)}
                   <Typography.Text type="secondary">{TEXT.stock.skuAndQuantity(item.sku, item.availableQuantity)}</Typography.Text>
                   {statusOf(item)}
-                  {showActions && actionsOf(item)}
+                  {actionsOf(item)}
                 </div>
               </List.Item>
             )}
@@ -202,17 +218,18 @@ export function StockPage() {
             dataSource={page.items}
             rowKey="id"
             pagination={false}
+            tableLayout="auto"
             columns={[
               { title: TEXT.stock.image, key: 'image', width: 72, render: (_, item) => <ItemThumbnail url={item.imageUrl} /> },
-              { title: TEXT.stock.name, key: 'name', render: (_, item) => nameOf(item) },
-              { title: TEXT.stock.sku, dataIndex: 'sku', key: 'sku', width: 120 },
-              { title: TEXT.stock.quantity, dataIndex: 'availableQuantity', key: 'quantity', width: 90 },
-              { title: TEXT.stock.listingStatus, key: 'status', width: 220, render: (_, item) => statusOf(item) },
-              ...(showActions ? [{ title: TEXT.stock.actions, key: 'actions', width: 280, render: (_: unknown, item: Item) => actionsOf(item) }] : []),
+              { title: TEXT.stock.name, key: 'name', className: 'cell-grow', render: (_, item) => nameOf(item) },
+              { title: TEXT.stock.sku, dataIndex: 'sku', key: 'sku', width: 110 },
+              { title: TEXT.stock.quantity, dataIndex: 'availableQuantity', key: 'quantity', width: 80 },
+              { title: TEXT.stock.listingStatus, key: 'status', width: 150, render: (_, item) => statusOf(item) },
+              { title: TEXT.stock.actions, key: 'actions', className: 'cell-shrink', render: (_: unknown, item: Item) => actionsOf(item) },
             ]}
           />
         )}
-        {page && !error && !loading && <CursorPager page={page} onPage={list.goTo} />}
+        {page && !error && !loading && <CursorPager page={page} number={pageNumberOf(list.request)} onPage={list.goTo} />}
       </section>
 
       {adjusting && (

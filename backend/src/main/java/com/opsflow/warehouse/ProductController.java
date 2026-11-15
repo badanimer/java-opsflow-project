@@ -62,7 +62,7 @@ public class ProductController {
 	public PageResponse<ShopProductResponse> onSale(@RequestParam(required = false) String search,
 			@RequestParam(required = false) Integer limit, @RequestParam(required = false) String cursor,
 			@RequestParam(required = false) String direction, @RequestParam(required = false) String order) {
-		PageQuery page = pages.createInOrder(limit, cursor, direction, order, SortOrder.ASC);
+		PageQuery page = pages.createProductPage(limit, cursor, direction, order);
 		PageResponse<ShopProduct> found = products.listOnSale(search, page);
 		return new PageResponse<>(found.items().stream()
 				.map(p -> new ShopProductResponse(p.id(), p.name(), p.price().toPlainString(), ImageStore.urlOf(p.imagePath())))

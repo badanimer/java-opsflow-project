@@ -29,6 +29,7 @@ The authoritative description is [OpsFlow API](../api/api-design.md). This file 
 | --- | --- |
 | Orders and Stock Changes | New section: the endpoints, the lines of an order, its number, what is and is not an attempt, the idempotency key, the quantities and the reason of a stock change, and the refusals of each |
 | Logs | New section: the six lists, the three ways to read a log, the item picker, the time filter, the direction, and the order number |
+| Paging | `GET /products` has its own page size: 16 by default and at most 24, so that the person can choose 8, 16, or 24 cards a page |
 | Result codes | `STOCK_CHANGED` (409). `OUT_OF_STOCK` also refuses a write-off larger than the stock. `NOT_ALLOWED` is kept for the ticket module only |
 
 ## Decisions Made

@@ -24,7 +24,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 - The three manual stock changes (stock-in, write-off, correction) are added to `warehouse`, each locking the `inventory` row.
 - `Quantities` gains the ranges of a stock change, a correction, and an order line.
 - A new module, `log`, reads the two logs, the deleted items, and the product picker, paged by key on the time in either direction, with the shared time filter `DayRanges` in Sydney days.
-- 47 new tests. The last full run, after the logs were built: 394 passed, 0 failed.
+- 48 new tests. The last full run, after the page size of the product page: 395 passed, 0 failed.
 
 ## Changes
 
@@ -34,6 +34,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | Code | The package `order`: `OrderController`, `OrderService`, `OrderWriter`, `OrderAttemptRecorder`, `OrderRepository`, `OrderNumbers`. In `warehouse`: `StockService`, `StockWriter`, three endpoints in `ItemController`, and `setAvailable` and `isListed` in `WarehouseRepository` |
 | Shared code | `Quantities.stockChange`, `countedQuantity`, `seenQuantity`, `orderLine`, and `asRecorded`; `STOCK_CHANGED` in `ErrorCode`; the group `order` of `OpsflowProperties` |
 | Code, the logs | The package `log`: `LogController`, `LogService`, `LogRepository`; `DayRanges` in `common/time` |
+| Paging | `opsflow.paging.product-page-size` (16, the default) and `product-page-max` (24), and `PageQueryFactory.createProductPage`, used by `GET /products`; `PageQueryFactoryTest` has a test of it |
 | Configuration | `opsflow.order.max-lines` (20), `opsflow.order.number-attempts` (5), and `opsflow.time-filter.zone` (`Australia/Sydney`) in `application.yml` |
 | Tests | `OrderTest` (12), `OrderRaceTest` (7), `StockTest` (9), `LogTest` (9), `DayRangesTest` (6), and `OrderIntegrationSupport`; `QuantitiesTest` from 3 to 7. Three tests that build `OpsflowProperties` by hand take the new groups |
 

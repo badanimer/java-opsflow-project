@@ -130,8 +130,12 @@ public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Pag
 	public record Retry(@Min(1) int attempts, @NotEmpty List<@NotNull Duration> delays) {
 	}
 
-	/** @param pageSize the size of a page, which is also the most a client may ask for */
-	public record Paging(@Min(1) int pageSize) {
+	/**
+	 * @param pageSize the size of a page, which is also the most a client may ask for
+	 * @param productPageSize the size of a page of the product page when the page asks for none
+	 * @param productPageMax the most cards a page of the product page may ask for; the person chooses 8, 16, or 24
+	 */
+	public record Paging(@Min(1) int pageSize, @Min(1) int productPageSize, @Min(1) int productPageMax) {
 	}
 
 }

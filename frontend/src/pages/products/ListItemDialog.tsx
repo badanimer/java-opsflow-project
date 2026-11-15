@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client'
 import { listItem, listListable, type ListableItem } from '../../api/products'
 import { useAuth } from '../../auth/context'
 import { can } from '../../auth/permissions'
+import { pageNumberOf } from '../../api/paging'
 import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
@@ -256,7 +257,7 @@ function Catalog({ catalog, searchText, onSearchText, onChoose, mayOpenStock, on
               },
             ]}
           />
-          {!loading && <CursorPager page={page} onPage={catalog.goTo} />}
+          {!loading && <CursorPager page={page} number={pageNumberOf(catalog.request)} onPage={catalog.goTo} />}
         </>
       )}
     </section>

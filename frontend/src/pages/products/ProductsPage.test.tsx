@@ -30,14 +30,15 @@ function card(name: string): HTMLElement {
 }
 
 describe('the cards', () => {
-  it('show the picture, the name, and the price in Australian dollars, and nothing else', async () => {
+  it('show the picture, the name, the price in Australian dollars, and View for a viewer', async () => {
     await openProducts(['VIEWER'], [PAPER, TAPE])
     const paper = card('A4 paper')
     expect(within(paper).getByText('$12.50')).toBeInTheDocument()
     expect(paper.querySelector('img')).toHaveAttribute('src', '/api/v1/images/items/paper.webp')
     expect(card('Clear packing tape').querySelector('.item-thumbnail--empty')).not.toBeNull()
-    expect(within(paper).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(paper).getAllByRole('button').map((button) => button.textContent)).toEqual(['View'])
     expect(screen.queryByRole('button', { name: 'List item' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View records' })).toBeInTheDocument()
   })
 
   it('give a manager List item and Delist', async () => {
@@ -70,9 +71,31 @@ describe('the search, the paging, and the states', () => {
     server.on('GET /products?search=a', page([PAPER], 'c1'))
     server.on('GET /products?search=a&cursor=c1&direction=next', page([TAPE], null, 'p1'))
     await user.type(screen.getByRole('searchbox', { name: 'Search by name' }), 'a{Enter}')
+    expect(await screen.findByText('Page 1')).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Next' }))
     expect(await within(screen.getByRole('region', { name: 'Product list' })).findByText('Clear packing tape')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Previous' })).toBeInTheDocument()
+    expect(screen.getByText('Page 2')).toBeInTheDocument()
+    server.on('GET /products?search=a&cursor=p1&direction=prev', page([PAPER], 'c1'))
+    await user.click(screen.getByRole('button', { name: 'Previous' }))
+    expect(await screen.findByText('Page 1')).toBeInTheDocument()
+  })
+
+  it('shows 16 a page by default, and a new page size asks for it and goes back to page 1', async () => {
+    storeToken()
+    const server = new FakeServer()
+      .on('GET /auth/me', me(['VIEWER']))
+      .on('GET /products', page([PAPER], 'c1'))
+      .on('GET /products?cursor=c1&direction=next', page([TAPE], null, 'p1'))
+      .on('GET /products?limit=24', page([PAPER, TAPE]))
+    const user = openApp('/')
+    expect((await screen.findByRole('radio', { checked: true })).closest('label')?.querySelector('[aria-label="16 per page"]')).not.toBeNull()
+    await user.click(await screen.findByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('Page 2')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('img', { name: '24 per page' }))
+    await waitFor(() => expect(server.callsTo('GET /products?limit=24')).toHaveLength(1))
+    expect(await within(screen.getByRole('region', { name: 'Product list' })).findByText('A4 paper')).toBeInTheDocument()
+    expect(screen.queryByText('Page 2')).not.toBeInTheDocument()
   })
 
   it('tells a manager how to list the first product, and others that products will appear', async () => {

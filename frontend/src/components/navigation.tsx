@@ -54,7 +54,9 @@ export function visibleEntries(account: Account | null): NavEntry[] {
 export function entryKeyFor(pathname: string): string | undefined {
   for (const entry of NAVIGATION) {
     for (const candidate of [entry, ...(entry.children ?? [])]) {
-      if (candidate.built && (candidate.path === pathname || (candidate.path !== '/' && pathname.startsWith(candidate.path + '/')))) {
+      // The product page is the root; its logs live under /products.
+      const prefix = candidate.path === '/' ? '/products' : candidate.path
+      if (candidate.built && (candidate.path === pathname || pathname.startsWith(prefix + '/'))) {
         return candidate.key
       }
     }

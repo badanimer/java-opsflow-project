@@ -242,7 +242,7 @@ Request:
 
 | Parameter | Meaning |
 | --- | --- |
-| `limit` | The page size. The default and the most is 10 (an operating parameter) |
+| `limit` | The page size. The default and the most is 10. On the product page `GET /products` the default is 16 and the most 24, because the person chooses 8, 16, or 24 (operating parameters) |
 | `cursor` | An opaque string from an earlier response. Absent for the first page |
 | `direction` | `next` (the default) or `prev` |
 | `order` | `desc` (the default) or `asc`, only on the lists whose direction the user may choose (the ticket lists, see T-37). A list whose order is fixed reads in its own order, which is not always `desc`: the user page goes from A to Z |

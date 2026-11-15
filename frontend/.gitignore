@@ -1,5 +1,5 @@
-# Logs
-logs
+# Logs: the folder of log files at the root only, not the source folder src/pages/logs
+/logs
 *.log
 npm-debug.log*
 yarn-debug.log*
