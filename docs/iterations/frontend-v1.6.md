@@ -36,17 +36,19 @@ The authoritative design is [OpsFlow Page Design](../frontend/page-design.md). T
 | --- | --- | --- |
 | Where a manager adds items in Phase 4 | The first part of the stock page (the owner's choice) | The whole stock page in Phase 5: Phase 4 could not be checked on screen, because nothing could be listed |
 | The Order button | Phase 5, with the stock changes (the owner's choice) | Phase 4: the work would nearly double, and the order shares its locks with the stock changes |
+| How a price is shown | In Australian dollars, `$12.50`, as the system runs on Sydney time (the owner's choice after the Figma review) | The number alone; yuan |
+| The catalog of List item when it is empty | One state, "No items to list", with a hint to add items on the Stock page and Go to Stock for a person with `STOCK_VIEW` (the owner's choice after the Figma review) | Three states told apart by a second request to `GET /items`, as drawn: one more request and two more screens for little help |
 
 ## Affected Artifacts
 
 | Artifact | Status |
 | --- | --- |
-| [Page design document](../frontend/page-design.md) | Updated: Stock page, Open Details, and the Change Log |
+| [Page design document](../frontend/page-design.md) | Updated: Product page (the price in Australian dollars), Stock page, Open Details, and the Change Log |
 | [Implementation roadmap](../implementation-roadmap.md), [project-todo.md](../project-todo.md) | Phase 4 holds the first part of T-46; T-39 leaves the order dialog to T-10 |
-| Figma file | Not changed yet: the stock page and the product page are drawn next |
+| Figma file | The page "Stock and Products" drawn by Codex and reviewed on 2026-11-15 (about 130 frames, with handoff notes), and the shared components Tags (On sale, Not on sale), Filter bar (Name search), and Paged list (Cursor first, middle, last). The three empty states of the catalog are built as one, as decided above |
 | Code under `frontend/` | Not changed |
 | [README.md](../../README.md) | Updated: Project Log |
 
 ## Open Items
 
-- Draw the stock page (first part) and the product page in Figma, and build them (T-39, T-46).
+- Build the stock page (first part), the product page, and their dialogs from the reviewed design, on the branch `phase-4-frontend` (T-39, T-42, T-46).

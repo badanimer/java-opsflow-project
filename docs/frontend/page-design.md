@@ -188,6 +188,7 @@ The home page for every role.
 - **Order** (operator, manager, administrator): a button on each product opens a dialog with a quantity that starts at 1 and changes by typing or with plus and minus. Confirming shows the result, always with an order number, whether the order was placed or refused. The reasons for a refusal are: the product was delisted, it changed, not enough stock, the quantity is not valid, not allowed, or busy. The number can be read again in the order records of the product log, and is what a ticket about an order names, a refused order included. The stock is never shown.
 - **View** (every role): a button on each product opens the own log of that product, with its listing records and its order records in two parts (see Logs).
 - **View records** (every role): a button on the page that opens the product log of all products (see Logs).
+- **Prices are shown in Australian dollars**, with two decimals: `$12.50` (the owner's decision, 2026-11-15). Only the display has the sign: the API and the database hold the number, so another currency is a change in one place of the frontend.
 - **List and Delist** (manager, administrator): List opens a catalog of the warehouse items that are not listed, searched by name only, then asks for a price above zero and shows the name, which can be changed. Delist takes no reason. See [Listing and delisting](../database/database-design.md#listing-and-delisting).
 
 ### Stock page
