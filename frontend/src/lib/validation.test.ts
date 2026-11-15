@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TEXT } from './text'
+import { TEXT } from '../text'
 import { checkCode, checkEmail, checkNewPassword, checkNewUsername } from './validation'
 
 describe('the checks a page makes before it sends a value', () => {

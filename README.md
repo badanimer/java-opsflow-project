@@ -38,6 +38,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-16 | 1.7 | Frontend | The frontend code sorted into components, hooks, and plain functions; the account pages in their own folder | [frontend-v1.7.md](docs/iterations/frontend-v1.7.md) |
 | 2026-11-15 | 1.7 | API | Phase 4: the endpoints of warehouse items, item images, and products, and six result codes | [api-v1.7.md](docs/iterations/api-v1.7.md) |
 | 2026-11-15 | 1.9 | Backend | Phase 4: the `warehouse` module with its five write paths and their locks, the image store, and the shared quantity rule, with 37 tests | [backend-v1.9.md](docs/iterations/backend-v1.9.md) |
 | 2026-11-15 | 1.6 | Frontend | Phase 4: the product page with List item and Delist, and the first part of the stock page with adding, editing, and deleting an item and its picture; prices in Australian dollars | [frontend-v1.6.md](docs/iterations/frontend-v1.6.md) |

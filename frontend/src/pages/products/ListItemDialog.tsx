@@ -8,10 +8,10 @@ import { can } from '../../auth/permissions'
 import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
-import { usePagedList } from '../../components/usePagedList'
-import { CURRENCY_SIGN } from '../../format'
+import { usePagedList } from '../../hooks/usePagedList'
+import { CURRENCY_SIGN } from '../../lib/format'
 import { TEXT } from '../../text'
-import { failureNotice, type Notice } from '../failure'
+import { failureNotice, type Notice } from '../../lib/failure'
 
 const NAME_MAX = 200
 /** At most 10 digits before the point and two after, above 0: what the price column holds. */

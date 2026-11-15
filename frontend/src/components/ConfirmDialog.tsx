@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Alert, Button, Modal } from 'antd'
-import type { Notice } from '../pages/failure'
+import type { Notice } from '../lib/failure'
 
 export interface ConfirmDialogProps {
   open: boolean

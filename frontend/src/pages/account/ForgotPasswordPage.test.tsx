@@ -1,8 +1,8 @@
 import { screen } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { FakeServer, openApp, problem } from '../test/server'
-import { TEXT } from '../text'
+import { FakeServer, openApp, problem } from '../../test/server'
+import { TEXT } from '../../text'
 
 async function fill(user: UserEvent, values: Partial<Record<'Email' | 'Verification code' | 'New password', string>>) {
   for (const [label, value] of Object.entries(values)) {

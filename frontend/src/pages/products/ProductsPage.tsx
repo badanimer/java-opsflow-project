@@ -9,10 +9,10 @@ import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
 import { PageHeader } from '../../components/PageHeader'
-import { usePagedList } from '../../components/usePagedList'
-import { formatPrice } from '../../format'
+import { usePagedList } from '../../hooks/usePagedList'
+import { formatPrice } from '../../lib/format'
 import { TEXT } from '../../text'
-import { failureNotice, type Notice } from '../failure'
+import { failureNotice, type Notice } from '../../lib/failure'
 import { ListItemDialog } from './ListItemDialog'
 
 const SEARCH_MAX = 200

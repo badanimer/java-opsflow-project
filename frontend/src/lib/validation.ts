@@ -1,4 +1,4 @@
-import { TEXT } from './text'
+import { TEXT } from '../text'
 
 /**
  * The checks a page makes before it sends a value. They are the rules of the backend

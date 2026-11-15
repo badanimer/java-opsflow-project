@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, Form, Input } from 'antd'
-import { login } from '../api/auth'
-import { ApiError } from '../api/client'
-import { useAuth } from '../auth/context'
-import { AuthLayout } from '../components/AuthLayout'
-import { TEXT } from '../text'
-import { generalFailure, type Notice } from './failure'
+import { login } from '../../api/auth'
+import { ApiError } from '../../api/client'
+import { useAuth } from '../../auth/context'
+import { AuthLayout } from '../../components/AuthLayout'
+import { TEXT } from '../../text'
+import { generalFailure, type Notice } from '../../lib/failure'
 
 interface Values {
   username: string

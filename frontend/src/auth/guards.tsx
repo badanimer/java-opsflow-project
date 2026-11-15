@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Alert, Button, Spin, Typography } from 'antd'
-import { generalFailure } from '../pages/failure'
+import { generalFailure } from '../lib/failure'
 import { NotAllowedPage } from '../pages/StatusPages'
 import { TEXT } from '../text'
 import { useAuth } from './context'

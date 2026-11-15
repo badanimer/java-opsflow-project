@@ -1,9 +1,9 @@
 import { act, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { api } from '../api/client'
-import { loadSession } from '../auth/session'
-import { FakeServer, openApp, problem, storeToken, me } from '../test/server'
-import { TEXT } from '../text'
+import { api } from '../../api/client'
+import { loadSession } from '../../auth/session'
+import { FakeServer, openApp, problem, storeToken, me } from '../../test/server'
+import { TEXT } from '../../text'
 
 const NO_ROLE = me([], { id: 7, username: 'alice' })
 const WITH_ROLE = me(['OPERATOR'], { id: 7, username: 'alice' })

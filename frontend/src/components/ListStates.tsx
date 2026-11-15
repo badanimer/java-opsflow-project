@@ -1,6 +1,6 @@
 import { Alert, Button } from 'antd'
 import { ApiError } from '../api/client'
-import { failureNotice } from '../pages/failure'
+import { failureNotice } from '../lib/failure'
 import { TEXT } from '../text'
 
 /** The title and the line of an empty list. */

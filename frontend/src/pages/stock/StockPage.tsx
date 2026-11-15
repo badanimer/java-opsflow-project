@@ -9,9 +9,9 @@ import { CursorPager } from '../../components/CursorPager'
 import { ItemThumbnail } from '../../components/ItemThumbnail'
 import { EmptyText, ListFailure } from '../../components/ListStates'
 import { PageHeader } from '../../components/PageHeader'
-import { usePagedList } from '../../components/usePagedList'
+import { usePagedList } from '../../hooks/usePagedList'
 import { TEXT } from '../../text'
-import { failureNotice, type Notice } from '../failure'
+import { failureNotice, type Notice } from '../../lib/failure'
 import { ItemDialog } from './ItemDialog'
 
 const SEARCH_MAX = 200

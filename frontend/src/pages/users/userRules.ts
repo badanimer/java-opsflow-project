@@ -2,9 +2,9 @@ import type { Account } from '../../api/auth'
 import { ApiError, NetworkError } from '../../api/client'
 import { NO_ROLE, type ListedUser } from '../../api/users'
 import { can } from '../../auth/permissions'
-import { isProtectedRole, ROLES } from '../../roles'
+import { isProtectedRole, ROLES } from '../../lib/roles'
 import { TEXT } from '../../text'
-import { generalFailure, type Notice } from '../failure'
+import { generalFailure, type Notice } from '../../lib/failure'
 
 /**
  * What a viewer may do on the user page, from the permissions of `GET /auth/me` (Authority over roles

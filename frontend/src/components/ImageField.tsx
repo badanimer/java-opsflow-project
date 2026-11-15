@@ -3,10 +3,10 @@ import { Alert, Button, Spin, Typography, Upload } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import { ApiError, NetworkError } from '../api/client'
 import { uploadItemImage } from '../api/items'
-import { generalFailure } from '../pages/failure'
+import { generalFailure } from '../lib/failure'
 import { TEXT } from '../text'
 import { ItemThumbnail } from './ItemThumbnail'
-import { checkImageFile } from './imageFile'
+import { checkImageFile } from '../lib/imageFile'
 
 /** The picture in the draft of an item. `fileName` is what the person sees; `current` marks the saved one. */
 export interface DraftImage {

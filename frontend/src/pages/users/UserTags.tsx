@@ -1,6 +1,6 @@
 import { Tag } from 'antd'
 import type { UserStatus } from '../../api/users'
-import { isProtectedRole, roleLabel, sortRoles } from '../../roles'
+import { isProtectedRole, roleLabel, sortRoles } from '../../lib/roles'
 import { TEXT } from '../../text'
 
 /** Active or Disabled. The word is always there, so the colour is never the only sign. */

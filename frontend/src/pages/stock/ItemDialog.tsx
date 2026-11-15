@@ -5,7 +5,7 @@ import { createItem, editItem, imagePathOf, type Item } from '../../api/items'
 import { useAuth } from '../../auth/context'
 import { ImageField, type DraftImage } from '../../components/ImageField'
 import { TEXT } from '../../text'
-import { generalFailure, type Notice } from '../failure'
+import { generalFailure, type Notice } from '../../lib/failure'
 
 const NAME_MAX = 200
 const QUANTITY_MAX = 999_999

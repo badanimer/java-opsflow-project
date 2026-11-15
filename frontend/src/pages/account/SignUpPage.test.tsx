@@ -1,9 +1,9 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { loadSession } from '../auth/session'
-import { FakeServer, TOKEN, openApp, problem, me } from '../test/server'
-import { TEXT } from '../text'
+import { loadSession } from '../../auth/session'
+import { FakeServer, TOKEN, openApp, problem, me } from '../../test/server'
+import { TEXT } from '../../text'
 
 const CREATED = { status: 201, body: { id: 9, username: 'alice', ...TOKEN } }
 

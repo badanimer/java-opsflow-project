@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Alert, Button, Typography } from 'antd'
 import { ClockCircleOutlined } from '@ant-design/icons'
-import { useAuth } from '../auth/context'
-import { TopBar } from '../components/TopBar'
-import { TEXT } from '../text'
-import { generalFailure, type Notice } from './failure'
+import { useAuth } from '../../auth/context'
+import { TopBar } from '../../components/TopBar'
+import { TEXT } from '../../text'
+import { generalFailure, type Notice } from '../../lib/failure'
 
 /**
  * The page of a logged-in user who has no role yet. Nothing in the application is open to such a user,

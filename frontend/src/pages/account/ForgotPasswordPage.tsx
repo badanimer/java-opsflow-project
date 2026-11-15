@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Alert, Button, Form, Input } from 'antd'
-import { resetPassword } from '../api/auth'
-import { ApiError } from '../api/client'
-import { AuthLayout } from '../components/AuthLayout'
-import { TEXT } from '../text'
-import { checkCode, checkEmail, checkNewPassword, rule } from '../validation'
-import { generalFailure, type Notice } from './failure'
-import { useEmailCode } from './useEmailCode'
+import { resetPassword } from '../../api/auth'
+import { ApiError } from '../../api/client'
+import { AuthLayout } from '../../components/AuthLayout'
+import { TEXT } from '../../text'
+import { checkCode, checkEmail, checkNewPassword, rule } from '../../lib/validation'
+import { generalFailure, type Notice } from '../../lib/failure'
+import { useEmailCode } from '../../hooks/useEmailCode'
 
 interface Values {
   email: string
