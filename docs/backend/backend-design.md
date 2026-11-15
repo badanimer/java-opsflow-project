@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-16 | 1.10 | Phase 5 in the backend: the `order` module, which places an order in one transaction with its idempotency key, its number, and the record of every attempt, a refused one included; and the three manual stock changes in `warehouse`. The `log` module: the two logs, the Deleted items module, and the product picker, with the shared time filter `DayRanges`. The ranges of a stock change and an order line in `Quantities`, the parameters `opsflow.order.*` and `opsflow.time-filter.zone`, and 47 tests | [backend-v1.10.md](../iterations/backend-v1.10.md) |
 | 2026-11-15 | 1.9 | The `warehouse` module of Phase 4: warehouse items, their images, the product page, the catalog, listing, and delisting, with the five write paths and their locks, the image store and `OPSFLOW_IMAGE_DIR`, the shared quantity rule `Quantities`, and 37 tests | [backend-v1.9.md](../iterations/backend-v1.9.md) |
 | 2026-11-15 | 1.8 | One signed-in device per account: a login writes a new session id that its token carries, `TokenAuthenticator` refuses an earlier login with `SESSION_REPLACED`, and `SessionEvents` keeps an event stream (`GET /auth/session-events`) open for each signed-in page and tells it at once when a newer login commits | [backend-v1.8.md](../iterations/backend-v1.8.md) |
 | 2026-11-15 | 1.7 | The rules between the packages are checked by a test: `PackageDependencyRulesTest` fails the build when `common` depends on a module, when a controller reads the database itself, or when a module uses the repository of another module. The `user` module, the second module, with the user page (`GET /users`, the first list, paged by key) and the four changes one user makes to another: replacing the roles, disabling, enabling, and soft-deleting, each in one transaction that locks the actor and the target and reads the authority of the actor again, with their race tests | [backend-v1.7.md](../iterations/backend-v1.7.md) |
@@ -49,7 +50,7 @@ Not added yet: Redis and RabbitMQ.
 | `backend/src/main/resources/db/migration` | The Flyway migrations, applied in version order. Never edit one that has been applied: add a new one |
 | `.github/workflows/backend-tests.yml` | The continuous integration job. See Continuous integration |
 
-The code is organized by feature, not by layer. Inside a module the classes keep their layer in the name (`OrderController`, `OrderService`, `OrderRepository`). A module does not call the repository of another module: it calls the service. `PackageDependencyRulesTest` checks this, and that a controller does not read the database itself and that `common` depends on no module. The second module is `user` (the changes one user makes to another; see Users). The modules so far: `auth` (login, the token, the security rules, the email codes, sign-up, the password reset, and the console command that creates an administrator). The write path of an order touches the stock and the product tables, and all of its SQL stays in the order module, so that the lock order of [Concurrency by Module](../database/database-design.md#concurrency-by-module) can be read in one place.
+The code is organized by feature, not by layer. Inside a module the classes keep their layer in the name (`OrderController`, `OrderService`, `OrderRepository`). A module does not call the repository of another module: it calls the service. `PackageDependencyRulesTest` checks this, and that a controller does not read the database itself and that `common` depends on no module. The second module is `user` (the changes one user makes to another; see Users). The modules so far: `warehouse` (items, products, and the manual stock changes), `order` (placing an order), `log` (the two logs, which only read), `auth` (login, the token, the security rules, the email codes, sign-up, the password reset, and the console command that creates an administrator). The write path of an order touches the stock and the product tables, and all of its SQL stays in the order module, so that the lock order of [Concurrency by Module](../database/database-design.md#concurrency-by-module) can be read in one place.
 
 ## Shared Code
 
@@ -60,7 +61,7 @@ The `common` package holds what every module uses. A module calls it and never c
 | `common.error` | `ErrorCode`, `ApiException`, `ApiExceptionHandler` | `ErrorCode` is the table of result codes with a status and a title each. A service refuses a request by throwing `ApiException` with a code, a detail for people, and extra fields such as `orderNo`. `ApiExceptionHandler` is the one place that turns an exception into the Problem Details body of [api-design.md](../api/api-design.md#error-response): it also answers the errors Spring MVC raises itself (unreadable body, missing parameter, unknown path, wrong method) and a failed validation, with an `errors` list. An unexpected exception is logged with its stack trace and answered with `INTERNAL_ERROR` and no detail, so no SQL, secret, or stack trace leaves the server. Every body carries the `requestId` of the request |
 | `common.paging` | `Cursor`, `CursorCodec`, `PageQuery`, `PageQueryFactory`, `PageResponse` | Paging by key. `PageQueryFactory.create` checks `limit`, `cursor`, `direction`, and `order` and refuses a bad value with `VALIDATION_FAILED`; `createInOrder` does the same for a list whose fixed order is not the default `desc`, such as the user page. A repository reads `PageQuery.fetchSize()` rows (one more than the page) in the direction of `PageQuery.ascendingRead()`, and `PageResponse.of` cuts the page, restores the order of a backward read, and makes the two cursors. The sort key and the `id` of the edge row make the cursor |
 | `common.retry` | `TransactionRetry` | Calls a `@Transactional` method and retries it on a deadlock or a lock wait timeout. See Transactions |
-| `common.time` | `UtcTime` | Converts between a `DATETIME(3)` value (a UTC wall time) and an `Instant`. See Time |
+| `common.time` | `UtcTime`, `DayRanges` | `UtcTime` converts between a `DATETIME(3)` value (a UTC wall time) and an `Instant`. `DayRanges` turns the days of a time filter into a UTC range. See Time |
 | `common.web` | `WebConfig`, `IdempotencyKey`, `RequestIdFilter` | `WebConfig` serves every `@RestController` under `/api/v1` and provides the one `Clock` bean, in UTC. `IdempotencyKey.parse` reads the `Idempotency-Key` header. `RequestIdFilter` gives every request an id. See Request id and logs |
 | `common.validation` | `Limits` | The length of every text field a request can set, equal to its column (T-13). `@Size(max = Limits.ITEM_NAME)` |
 | `common.config` | `OpsflowProperties`, `JobsConfig` | The operating parameters, bound from `opsflow.*`. See Configuration. `JobsConfig` turns the scheduled jobs on unless `opsflow.jobs.enabled` is false. See Scheduled Jobs |
@@ -390,7 +391,60 @@ Built on 2026-11-15 for Phase 4 (T-39, T-41, T-42; [backend-v1.9.md](../iteratio
 | `ImageTest` (6) | The three types stored under random names whatever the file is called; any other content refused; the 2 MB limit; the image served without a token with its type and a long cache; any other name not found; the permission, and a body that is not multipart |
 | `WarehouseRaceTest` (8) | Two additions with one name; two deletions; two listings; a listing and a deletion; a listing and a delisting; an edit and a listing; a repeated SKU replaced, and adding failing when every attempt collides; the time of a deletion not earlier than the listing |
 
-`QuantitiesTest` (in `common/validation`, 3, unit) checks the rule of Valid quantities value by value.
+`QuantitiesTest` (in `common/validation`, 7, unit) checks the rule of Valid quantities value by value, for every use.
+
+## Orders and Stock Changes
+
+Built on 2026-11-16 for Phase 5, the first part (T-10, T-12, T-30, T-41; [backend-v1.10.md](../iterations/backend-v1.10.md)). The rules are in [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) and [Manual stock changes](../database/database-design.md#manual-stock-changes), and the endpoints in [Orders and Stock Changes](../api/api-design.md#orders-and-stock-changes).
+
+**Two modules.** An order is placed in the `order` module, with all of its SQL in `OrderRepository`, so that its lock order can be read in one place, as Layout says. The manual stock changes belong to the stock page and live in `warehouse`, next to the other changes of an item. Both lock the same `inventory` rows and follow the lock order of Concurrency by Module.
+
+| Class | Purpose |
+| --- | --- |
+| `OrderController` | `POST /orders` (`ORDER_PLACE`). The quantity of a line is declared as `Object`, so it reaches `Quantities` as it was sent. A new order is `201`, the original order of a key used before `200` |
+| `OrderService` | No transaction. Checks the shape of the request (`VALIDATION_FAILED`, not an attempt), returns the original order of a key used before, makes the order number, checks each quantity (`INVALID_QUANTITY`, recorded), then runs `OrderWriter` through `TransactionRetry`. A refusal of the transaction and `BUSY` are recorded by `OrderAttemptRecorder` and answered with their `orderNo` |
+| `OrderWriter` | The transaction of an order, in the four steps of Create order |
+| `OrderAttemptRecorder` | Writes the `order_attempts` rows of a refused attempt in a new transaction (`REQUIRES_NEW`), after the order transaction has rolled back, with the current name of each product. Best effort: a failure is logged and the refusal is still answered |
+| `OrderRepository` | The SQL of an order: the products shared, the SKU with a plain read, the order and its items, the stock locked and deducted, the `SALE` rows, the attempts, and the order of a key |
+| `OrderNumbers` | `ORD-` and a random UUID without hyphens, in lower case. On a clash with `uk_orders_order_no`, `OrderService` makes another, up to `opsflow.order.number-attempts` |
+| `ItemController` (in `warehouse`) | Also `POST /items/{id}/stock-in` (`STOCK_IN`), `/write-off` (`STOCK_WRITE_OFF`), and `/correction` (`STOCK_CORRECT`) |
+| `StockService`, `StockWriter` (in `warehouse`) | The checks of a stock change (the quantity through `Quantities`, the reason, a correction that changes nothing), and its transaction |
+
+**The write paths.** Each runs in one transaction under the deadlock and lock-wait retry.
+
+| Path | Reads and locks | What stops a concurrent request | Writes |
+| --- | --- | --- | --- |
+| Place an order | Each product `FOR SHARE`, in ascending id; the SKU with a plain read; each `inventory` row `FOR UPDATE`, in ascending id, all locked before any is checked. The order takes its time after the product locks, and its movements and attempt after the stock locks | A delisting, a listing, an edit, or a deletion needs a product row exclusively, so it waits for the order or the order sees its result (`PRODUCT_DELISTED`, `PRODUCT_CHANGED`). Another order, a stock change, or a listing on the same item waits for the stock lock, so the stock never goes below zero and each snapshot follows the last. `uk_orders_user_idempotency` makes a second request with the key wait for the first and then fail, and the service returns the order of the first | The order, its items, the deduction (`available_quantity` down, `sold_quantity` up), one `SALE` per item, and one `COMPLETED` attempt per line. No `operation_logs` row: `order_attempts` is the record of an order |
+| Record a refused attempt | The name of each product, with a plain read; no lock | Nothing to stop: it only inserts, after the order has rolled back. `uk_order_attempts_order_no_product` is the last guard against a number used twice | One attempt per line with the result and nothing deducted |
+| Stock in, write-off, correction | The `inventory` row `FOR UPDATE` | An order, a listing that reads the stock, a deletion, and another change wait for the same row. A correction compares the stock under the lock with the stock the person saw (`STOCK_CHANGED`), so a stale screen cannot undo a sale | The new `available_quantity` (never `sold_quantity`), the movement with the stock before and after and the reason, and the `STOCK_RESTOCK`, `STOCK_WRITE_OFF`, or `STOCK_ADJUSTED` log row |
+
+**How a refusal leaves the transaction.** `OrderWriter` throws `ApiException` for `PRODUCT_DELISTED`, `PRODUCT_CHANGED`, and `OUT_OF_STOCK`, so the proxy rolls the order back, and `TransactionRetry` passes it on without a retry. Two internal exceptions carry the cases the service handles itself: `KeyUsed` (a key that committed a moment ago: the answer is that order) and `NumberTaken` (a new number and another try).
+
+**Tests.** In `backend/src/test/java/com/opsflow/order` and `.../warehouse`, against the MySQL container:
+
+| Class | Purpose |
+| --- | --- |
+| `OrderIntegrationSupport` | The base of the order classes: accounts with roles and their tokens, items and products made through the warehouse endpoints, the call of `POST /orders` with or without a key, and reads of the stock, the movements, and the attempts |
+| `OrderTest` (12) | An order with its items, the deduction, the `SALE`, and the attempt; a repeated key; a key that is the user's own and not used up by a refusal; an order of two products, all or nothing; `PRODUCT_DELISTED`, `PRODUCT_CHANGED`, `OUT_OF_STOCK`, and `INVALID_QUANTITY`, each recorded with its number; a malformed request and an unknown product, which are no attempt; the permissions; and `BUSY` recorded after the last retry |
+| `OrderRaceTest` (6) | Eight orders on one stock; one key sent four times at once; an order against a delisting, a deletion, a write-off, and a correction from a screen the order made stale |
+| `StockTest` (9) | A stock-in, a write-off, and a correction in both directions, each with its movement, snapshots, and log row; `OUT_OF_STOCK`, `STOCK_CHANGED`, a correction that changes nothing, the reason, `INVALID_QUANTITY`, the `INT` limit, a deleted item, and the permissions |
+
+`QuantitiesTest` checks the ranges of a stock change, a correction, and an order line, and what an attempt records for a quantity that is not valid.
+
+## Logs
+
+Built on 2026-11-16 for Phase 5 (T-46; [backend-v1.10.md](../iterations/backend-v1.10.md)). The rules are in [Logs](../database/database-design.md#logs), and the endpoints in [Logs](../api/api-design.md#logs).
+
+**One module, `log`.** The two logs read tables that belong to `warehouse` (the events and the movements) and to `order` (the attempts). A module may not use the repository of another, so the reads are a module of their own, which writes nothing and locks nothing.
+
+| Class | Purpose |
+| --- | --- |
+| `LogController` | The six endpoints: `/listing-records`, `/order-records` (`PRODUCT_VIEW`), `/item-records`, `/stock-movements` (`STOCK_VIEW`), `/deleted-items` (`DELETED_ITEMS_VIEW`), and `/product-options` (`PRODUCT_VIEW`). A price is written as a string, as everywhere |
+| `LogService` | Checks the filters: a positive id, the time filter through `DayRanges`, the search, and the order number, which is used alone and written as the numbers are made (`ORD-` upper, the rest lower) |
+| `LogRepository` | The SQL. A log is read by key on `created_at` and then the id, in the direction chosen, with the product or item index when one is chosen and the time index otherwise; the cursor key is the UTC wall time as ISO text. The usernames come from a join on `users`. The deleted items are read by `deleted_at` and the id, and the picker by name and the id |
+| `DayRanges` (in `common/time`) | The time filter of every list: a start day, or a start day and an end day, in the zone of `opsflow.time-filter.zone`, turned into a UTC range from the start of the first day to the start of the day after the last. Each refusal is `VALIDATION_FAILED` on its field |
+
+**Tests.** `LogTest` (9, integration, in `backend/src/test/java/com/opsflow/log`): each kind of record with what it shows, newest and oldest first, one product or item chosen, a deleted item that keeps its records, the order number typed in capitals and refused with another filter, the time filter on Sydney days, the paging forward and back, the Deleted items list and its search by name or SKU, the picker without the products of deleted items, and every role reading. `DayRangesTest` (6, unit): the two forms, the zone in summer and winter and on the night the clocks change, and each refusal.
 
 ## Console command
 
@@ -460,10 +514,13 @@ The operating parameters are under `opsflow.*` in `application.yml` and are boun
 | `opsflow.email-code.cleanup-batch` | 1000 | The most rows one run of the cleanup deletes from each table |
 | `opsflow.jobs.enabled` | true | Whether the scheduled jobs run. The tests set it to false |
 | `opsflow.quantity.max-stock-input` | 999999 | The most of a starting quantity, a stock-in, a write-off, or a correction |
-| `opsflow.quantity.max-order-line` | 9999 | The most of one order line (used from Phase 5) |
+| `opsflow.quantity.max-order-line` | 9999 | The most of one order line |
 | `opsflow.warehouse.image-dir` | `${OPSFLOW_IMAGE_DIR:./data/images}` | The folder of the item images. The tests use a new temporary folder |
 | `opsflow.warehouse.image-max-bytes` | 2097152 | The largest image accepted, 2 MB |
 | `opsflow.warehouse.sku-attempts` | 5 | The generated SKUs tried before adding an item fails |
+| `opsflow.order.max-lines` | 20 | The most product lines of one order |
+| `opsflow.order.number-attempts` | 5 | The generated order numbers tried before an order fails on a clash |
+| `opsflow.time-filter.zone` | `Australia/Sydney` | The zone of the days a person picks in a time filter |
 | `spring.servlet.multipart.max-file-size`, `max-request-size` | 3MB | A little above the image limit, so a larger upload is refused before it is read; that refusal is answered `IMAGE_TOO_LARGE` |
 
 A module adds its own parameters to this table and to `OpsflowProperties` when it is built.

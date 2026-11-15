@@ -34,6 +34,7 @@ public enum ErrorCode {
 	PRODUCT_DELISTED(HttpStatus.CONFLICT, "Product delisted"),
 	PRODUCT_CHANGED(HttpStatus.CONFLICT, "Product changed"),
 	ITEM_CHANGED(HttpStatus.CONFLICT, "Item changed"),
+	STOCK_CHANGED(HttpStatus.CONFLICT, "Stock changed"),
 	FOLLOW_NOT_ALLOWED(HttpStatus.CONFLICT, "Ticket cannot be followed"),
 	LIMIT_REACHED(HttpStatus.CONFLICT, "Limit reached"),
 	USER_CHANGED(HttpStatus.CONFLICT, "User changed"),

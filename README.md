@@ -38,6 +38,9 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-16 | 1.10 | Backend | Phase 5 in the backend: the `order` module (an order in one transaction, its idempotency key, its number, and the record of every attempt), the three manual stock changes, and the `log` module (the two logs, the Deleted items module, the product picker, and the time filter), with 47 tests | [backend-v1.10.md](docs/iterations/backend-v1.10.md) |
+| 2026-11-16 | 1.8 | API | `POST /orders`, the three stock changes, the code `STOCK_CHANGED`, and the six lists of the logs with the time filter | [api-v1.8.md](docs/iterations/api-v1.8.md) |
+| 2026-11-16 | 1.16 | Database | The refusals of orders and stock changes named by their codes, the quantity of an order checked before its transaction, the times of an order taken after its locks, the limit of 20 lines, and the search by one order number with `ORD-` in upper case | [database-v1.16.md](docs/iterations/database-v1.16.md) |
 | 2026-11-16 | 1.7 | Frontend | The frontend code sorted into components, hooks, and plain functions; the account pages in their own folder | [frontend-v1.7.md](docs/iterations/frontend-v1.7.md) |
 | 2026-11-15 | 1.7 | API | Phase 4: the endpoints of warehouse items, item images, and products, and six result codes | [api-v1.7.md](docs/iterations/api-v1.7.md) |
 | 2026-11-15 | 1.9 | Backend | Phase 4: the `warehouse` module with its five write paths and their locks, the image store, and the shared quantity rule, with 37 tests | [backend-v1.9.md](docs/iterations/backend-v1.9.md) |

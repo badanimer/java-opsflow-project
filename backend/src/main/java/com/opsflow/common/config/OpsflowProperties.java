@@ -22,7 +22,25 @@ import jakarta.validation.constraints.NotNull;
 @ConfigurationProperties("opsflow")
 public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Paging paging, @NotNull @Valid Login login,
 		@NotNull @Valid Token token, @NotNull @Valid EmailCode emailCode, @NotNull @Valid Mail mail, @NotNull @Valid Jobs jobs,
-		@NotNull @Valid Quantity quantity, @NotNull @Valid Warehouse warehouse) {
+		@NotNull @Valid Quantity quantity, @NotNull @Valid Warehouse warehouse, @NotNull @Valid Order order,
+		@NotNull @Valid TimeFilter timeFilter) {
+
+	/**
+	 * The time filter of the logs and the other lists (see The time filter).
+	 *
+	 * @param zone the display time zone, in which the days a person picks begin and end
+	 */
+	public record TimeFilter(@NotNull ZoneId zone) {
+	}
+
+	/**
+	 * Placing an order (T-10, T-12).
+	 *
+	 * @param maxLines the most product lines one order may hold; the product page sends one
+	 * @param numberAttempts how many generated order numbers are tried before an order fails on a clash
+	 */
+	public record Order(@Min(1) int maxLines, @Min(1) int numberAttempts) {
+	}
 
 	/**
 	 * The ranges of Valid quantities (T-41).
