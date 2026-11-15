@@ -40,6 +40,9 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-15 | 1.7 | API | Phase 4: the endpoints of warehouse items, item images, and products, and six result codes | [api-v1.7.md](docs/iterations/api-v1.7.md) |
+| 2026-11-15 | 1.9 | Backend | Phase 4: the `warehouse` module with its five write paths and their locks, the image store, and the shared quantity rule, with 37 tests | [backend-v1.9.md](docs/iterations/backend-v1.9.md) |
+| 2026-11-15 | 1.6 | Frontend | The stock page is built in two steps, the first in Phase 4; an item is edited only while it is not on sale | [frontend-v1.6.md](docs/iterations/frontend-v1.6.md) |
 | 2026-11-15 | 1.15 | Database | The application account loses `INSERT` on `roles`, which the fixed roles never need | [database-v1.15.md](docs/iterations/database-v1.15.md) |
 | 2026-11-15 | 1.14 | Database | One signed-in device per account: `users.session_id`, written by each login and carried by its token, so the newest login ends the earlier ones; a delisting takes its time after the lock | [database-v1.14.md](docs/iterations/database-v1.14.md) |
 | 2026-11-15 | 1.8 | Backend | One signed-in device: the token check refuses an earlier login with `SESSION_REPLACED`, and an event stream tells its open page at once | [backend-v1.8.md](docs/iterations/backend-v1.8.md) |

@@ -12,6 +12,7 @@ This document always describes the current page design. Entries are listed newes
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.6 | The stock page is built in two steps: the rows with adding, editing, and deleting an item in Phase 4, the quantity changes and the logs in Phase 5. An item can be edited only while it is not on sale, and each row says whether it is | [frontend-v1.6.md](../iterations/frontend-v1.6.md) |
 | 2026-11-15 | 1.5 | A second confirmation before an action that is hard to take back, and where it is asked; quick ranges in the time filter. The frame of the application with the navigation by permission, the user page, and its dialogs are drawn in Figma and built; the font is the system font. One signed-in device: a page whose account signed in elsewhere shows a dialog, and the login page says why | [frontend-v1.5.md](../iterations/frontend-v1.5.md) |
 | 2026-11-14 | 1.4 | After the review of the Permission Matrix: an operator can also make a correction on the stock page, the creator and assignee filters and the choice of an assignee use a user picker that shows usernames only, an administrator sees their own account on the user page with no control to change it, and a user with several roles sees what any of them allows | [frontend-v1.4.md](../iterations/frontend-v1.4.md) |
 | 2026-11-14 | 1.3 | Implemented the four account pages, the route guards, and the shared API client in `frontend/` | [frontend-v1.3.md](../iterations/frontend-v1.3.md) |
@@ -203,6 +204,8 @@ A **View records** button at the top of the page opens the warehouse log of all 
 
 - **Changing the quantity.** An operator, a manager, or an administrator chooses one of three: a plus (stock in), a minus (write-off), or **Correction**, a field to type the quantity that was counted, for a stock count that differs from the number shown. The reason is required for all three, and Save is enabled only when the quantity has changed and the reason is filled in. See [Manual stock changes](../database/database-design.md#manual-stock-changes).
 - **Adding an item** takes a name, an optional image, and an optional starting quantity. The SKU is generated. **Deleting an item** takes no reason and does not touch the stock. See [Warehouse items](../database/database-design.md#warehouse-items) and [Item images](../database/database-design.md#item-images).
+- **Editing an item** (manager, administrator) changes its name or its image, and is offered only while the item is not on sale. Each row says whether its item is on sale, so the page knows when to offer Edit, and a manager sees why it is missing.
+- **Built in two steps** (the owner's decision, 2026-11-15). Phase 4 builds the rows (the image, the name, the SKU, the stock quantity, and whether the item is on sale), the search, the paging, and adding, editing, and deleting an item, so that items exist to be listed. Changing the quantity, the View buttons, and the logs come in Phase 5 (T-30, T-46).
 
 ### Logs
 
@@ -296,6 +299,5 @@ These are not designed yet. Each is a question for the UI design, or for the own
 - The empty states and the error messages of the pages after Phase 3. Those of the user page are drawn and built.
 - How the choice between the two kinds of record, the picker, the day range, and the two parts of the own log are laid out.
 - Whether an operator can filter the order records by who ordered, to find their own orders faster.
-- Whether the stock page also shows whether an item is listed.
 
 Settled on 2026-11-15: the font is the system font, the navigation is a menu on the left that moves into a drawer below 768 px, and a list on a small screen is stacked (see [frontend-v1.5.md](../iterations/frontend-v1.5.md)).

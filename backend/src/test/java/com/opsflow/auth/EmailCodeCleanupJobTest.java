@@ -87,7 +87,8 @@ class EmailCodeCleanupJobTest extends AuthIntegrationSupport {
 				configured.resendAfter(), configured.requestsPerIpPerHour(), configured.requestsPerDay(), configured.dayZone(),
 				configured.cleanupInterval(), 2);
 		EmailCodeCleanupJob small = new EmailCodeCleanupJob(repository, new OpsflowProperties(properties.retry(),
-				properties.paging(), properties.login(), properties.token(), batchOfTwo, properties.mail(), properties.jobs()), clock);
+				properties.paging(), properties.login(), properties.token(), batchOfTwo, properties.mail(), properties.jobs(),
+				properties.quantity(), properties.warehouse()), clock);
 
 		small.run();
 		assertThat(root().queryForObject("SELECT COUNT(*) FROM email_verification_codes", Integer.class)).isEqualTo(3);

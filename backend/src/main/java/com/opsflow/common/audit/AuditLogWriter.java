@@ -22,6 +22,10 @@ public class AuditLogWriter {
 
 	/** The {@code target_type} of a row about a user account. */
 	public static final String TARGET_USER = "USER";
+	/** A warehouse item: the target id is the {@code inventory} id. */
+	public static final String TARGET_ITEM = "ITEM";
+	/** A product: the target id is the {@code products} id. */
+	public static final String TARGET_PRODUCT = "PRODUCT";
 
 	private static final String INSERT = """
 			INSERT INTO operation_logs (operator_id, category, action, target_type, target_id, before_data, after_data, ip_address, remark)

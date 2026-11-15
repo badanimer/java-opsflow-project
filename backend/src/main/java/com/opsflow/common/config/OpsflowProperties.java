@@ -21,7 +21,28 @@ import jakarta.validation.constraints.NotNull;
 @Validated
 @ConfigurationProperties("opsflow")
 public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Paging paging, @NotNull @Valid Login login,
-		@NotNull @Valid Token token, @NotNull @Valid EmailCode emailCode, @NotNull @Valid Mail mail, @NotNull @Valid Jobs jobs) {
+		@NotNull @Valid Token token, @NotNull @Valid EmailCode emailCode, @NotNull @Valid Mail mail, @NotNull @Valid Jobs jobs,
+		@NotNull @Valid Quantity quantity, @NotNull @Valid Warehouse warehouse) {
+
+	/**
+	 * The ranges of Valid quantities (T-41).
+	 *
+	 * @param maxStockInput the most one stock input may be: a starting quantity, a stock-in, a write-off, or a correction
+	 * @param maxOrderLine the most one order line may ask for
+	 */
+	public record Quantity(@Min(1) int maxStockInput, @Min(1) int maxOrderLine) {
+	}
+
+	/**
+	 * Warehouse items and their images (T-39, T-42).
+	 *
+	 * @param imageDir the folder, outside the web root, where the item images are kept
+	 * @param imageMaxBytes the largest image accepted
+	 * @param skuAttempts how many generated SKUs are tried before adding an item fails
+	 */
+	public record Warehouse(@NotEmpty String imageDir, @Min(1) long imageMaxBytes, @Min(1) int skuAttempts) {
+	}
+
 
 	/**
 	 * The email codes of sign-up and password recovery (T-29), and the limits on requesting them.

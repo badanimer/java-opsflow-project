@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import com.opsflow.common.web.RequestIdFilter;
@@ -67,6 +68,15 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
 	ResponseEntity<ProblemDetail> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
 		return respond(validation(List.of(Map.of("field", String.valueOf(e.getName()), "message", "has the wrong type"))));
+	}
+
+	/**
+	 * A body that is not multipart sent to the image upload. (An upload above the limit is a subtype that
+	 * the handler of Spring MVC answers with 413, which becomes {@code IMAGE_TOO_LARGE}.)
+	 */
+	@ExceptionHandler(MultipartException.class)
+	ResponseEntity<ProblemDetail> handleNotMultipart(MultipartException e) {
+		return respond(problem(ErrorCode.UNSUPPORTED_MEDIA_TYPE, "The request must be multipart/form-data with a part named file"));
 	}
 
 	@ExceptionHandler(Exception.class)
@@ -123,6 +133,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 		return switch (status.value()) {
 			case 404 -> ErrorCode.NOT_FOUND;
 			case 405 -> ErrorCode.METHOD_NOT_ALLOWED;
+			// The only upload is the item image, and the multipart reader refuses one above its limit.
+			case 413 -> ErrorCode.IMAGE_TOO_LARGE;
 			case 415 -> ErrorCode.UNSUPPORTED_MEDIA_TYPE;
 			default -> status.is5xxServerError() ? ErrorCode.INTERNAL_ERROR : ErrorCode.VALIDATION_FAILED;
 		};

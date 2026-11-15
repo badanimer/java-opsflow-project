@@ -64,6 +64,8 @@ public abstract class MySqlIntegrationTest {
 	private static final String MIGRATOR_PASSWORD = UUID.randomUUID().toString();
 	private static final String APP_PASSWORD = UUID.randomUUID().toString();
 	private static final String TOKEN_SIGNING_KEY = randomKey();
+	/** The folder of the item images in the tests: a new temporary folder for each run. */
+	protected static final Path IMAGE_DIR = temporaryImageDir();
 	private static final JdbcTemplate ROOT;
 
 	static {
@@ -89,6 +91,8 @@ public abstract class MySqlIntegrationTest {
 		registry.add("opsflow.token-signing-key", () -> TOKEN_SIGNING_KEY);
 		// No job runs by itself, so none changes rows in the middle of a test. A test calls the job it tests.
 		registry.add("opsflow.jobs.enabled", () -> "false");
+		// The item images of the tests go to a folder of their own, never into the working folder.
+		registry.add("opsflow.warehouse.image-dir", () -> IMAGE_DIR.toString());
 	}
 
 	/** The application account, with the limited rights of production. */
@@ -160,6 +164,15 @@ public abstract class MySqlIntegrationTest {
 		byte[] bytes = new byte[32];
 		new SecureRandom().nextBytes(bytes);
 		return Base64.getEncoder().encodeToString(bytes);
+	}
+
+	private static Path temporaryImageDir() {
+		try {
+			return java.nio.file.Files.createTempDirectory("opsflow-images-");
+		}
+		catch (java.io.IOException e) {
+			throw new IllegalStateException("The image folder of the tests cannot be made", e);
+		}
 	}
 
 	private static String jdbcUrl() {

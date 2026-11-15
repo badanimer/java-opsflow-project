@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.9 | The `warehouse` module of Phase 4: warehouse items, their images, the product page, the catalog, listing, and delisting, with the five write paths and their locks, the image store and `OPSFLOW_IMAGE_DIR`, the shared quantity rule `Quantities`, and 37 tests | [backend-v1.9.md](../iterations/backend-v1.9.md) |
 | 2026-11-15 | 1.8 | One signed-in device per account: a login writes a new session id that its token carries, `TokenAuthenticator` refuses an earlier login with `SESSION_REPLACED`, and `SessionEvents` keeps an event stream (`GET /auth/session-events`) open for each signed-in page and tells it at once when a newer login commits | [backend-v1.8.md](../iterations/backend-v1.8.md) |
 | 2026-11-15 | 1.7 | The rules between the packages are checked by a test: `PackageDependencyRulesTest` fails the build when `common` depends on a module, when a controller reads the database itself, or when a module uses the repository of another module. The `user` module, the second module, with the user page (`GET /users`, the first list, paged by key) and the four changes one user makes to another: replacing the roles, disabling, enabling, and soft-deleting, each in one transaction that locks the actor and the target and reads the authority of the actor again, with their race tests | [backend-v1.7.md](../iterations/backend-v1.7.md) |
 | 2026-11-15 | 1.6 | The permission check of the endpoints, the first part of the permission module: a controller method declares who may call it with `@Public`, `@AnyAccount`, or `@RequiresPermission`, `EndpointPermissions` decides from that and refuses a method that declares nothing, a user with no role gets `ACCOUNT_NO_ROLE`, the enum `Role` is the one place that says which role grants which `Permission`, so that a new role changes no endpoint, and a test fails the build for an endpoint with no declaration | [backend-v1.6.md](../iterations/backend-v1.6.md) |
@@ -346,6 +347,51 @@ How it works:
 - **Lock order**: `users` (ascending id), then `roles`. Two changes that name each other's actor lock the same rows in the same order, so they wait and do not deadlock.
 - The application account needs `DELETE` on `user_roles` for a revocation. The privilege script grants it (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)).
 
+## Warehouse Items and Products
+
+Built on 2026-11-15 for Phase 4 (T-39, T-41, T-42; [backend-v1.9.md](../iterations/backend-v1.9.md)). The rules are in [Product and Inventory](../database/database-design.md#product-and-inventory), and the endpoints in [Warehouse Items, Images, and Products](../api/api-design.md#warehouse-items-images-and-products).
+
+**One module, `warehouse`.** Items, their images, and products live in one package, because their writes cross: deleting an item delists its product in the same transaction, and listing reads the stock of the item under a lock. One module keeps those transactions in one place, and the package rules of `PackageDependencyRulesTest` stay as they are. The orders of Phase 5 read the same tables with their own SQL, in their own module.
+
+| Class | Purpose |
+| --- | --- |
+| `ItemController` | `GET /items`, `POST /items`, `PUT /items/{id}`, `DELETE /items/{id}`. The starting quantity is declared as `Object`, so it reaches `Quantities` as it was sent |
+| `ProductController` | `GET /products`, `GET /products/listable`, `POST /products`, `POST /products/{id}/delist` |
+| `ImageController` | `POST /item-images` (`ITEM_MANAGE`) and `GET /images/items/{file}` (`@Public`). The upload declares no `consumes`, so a body that is not multipart reaches it and is answered `UNSUPPORTED_MEDIA_TYPE` by `ApiExceptionHandler`; with `consumes` no method would match, and the permission layer would refuse it as `FORBIDDEN` |
+| `ItemService`, `ProductService` | Check the values (the name, the price, the starting quantity through `Quantities`, the image path), then call the writer through `TransactionRetry`. No transaction of their own |
+| `ItemWriter` | The transactions of adding, editing, and deleting an item |
+| `ProductWriter` | The transactions of listing and delisting |
+| `WarehouseRepository` | The SQL on `inventory`, `products`, `inventory_transactions`, `inventory_item_events`, and `product_listing_events`, and the three lists |
+| `SkuGenerator` | 8 characters from `A-Z` and `0-9` from `SecureRandom`. `ItemWriter` turns a duplicate key on `uk_inventory_sku` into `SkuTaken`, and `ItemService` generates another, up to `opsflow.warehouse.sku-attempts` |
+| `ImageStore` | Checks the first bytes of an upload, stores it under a random name, and resolves a stored path to a file. It does no database work |
+| `Quantities` (in `common/validation`) | The rule of Valid quantities, shared with the stock changes and the orders of Phase 5 (T-41). A fraction, text, a boolean, or a number out of range is `INVALID_QUANTITY` |
+
+**The write paths.** Each runs in one transaction under the deadlock and lock-wait retry, with the lock order of Concurrency by Module: `products`, then `inventory`.
+
+| Path | Reads and locks | What stops a concurrent request | Writes |
+| --- | --- | --- | --- |
+| Add an item | Nothing is locked; the SKU is generated before the transaction | `uk_inventory_name_active` refuses a second item with the name (`ITEM_NAME_TAKEN`); `uk_inventory_sku` refuses a repeated SKU, and the service generates another, up to 5 attempts in all | The item, a `RESTOCK` with the reason `initial stock` when the starting quantity is above 0, an `ITEM_CREATED` event, and the `ITEM_CREATED` log row |
+| Edit an item | The product row of the item `FOR UPDATE`, if any, then the `inventory` row `FOR UPDATE` | A listing takes the product row first too, so the edit sees `LISTED` and refuses with `ITEM_LISTED`; a deletion that committed first leaves the item deleted (`NOT_FOUND`); the name key refuses a taken name | The name and the image path, and the `ITEM_UPDATED` log row with both before and after |
+| Delete an item | The product row `FOR UPDATE`, then the `inventory` row `FOR UPDATE`; the time is taken after the locks | The second of two deletions waits and finds the item deleted (`NOT_FOUND`); an order holding the product row shared finishes first | The product delisted when `LISTED`, with its `DELISTED` event and log row; `deleted_at` and `deleted_by`; the `DELETED` event with the stock it showed; the `ITEM_DELETED` log row. The tickets of the item are cancelled here in Phase 6 (T-21) |
+| List an item | The product row `FOR UPDATE`, if any, then the `inventory` row `FOR SHARE`; the time is taken after the locks | A second listing waits and finds `LISTED` (`ALREADY_LISTED`), or, the first time, is refused by `uk_products_inventory`; a deletion waits or is waited for; a write-off of Phase 5 cannot change the stock that `NO_STOCK` was checked against | The product created, or set `LISTED` again with the new name and price; the `LISTED` event; the `PRODUCT_LISTED` log row |
+| Delist a product | The product row `FOR UPDATE`; the time is taken after the lock | A second delisting finds `UNLISTED` (`ALREADY_DELISTED`); orders that hold the row shared finish first, so none is dated after the delisting | `UNLISTED` with `delisted_at` and `delisted_by`; the `DELISTED` event; the `PRODUCT_DELISTED` log row. The tickets of the product are cancelled here in Phase 6 (T-21) |
+
+**Images.** `opsflow.warehouse.image-dir` names the folder, outside the web root, from the environment variable `OPSFLOW_IMAGE_DIR`, by default `./data/images` under the folder the application starts in. A file is stored at `items/<random UUID>.<jpg|png|webp>`, the extension taken from the type found in its first bytes. The upload is read whole into memory (2 MB at most) and checked before anything is written. Spring's multipart limit is set a little above 2 MB, so a larger upload is refused before it is read, and that refusal is answered `IMAGE_TOO_LARGE`. `GET /images/items/{file}` accepts only a name of the form the store makes, so a path such as `../` never reaches the file system. An `imagePath` sent with an item must have the same form and its file must exist. Files are never deleted.
+
+**The lists** are paged by key in one fixed order, by name and then `id` (`PageQueryFactory.createInOrder`), with the search of a part of the name as on the user page (`LIKE` with `!` as the escape character). The item list and the catalog leave out deleted items; the product page shows `LISTED` products only.
+
+**Tests.** In `backend/src/test/java/com/opsflow/warehouse`, all integration tests through the whole application against the MySQL container:
+
+| Class | Purpose |
+| --- | --- |
+| `WarehouseIntegrationSupport` | The base of the classes below: accounts with roles, one token for each (a second login would end the first), the HTTP calls of the endpoints, image bytes of each type, and reads of the rows |
+| `ItemTest` (12) | Adding with a generated SKU, the starting stock as a `RESTOCK`, the event, and the log row; no transaction for a quantity of 0; refused quantities (a fraction, text, a negative, one above 999,999, a boolean); the name rule, a name in use without regard to case, and the name of a deleted item free again; the stock page by name with the search, the paging, and `listed`; editing and its log, an edit that changes nothing, `ITEM_LISTED`, `NOT_FOUND`, and a taken name; an image path that the upload did not return; deleting with its product delisted, the stock left, the events, and the log rows; and the permissions |
+| `ProductTest` (8) | The first listing with its event and log row; listing again with the same id and the new name and price; `NO_STOCK`; `ALREADY_LISTED`, `ALREADY_DELISTED`, and `NOT_FOUND`; the price rule; the product page with only products on sale and no stock; the catalog; and the permissions |
+| `ImageTest` (6) | The three types stored under random names whatever the file is called; any other content refused; the 2 MB limit; the image served without a token with its type and a long cache; any other name not found; the permission, and a body that is not multipart |
+| `WarehouseRaceTest` (8) | Two additions with one name; two deletions; two listings; a listing and a deletion; a listing and a delisting; an edit and a listing; a repeated SKU replaced, and adding failing when every attempt collides; the time of a deletion not earlier than the listing |
+
+`QuantitiesTest` (in `common/validation`, 3, unit) checks the rule of Valid quantities value by value.
+
 ## Console command
 
 `create-admin` makes an administrator on the server, so that no page and no endpoint exists for it (see [First administrator](../database/database-design.md#first-administrator)). It is run from `backend/` after `mvnw package`, in a terminal, with the five required variables set:
@@ -380,6 +426,7 @@ The application connects to MySQL as `opsflow_app`, and Flyway connects as `opsf
 | --- | --- |
 | `OPSFLOW_DB_USERNAME`, `OPSFLOW_DB_PASSWORD` | The application connection |
 | `OPSFLOW_MIGRATION_USERNAME`, `OPSFLOW_MIGRATION_PASSWORD` | Flyway |
+| `OPSFLOW_IMAGE_DIR` | The folder of the item images, outside the web root. Optional: by default `./data/images` under the folder the application starts in, which `backend/.gitignore` keeps out of git |
 | `OPSFLOW_TOKEN_SIGNING_KEY` | The key that signs the login tokens: Base64 of at least 32 random bytes. The application refuses to start with a shorter key or one that is not Base64, and never prints it. Whoever has the key can make a token for any user, and changing it logs every user out. It is also the key of the stored email codes, so changing it makes the codes that are waiting useless |
 
 The mail variables are optional, so the application starts without them and sends no mail:
@@ -412,6 +459,12 @@ The operating parameters are under `opsflow.*` in `application.yml` and are boun
 | `opsflow.email-code.cleanup-interval` | 1m | How often the cleanup job runs |
 | `opsflow.email-code.cleanup-batch` | 1000 | The most rows one run of the cleanup deletes from each table |
 | `opsflow.jobs.enabled` | true | Whether the scheduled jobs run. The tests set it to false |
+| `opsflow.quantity.max-stock-input` | 999999 | The most of a starting quantity, a stock-in, a write-off, or a correction |
+| `opsflow.quantity.max-order-line` | 9999 | The most of one order line (used from Phase 5) |
+| `opsflow.warehouse.image-dir` | `${OPSFLOW_IMAGE_DIR:./data/images}` | The folder of the item images. The tests use a new temporary folder |
+| `opsflow.warehouse.image-max-bytes` | 2097152 | The largest image accepted, 2 MB |
+| `opsflow.warehouse.sku-attempts` | 5 | The generated SKUs tried before adding an item fails |
+| `spring.servlet.multipart.max-file-size`, `max-request-size` | 3MB | A little above the image limit, so a larger upload is refused before it is read; that refusal is answered `IMAGE_TOO_LARGE` |
 
 A module adds its own parameters to this table and to `OpsflowProperties` when it is built.
 

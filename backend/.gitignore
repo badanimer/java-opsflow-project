@@ -31,3 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Item images uploaded while running locally (OPSFLOW_IMAGE_DIR, by default ./data/images)
+data/

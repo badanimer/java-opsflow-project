@@ -96,6 +96,9 @@ Orders need products on sale, so this comes first.
 | T-39 | Adding a warehouse item, the catalog, listing, delisting, editing, deleting softly, and the product page |
 | T-42 | Item images |
 | T-41 | The quantity check, starting with the starting quantity of an item |
+| T-46 (first part) | The stock page without its quantity changes and logs: the rows, the search, the paging, and adding, editing, and deleting an item, so that a manager has a page to add items on (the owner's decision, 2026-11-15) |
+
+The Order button of the product page waits for Phase 5 (T-10), with the stock changes it shares its locks with. The API and the backend of this phase are built ([api-v1.7.md](iterations/api-v1.7.md), [backend-v1.9.md](iterations/backend-v1.9.md)); the Figma design and the frontend remain.
 
 **One part waits.** Deleting an item and delisting a product also cancel the linked tickets. No ticket exists yet, so build them without that step and add the cancellation in Phase 6, where the ticket rules are. Write the reminder in the code and in the to-do item.
 

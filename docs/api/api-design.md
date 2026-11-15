@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-15 | 1.7 | The endpoints of warehouse items, item images, and products for Phase 4, and the codes `ITEM_NAME_TAKEN`, `ITEM_LISTED`, `ALREADY_LISTED`, `ALREADY_DELISTED`, `IMAGE_TOO_LARGE`, and `IMAGE_TYPE_NOT_ALLOWED` | [api-v1.7.md](../iterations/api-v1.7.md) |
 | 2026-11-15 | 1.6 | One signed-in device per account: the code `SESSION_REPLACED` for a token of a login that a newer login of the account ended, and the event stream `GET /auth/session-events`, which tells an open page at once | [api-v1.6.md](../iterations/api-v1.6.md) |
 | 2026-11-15 | 1.5 | The first endpoints of the user module: the user page, `GET /users`, the first list of the API, with a search and role buttons; `PUT /users/{id}/roles`, which replaces the roles of a user and carries the roles the sender saw, `POST /users/{id}/disable`, `POST /users/{id}/enable`, and `DELETE /users/{id}` for a soft deletion, and three codes for their refusals: `USER_CHANGED`, `USER_NOT_ACTIVE`, and `LAST_ADMIN` | [api-v1.5.md](../iterations/api-v1.5.md) |
 | 2026-11-15 | 1.4 | `GET /auth/me` also returns `permissions`, what the user may do, so that the frontend shows a control by its permission and never by a role | [api-v1.4.md](../iterations/api-v1.4.md) |
@@ -64,6 +65,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 400 | `VALIDATION_FAILED` | A field is missing, malformed, or too long | General |
 | 400 | `INVALID_QUANTITY` | A quantity is not a whole number in its range | [Valid quantities](../database/database-design.md#valid-quantities) |
 | 400 | `CODE_INVALID` | The email code is wrong, has expired, was used, has had 5 wrong entries, or does not exist. The answer is the same in every case. The person requests a new code | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
+| 400 | `IMAGE_TYPE_NOT_ALLOWED` | The uploaded file is not a JPEG, PNG, or WebP image, judged by its first bytes | [Item images](../database/database-design.md#item-images) |
 | 401 | `UNAUTHENTICATED` | No token, an invalid or expired token, a token not issued after `password_changed_at`, a token that carries no login id (issued before logins were kept), or a token of a user who does not exist or is soft-deleted. At login: a wrong username or password | General |
 | 401 | `SESSION_REPLACED` | The account logged in again, on this or another device, after this token was issued: only the newest login is signed in | [One signed-in device](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `FORBIDDEN` | The user is logged in and holds a role, and the Permission Matrix does not allow the action for any of the user's roles. Also a request to an endpoint that declares nothing or does not exist, whatever the roles | General |
@@ -76,6 +78,10 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not for this HTTP method | General |
 | 409 | `OUT_OF_STOCK` | An item is short | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `NO_STOCK` | An item with no stock cannot be listed | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
+| 409 | `ALREADY_LISTED` | The item is listed now, so it cannot be listed again | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
+| 409 | `ALREADY_DELISTED` | The product is not listed now, so it cannot be delisted | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
+| 409 | `ITEM_NAME_TAKEN` | Another item that is not deleted has this name, without regard to case | [Warehouse items](../database/database-design.md#warehouse-items) |
+| 409 | `ITEM_LISTED` | The item is on sale, so its name and image cannot be changed; delist it first | [Warehouse items](../database/database-design.md#warehouse-items) |
 | 409 | `PRODUCT_DELISTED` | The product is not on sale | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `PRODUCT_CHANGED` | The name or price differs from the one the user saw | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `ITEM_CHANGED` | A chosen item no longer exists. The body names them | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
@@ -86,7 +92,8 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 409 | `LAST_ADMIN` | The change would leave the system with no usable administrator | [Administrator protection](../database/database-design.md#administrator-protection) |
 | 409 | `USERNAME_TAKEN` | At sign-up, the username belongs to an account. The code is not used up, so the person picks another username and sends the same code | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 409 | `EMAIL_TAKEN` | The address already has an account. It is the answer to a request for a sign-up code, and to a sign-up whose address got an account after the code was mailed. The page says that the address is registered | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
-| 415 | `UNSUPPORTED_MEDIA_TYPE` | The body is not JSON | General |
+| 413 | `IMAGE_TOO_LARGE` | The uploaded image is larger than 2 MB | [Item images](../database/database-design.md#item-images) |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | The body is not JSON (not multipart, on the image upload) | General |
 | 429 | `LOGIN_LOCKED` | The account is locked after failed logins. The body carries `lockedUntil`, the time the lock ends | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 429 | `TOO_MANY_REQUESTS` | A request for an email code was refused by a limit: the same address and purpose within 60 seconds, more than 10 requests of one client address in an hour, or more than 200 requests of the whole system in a day. The answer does not say which | General |
 | 503 | `BUSY` | The retries on a deadlock or a lock wait were used up. Nothing was created | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
@@ -150,6 +157,33 @@ The endpoints of the user page. The rules behind them are in [Authority over rol
 - A disabled user keeps the roles, which count for nothing until the account is enabled. The next request of a disabled user is answered `ACCOUNT_DISABLED`, and that of a deleted user `UNAUTHENTICATED`.
 - A user who was deleted does not exist for any later call: the answer is `NOT_FOUND`. There is no way to bring a deleted account back.
 - The refusals of the three: `FORBIDDEN`, `NOT_FOUND`, `USER_CHANGED`, and `LAST_ADMIN`.
+
+## Warehouse Items, Images, and Products
+
+Built on 2026-11-15 for Phase 4 ([api-v1.7.md](../iterations/api-v1.7.md)). The rules behind them are in [Warehouse items](../database/database-design.md#warehouse-items), [Item images](../database/database-design.md#item-images), and [Listing and delisting](../database/database-design.md#listing-and-delisting). The stock page of Phase 4 lists the items and adds, edits, and deletes them; changing a quantity and the logs come in Phase 5, and so does the Order button.
+
+| Endpoint | Who | Request | Answer |
+| --- | --- | --- | --- |
+| `GET /items` | `STOCK_VIEW` (every role) | The parameters of Paging, and `search`, a part of the name | `200` with a page of `{ "id": 3, "sku": "K7Q2M9XA", "name": "A4 paper", "imageUrl": "/api/v1/images/items/3f2b...webp", "availableQuantity": 40, "listed": true }`. Items that are not deleted, ordered by name and then `id`. `imageUrl` is null without an image. `listed` says whether the item's product is `LISTED`: an item on sale cannot be edited |
+| `POST /item-images` | `ITEM_MANAGE` (administrator, manager) | `multipart/form-data` with one part `file` | `201` with `{ "path": "items/3f2b8c1e-....webp", "url": "/api/v1/images/items/3f2b8c1e-....webp" }`. The file is stored under a random name; `path` is then sent with the item |
+| `POST /items` | `ITEM_MANAGE` | `{ "name": "A4 paper", "imagePath": "items/3f2b...webp", "startingQuantity": 40 }`. `imagePath` and `startingQuantity` may be left out | `201` with the item as in `GET /items`. The SKU is generated |
+| `PUT /items/{id}` | `ITEM_MANAGE` | `{ "name": "A4 paper", "imagePath": "items/9a1c...png" }`: the whole editable state. A null `imagePath` removes the image | `200` with the item |
+| `DELETE /items/{id}` | `ITEM_DELETE` (administrator, manager) | None | `204`. The deletion is soft: the item leaves every list, its product is delisted, and its name is free again. The stock is left as it was |
+| `GET /images/items/{file}` | Everyone, with no token | None | `200` with the image, its content type, and `Cache-Control: public, max-age=31536000, immutable`. `404` for any other name |
+| `GET /products` | `PRODUCT_VIEW` (every role) | The parameters of Paging, and `search`, a part of the name | `200` with a page of `{ "id": 5, "name": "A4 paper", "price": "12.50", "imageUrl": "/api/v1/images/items/3f2b...webp" }`. Only `LISTED` products, ordered by name and then `id`. Nothing else is shown, the stock included |
+| `GET /products/listable` | `PRODUCT_LIST` (administrator, manager) | The parameters of Paging, and `search`, a part of the name | `200` with a page of `{ "inventoryId": 3, "sku": "K7Q2M9XA", "name": "A4 paper", "imageUrl": null, "availableQuantity": 40 }`: the catalog, the items that are not deleted and not listed now, ordered by name and then `id` |
+| `POST /products` | `PRODUCT_LIST` | `{ "inventoryId": 3, "name": "A4 paper", "price": "12.50" }` | `201` with `{ "id": 5, "inventoryId": 3, "name": "A4 paper", "price": "12.50", "status": "LISTED" }`. The first listing of an item creates its product; a later one lists the same product again, with the same `id` |
+| `POST /products/{id}/delist` | `PRODUCT_DELIST` (administrator, manager) | None | `200` with the product, `"status": "UNLISTED"` |
+
+- **Names.** An item name is 1 to 200 characters, trimmed, and unique among the items that are not deleted without regard to case; a taken one is `ITEM_NAME_TAKEN`. A product name follows the same length rule and may repeat. A blank or too long name is `VALIDATION_FAILED`.
+- **Prices** are sent and returned as strings with at most two decimals (`"12.50"`), so no rounding happens on the way. A price must be above 0 and at most `9999999999.99`, the largest the column holds. Anything else is `VALIDATION_FAILED` on `price`.
+- **The starting quantity** follows [Valid quantities](../database/database-design.md#valid-quantities): a whole number from 0 to 999,999, and empty means 0. Anything else is `INVALID_QUANTITY`.
+- **Images.** The upload accepts JPEG, PNG, and WebP up to 2 MB, and the type is read from the first bytes of the file, not from the name or the header. A larger file is `IMAGE_TOO_LARGE` (413); any other type is `IMAGE_TYPE_NOT_ALLOWED` (400); a body that is not multipart is `UNSUPPORTED_MEDIA_TYPE`, and a multipart body without the part `file` is `VALIDATION_FAILED`. A name of an image that holds an encoded slash is refused with `400` before any controller. The file is stored before any row refers to it, so a failed save leaves an unused file and never a row that points to nothing. An `imagePath` must be a path that `POST /item-images` returned and whose file exists; anything else is `VALIDATION_FAILED` on `imagePath`. Image files are never deleted.
+- **Why the images need no token.** A browser loads an `<img>` without the `Authorization` header, so the image address is open, as product images usually are. The file name is a random UUID and cannot be guessed, so only a person who was shown the page knows the address. The images are product pictures and not secrets.
+- **The refusals of an item.** `NOT_FOUND` when the item does not exist or is deleted, also for a second deletion; `ITEM_LISTED` (409) when an edit finds the item on sale (delist it first); `ITEM_NAME_TAKEN` (409).
+- **The refusals of a listing.** `NOT_FOUND` when the item does not exist or is deleted; `ALREADY_LISTED` (409) when it is listed now, by someone else meanwhile or before; `NO_STOCK` (409) when its `available_quantity` is 0.
+- **The refusals of a delisting.** `NOT_FOUND` when there is no such product; `ALREADY_DELISTED` (409) when it is not listed now.
+- Deleting an item and delisting a product also cancel the linked tickets. There are no tickets before Phase 6, so that step is added with the ticket module (T-21, T-33).
 
 ## Paging
 

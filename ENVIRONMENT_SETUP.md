@@ -248,6 +248,7 @@ Real credentials live in environment variables and never in the repository. The 
 | `OPSFLOW_MIGRATION_USERNAME` | Migration account, `opsflow_migrator` | Yes |
 | `OPSFLOW_MIGRATION_PASSWORD` | Password of the migration account | Yes |
 | `OPSFLOW_TOKEN_SIGNING_KEY` | The key that signs the login tokens: Base64 of at least 32 random bytes | Yes |
+| `OPSFLOW_IMAGE_DIR` | The folder of the item images, outside the web root | No. By default `./data/images` under the folder the backend starts in (`backend/data/images` with `mvnw spring-boot:run`), which git ignores. Not set on this machine |
 | `OPSFLOW_MAIL_HOST` | The SMTP server that sends the email codes: `smtp.gmail.com` | No. Without it, or without the password, the backend starts and sends no mail |
 | `OPSFLOW_MAIL_PORT` | The SMTP port | No, defaults to 587 |
 | `OPSFLOW_MAIL_USERNAME` | The address of the Gmail account made for OpsFlow | With the host |
