@@ -106,6 +106,17 @@ class WarehouseRepository {
 		jdbc.update("UPDATE inventory SET name = ?, image_url = ? WHERE id = ?", name, imagePath, id);
 	}
 
+	/** A manual stock change, called with the row locked. Only the available stock changes; the sold stock belongs to orders. */
+	void setAvailable(long id, int availableQuantity) {
+		jdbc.update("UPDATE inventory SET available_quantity = ? WHERE id = ?", availableQuantity, id);
+	}
+
+	/** Whether the product of an item is on sale now, with a plain read, for an answer. */
+	boolean isListed(long inventoryId) {
+		return Boolean.TRUE.equals(jdbc.queryForObject(
+				"SELECT EXISTS (SELECT 1 FROM products WHERE inventory_id = ? AND status = 'LISTED')", Boolean.class, inventoryId));
+	}
+
 	/** Called with the row locked. The stock is left as it is. */
 	void softDeleteItem(long id, Instant at, long deletedBy) {
 		jdbc.update("UPDATE inventory SET deleted_at = ?, deleted_by = ? WHERE id = ?", UtcTime.toLocalDateTime(at), deletedBy, id);

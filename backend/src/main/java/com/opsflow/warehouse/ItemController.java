@@ -55,12 +55,59 @@ public class ItemController {
 		}
 	}
 
+	/**
+	 * A stock-in or a write-off.
+	 *
+	 * @param quantity a whole number from 1 to the most of one stock input, declared as {@code Object} for the quantity check
+	 */
+	public record StockChangeRequest(Object quantity, String reason) {
+	}
+
+	/**
+	 * A correction to the number that was counted.
+	 *
+	 * @param quantity the number that was counted
+	 * @param expectedQuantity the stock the person saw; a different stock under the lock is {@code STOCK_CHANGED}
+	 */
+	public record CorrectionRequest(Object quantity, Object expectedQuantity, String reason) {
+	}
+
 	private final ItemService items;
+	private final StockService stock;
 	private final PageQueryFactory pages;
 
-	ItemController(ItemService items, PageQueryFactory pages) {
+	ItemController(ItemService items, StockService stock, PageQueryFactory pages) {
 		this.items = items;
+		this.stock = stock;
 		this.pages = pages;
+	}
+
+	/** Stock received: {@code RESTOCK}. */
+	@RequiresPermission(Permission.STOCK_IN)
+	@PostMapping("/{id}/stock-in")
+	public ItemResponse stockIn(@PathVariable long id, @RequestBody StockChangeRequest body, @AuthenticationPrincipal CurrentUser user,
+			HttpServletRequest request) {
+		return changed(stock.stockIn(user, id, body.quantity(), body.reason(), request.getRemoteAddr()));
+	}
+
+	/** Stock lost, damaged, or taken out: {@code WRITE_OFF}. */
+	@RequiresPermission(Permission.STOCK_WRITE_OFF)
+	@PostMapping("/{id}/write-off")
+	public ItemResponse writeOff(@PathVariable long id, @RequestBody StockChangeRequest body, @AuthenticationPrincipal CurrentUser user,
+			HttpServletRequest request) {
+		return changed(stock.writeOff(user, id, body.quantity(), body.reason(), request.getRemoteAddr()));
+	}
+
+	/** The stock set to the number that was counted: {@code ADJUST_IN} or {@code ADJUST_OUT}. */
+	@RequiresPermission(Permission.STOCK_CORRECT)
+	@PostMapping("/{id}/correction")
+	public ItemResponse correct(@PathVariable long id, @RequestBody CorrectionRequest body, @AuthenticationPrincipal CurrentUser user,
+			HttpServletRequest request) {
+		return changed(stock.correct(user, id, body.quantity(), body.expectedQuantity(), body.reason(), request.getRemoteAddr()));
+	}
+
+	private static ItemResponse changed(StockService.Changed changed) {
+		return ItemResponse.of(changed.item(), changed.listed());
 	}
 
 	/** The items that are not deleted, by name and then id, paged by key. */

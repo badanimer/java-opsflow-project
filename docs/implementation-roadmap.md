@@ -119,6 +119,8 @@ The core of the system and the hardest part.
 | T-46 | The stock page, the warehouse log and the product log, the searchable picker, and the Deleted items module |
 | T-17 | The first pass: repeat the concurrency checks of [concurrency-tests.md](../db/verification/concurrency-tests.md) against this code |
 
+**Built so far** (2026-11-16, on `phase-5-backend`): the backend of the whole phase, that is the order flow and the three manual stock changes with their race tests, and the two logs with the time filter, the Deleted items module, and the product picker ([backend-v1.10.md](iterations/backend-v1.10.md), [api-v1.8.md](iterations/api-v1.8.md)). Next: the Figma design and the frontend of the phase (T-10, T-30, T-41, T-46).
+
 **Done when:** many threads ordering the same product never take the stock below zero, every attempt leaves its `order_attempts` row, a repeated key adds nothing, and the race tests for stock changes pass.
 
 ## Phase 6: Tickets

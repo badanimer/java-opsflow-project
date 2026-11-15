@@ -22,9 +22,11 @@ import com.opsflow.common.error.ErrorCode;
 public class Quantities {
 
 	private final int maxStockInput;
+	private final int maxOrderLine;
 
 	public Quantities(OpsflowProperties properties) {
 		this.maxStockInput = properties.quantity().maxStockInput();
+		this.maxOrderLine = properties.quantity().maxOrderLine();
 	}
 
 	/** The starting quantity of a new item: empty means 0, otherwise 0 to the most of one stock input. */
@@ -33,6 +35,38 @@ public class Quantities {
 			return 0;
 		}
 		return within(value, 0, maxStockInput, "startingQuantity");
+	}
+
+	/** The quantity of a stock-in or a write-off: 1 to the most of one stock input. Required. */
+	public int stockChange(Object value) {
+		return within(value, 1, maxStockInput, "quantity");
+	}
+
+	/** The new quantity of a correction, the number that was counted: 0 to the most of one stock input. Required. */
+	public int countedQuantity(Object value) {
+		return within(value, 0, maxStockInput, "quantity");
+	}
+
+	/** The quantity a person saw on the screen before a correction: any whole number a stock can hold. Required. */
+	public int seenQuantity(Object value) {
+		return within(value, 0, Integer.MAX_VALUE, "expectedQuantity");
+	}
+
+	/** The quantity of one order line: 1 to the most of one order line. Required. */
+	public int orderLine(Object value) {
+		return within(value, 1, maxOrderLine, "quantity");
+	}
+
+	/**
+	 * A quantity as {@code order_attempts.quantity} records it: the value as sent when it is a whole number
+	 * that the {@code INT} column holds, and 0 otherwise (see Order attempts).
+	 */
+	public static int asRecorded(Object value) {
+		BigInteger whole = wholeNumber(value);
+		if (whole == null || whole.bitLength() > 31) {
+			return 0;
+		}
+		return whole.intValueExact();
 	}
 
 	private static int within(Object value, int min, int max, String field) {

@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-16 | 1.8 | Placing an order, `POST /orders`, with its number in every recorded refusal and the original order for a key used before; the three manual stock changes, `POST /items/{id}/stock-in`, `/write-off`, and `/correction`; the code `STOCK_CHANGED`; the two logs (`/listing-records`, `/order-records`, `/item-records`, `/stock-movements`) with the time filter and the search by one order number, `/deleted-items`, and the product picker `/product-options`. An order refused by its permissions gets `FORBIDDEN` and not `NOT_ALLOWED` | [api-v1.8.md](../iterations/api-v1.8.md) |
 | 2026-11-15 | 1.7 | The endpoints of warehouse items, item images, and products for Phase 4, and the codes `ITEM_NAME_TAKEN`, `ITEM_LISTED`, `ALREADY_LISTED`, `ALREADY_DELISTED`, `IMAGE_TOO_LARGE`, and `IMAGE_TYPE_NOT_ALLOWED` | [api-v1.7.md](../iterations/api-v1.7.md) |
 | 2026-11-15 | 1.6 | One signed-in device per account: the code `SESSION_REPLACED` for a token of a login that a newer login of the account ended, and the event stream `GET /auth/session-events`, which tells an open page at once | [api-v1.6.md](../iterations/api-v1.6.md) |
 | 2026-11-15 | 1.5 | The first endpoints of the user module: the user page, `GET /users`, the first list of the API, with a search and role buttons; `PUT /users/{id}/roles`, which replaces the roles of a user and carries the roles the sender saw, `POST /users/{id}/disable`, `POST /users/{id}/enable`, and `DELETE /users/{id}` for a soft deletion, and three codes for their refusals: `USER_CHANGED`, `USER_NOT_ACTIVE`, and `LAST_ADMIN` | [api-v1.5.md](../iterations/api-v1.5.md) |
@@ -69,14 +70,14 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 401 | `UNAUTHENTICATED` | No token, an invalid or expired token, a token not issued after `password_changed_at`, a token that carries no login id (issued before logins were kept), or a token of a user who does not exist or is soft-deleted. At login: a wrong username or password | General |
 | 401 | `SESSION_REPLACED` | The account logged in again, on this or another device, after this token was issued: only the newest login is signed in | [One signed-in device](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `FORBIDDEN` | The user is logged in and holds a role, and the Permission Matrix does not allow the action for any of the user's roles. Also a request to an endpoint that declares nothing or does not exist, whatever the roles | General |
-| 403 | `NOT_ALLOWED` | The account is not usable or its role does not allow orders or tickets | Order and ticket results |
+| 403 | `NOT_ALLOWED` | Reserved for the ticket module. An order is refused by the permission check like every endpoint: `FORBIDDEN`, `ACCOUNT_DISABLED`, or `ACCOUNT_NO_ROLE` | Ticket results |
 | 403 | `ACCOUNT_DISABLED` | The account is disabled. At login it is the answer to the right password, with no token. On any other request it means the account was disabled after login. The frontend clears its login state and shows the message on the login page | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `ACCOUNT_NO_ROLE` | The account has no role yet, and the endpoint needs one. The pending page shows it | [Users without roles](../database/database-design.md#users-without-roles) |
 | 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists. In a change to a user: the user does not exist, is soft-deleted, or is the SYSTEM identity | General |
 | 404 | `ORDER_NOT_FOUND` | The order number named on a ticket is not in `order_attempts` | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
 | 404 | `FOLLOW_NOT_FOUND` | The ticket to follow does not exist | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 405 | `METHOD_NOT_ALLOWED` | The path exists but not for this HTTP method | General |
-| 409 | `OUT_OF_STOCK` | An item is short | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
+| 409 | `OUT_OF_STOCK` | An item is short: for an order, or for a write-off larger than the stock | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow), [Manual stock changes](../database/database-design.md#manual-stock-changes) |
 | 409 | `NO_STOCK` | An item with no stock cannot be listed | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
 | 409 | `ALREADY_LISTED` | The item is listed now, so it cannot be listed again | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
 | 409 | `ALREADY_DELISTED` | The product is not listed now, so it cannot be delisted | [Listing and delisting](../database/database-design.md#listing-and-delisting) |
@@ -85,6 +86,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 409 | `PRODUCT_DELISTED` | The product is not on sale | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `PRODUCT_CHANGED` | The name or price differs from the one the user saw | [Order and Inventory Flow](../database/database-design.md#order-and-inventory-flow) |
 | 409 | `ITEM_CHANGED` | A chosen item no longer exists. The body names them | [Creating a ticket on items](../database/database-design.md#creating-a-ticket-on-items) |
+| 409 | `STOCK_CHANGED` | A correction was made from a stock that is no longer the stock of the item: someone changed it in the meantime. Nothing is changed, and the page reloads the item | [Manual stock changes](../database/database-design.md#manual-stock-changes) |
 | 409 | `FOLLOW_NOT_ALLOWED` | The ticket to follow is not `RESOLVED` or `CLOSED` | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 409 | `LIMIT_REACHED` | The person already has 99 open tickets, or 99 in progress | [Ticket limits](../database/database-design.md#ticket-limits) |
 | 409 | `USER_CHANGED` | The user is not as the sender saw it: someone else changed the roles, or disabled or enabled the account, in which case the body carries the current status as `userStatus`. Nothing is changed, and the page reloads the user | [Steps of a change to a user](../database/database-design.md#steps-of-a-change-to-a-user) |
@@ -160,7 +162,7 @@ The endpoints of the user page. The rules behind them are in [Authority over rol
 
 ## Warehouse Items, Images, and Products
 
-Built on 2026-11-15 for Phase 4 ([api-v1.7.md](../iterations/api-v1.7.md)). The rules behind them are in [Warehouse items](../database/database-design.md#warehouse-items), [Item images](../database/database-design.md#item-images), and [Listing and delisting](../database/database-design.md#listing-and-delisting). The stock page of Phase 4 lists the items and adds, edits, and deletes them; changing a quantity and the logs come in Phase 5, and so does the Order button.
+Built on 2026-11-15 for Phase 4 ([api-v1.7.md](../iterations/api-v1.7.md)). The rules behind them are in [Warehouse items](../database/database-design.md#warehouse-items), [Item images](../database/database-design.md#item-images), and [Listing and delisting](../database/database-design.md#listing-and-delisting). The stock page of Phase 4 lists the items and adds, edits, and deletes them. Changing a quantity and placing an order are in Orders and Stock Changes, and the logs in Logs.
 
 | Endpoint | Who | Request | Answer |
 | --- | --- | --- | --- |
@@ -184,6 +186,53 @@ Built on 2026-11-15 for Phase 4 ([api-v1.7.md](../iterations/api-v1.7.md)). The 
 - **The refusals of a listing.** `NOT_FOUND` when the item does not exist or is deleted; `ALREADY_LISTED` (409) when it is listed now, by someone else meanwhile or before; `NO_STOCK` (409) when its `available_quantity` is 0.
 - **The refusals of a delisting.** `NOT_FOUND` when there is no such product; `ALREADY_DELISTED` (409) when it is not listed now.
 - Deleting an item and delisting a product also cancel the linked tickets. There are no tickets before Phase 6, so that step is added with the ticket module (T-21, T-33).
+
+## Orders and Stock Changes
+
+Built on 2026-11-16 for Phase 5 ([api-v1.8.md](../iterations/api-v1.8.md)). The rules behind them are in [Create order](../database/database-design.md#create-order), [Order attempts](../database/database-design.md#order-attempts), and [Manual stock changes](../database/database-design.md#manual-stock-changes). There is no order list and no order page: an order is an action, and its record is read in the product log.
+
+| Endpoint | Who | Request | Answer |
+| --- | --- | --- | --- |
+| `POST /orders` | `ORDER_PLACE` (administrator, manager, operator) | The header `Idempotency-Key` (optional, see General Rules) and `{ "lines": [ { "productId": 5, "quantity": 2, "name": "A4 paper", "price": "12.50" } ], "remark": null }`. `name` and `price` are the ones the user saw on the product page. `remark` is optional, at most 500 characters | `201` with `{ "id": 41, "orderNo": "ORD-3f2b...", "totalAmount": "25.00", "itemCount": 1, "createdAt": "...", "lines": [ { "productId": 5, "sku": "K7Q2M9XA", "name": "A4 paper", "unitPrice": "12.50", "quantity": 2, "subtotal": "25.00" } ] }`. A key the user already used answers `200` with the original order and writes nothing |
+| `POST /items/{id}/stock-in` | `STOCK_IN` (administrator, manager, operator) | `{ "quantity": 5, "reason": "delivery 42" }` | `200` with the item as in `GET /items`, with its new `availableQuantity` |
+| `POST /items/{id}/write-off` | `STOCK_WRITE_OFF` (the same) | `{ "quantity": 3, "reason": "damaged" }` | `200` with the item |
+| `POST /items/{id}/correction` | `STOCK_CORRECT` (the same) | `{ "quantity": 20, "expectedQuantity": 12, "reason": "stock count" }`: `quantity` is the number that was counted, and `expectedQuantity` the stock the person saw | `200` with the item |
+
+**An order.**
+
+- **The lines.** 1 to 20 lines, each product once. The product page sends one. `itemCount` is the number of lines.
+- **The order number** is made for each attempt before it starts. Every refusal that is recorded carries it as `orderNo`, so the person can name it in a ticket: `PRODUCT_DELISTED`, `PRODUCT_CHANGED`, `OUT_OF_STOCK` (409), `INVALID_QUANTITY` (400), and `BUSY` (503). Each is recorded in `order_attempts`, one row for each line, and the whole order is refused: no line is placed.
+- **What is not an attempt.** A request whose shape is wrong is `VALIDATION_FAILED` and is not recorded: no lines, more than 20, a product named twice, a missing `productId`, a `name` or `price` that is missing or not in the form of the product page, an empty or too long `Idempotency-Key`, or a remark over 500 characters. A product that does not exist is `NOT_FOUND` and is not recorded, because there is no product to point at. A user whose roles do not allow orders gets `FORBIDDEN`, like every endpoint.
+- **The quantity** is a whole number from 1 to 9,999 (see [Valid quantities](../database/database-design.md#valid-quantities)). Anything else is `INVALID_QUANTITY`, checked before the order transaction, so it wins over a refusal that the transaction would give.
+- **The name and the price** must be the ones of the product now. The price is compared as a number, so `"12.5"` and `"12.50"` are the same. A product delisted since the page was read is `PRODUCT_DELISTED`; one listed again under another name or price is `PRODUCT_CHANGED`.
+- **The stock is never shown.** `OUT_OF_STOCK` says that some line is short, not how much is left.
+- **The idempotency key.** The page makes one key for each order dialog and sends it again when it retries after no answer. The original order is returned however the body of the repeat looks. A refused attempt does not use the key up, so the same key can be sent again after a refusal.
+
+**A stock change.**
+
+- **The quantity** of a stock-in or a write-off is a whole number from 1 to 999,999; the counted quantity of a correction is from 0 to 999,999; `expectedQuantity` is a whole number from 0. Anything else is `INVALID_QUANTITY` with the field.
+- **The reason** is required: 1 to 255 characters after the spaces around it are removed. Anything else is `VALIDATION_FAILED` on `reason`.
+- **The refusals.** `NOT_FOUND` when the item does not exist or is deleted. `OUT_OF_STOCK` (409) for a write-off larger than the stock. `INVALID_QUANTITY` for a stock-in that would pass the most an `INT` holds. `STOCK_CHANGED` (409) for a correction whose `expectedQuantity` is not the stock under the lock: the page reloads the item and the person counts again. A correction to the number the person saw changes nothing and is `VALIDATION_FAILED` on `quantity`.
+- Every change writes a movement with the stock before and after, and a log row with the reason (see [Stock logs](../database/database-design.md#stock-logs)).
+
+## Logs
+
+Built on 2026-11-16 for Phase 5 ([api-v1.8.md](../iterations/api-v1.8.md)). The rules are in [Logs](../database/database-design.md#logs), [The time filter](../database/database-design.md#the-time-filter), and [The searchable picker](../database/database-design.md#the-searchable-picker). Every endpoint here only reads, and every list is paged as in Paging.
+
+| Endpoint | Who | Filters | A row |
+| --- | --- | --- | --- |
+| `GET /listing-records` | `PRODUCT_VIEW` (every role) | `productId`, the time filter, `order` | `{ "id": 7, "at": "...", "productId": 5, "inventoryId": 3, "action": "LISTED", "name": "A4 paper", "price": "12.50", "by": "mary" }`: the name and price at that moment |
+| `GET /order-records` | `PRODUCT_VIEW` | `productId`, the time filter, `order`; or `orderNo` alone | `{ "id": 12, "at": "...", "productId": 5, "productName": "A4 paper", "orderNo": "ORD-3f2b...", "orderedBy": "olive", "quantity": 3, "result": "COMPLETED", "stockDeducted": 3 }`: one line of every attempt, placed or refused |
+| `GET /item-records` | `STOCK_VIEW` (every role) | `inventoryId`, the time filter, `order` | `{ "id": 4, "at": "...", "inventoryId": 3, "action": "CREATED", "sku": "K7Q2M9XA", "name": "A4 paper", "quantity": 10, "by": "mary" }`: the starting stock, or the stock the item showed when it was deleted |
+| `GET /stock-movements` | `STOCK_VIEW` | `inventoryId`, the time filter, `order`; or `orderNo` alone | `{ "id": 20, "at": "...", "inventoryId": 3, "sku": "K7Q2M9XA", "itemName": "A4 paper", "type": "SALE", "orderNo": "ORD-3f2b...", "reason": null, "amount": -3, "by": "olive" }`. `amount` is `+` for `RESTOCK` and `ADJUST_IN` and `-` for the others; `orderNo` is set for a `SALE` only, and `reason` for a manual change only |
+| `GET /deleted-items` | `DELETED_ITEMS_VIEW` (every role) | `search`, a part of the name or the SKU | `{ "id": 3, "sku": "K7Q2M9XA", "name": "Pens", "deletedAt": "...", "deletedBy": "mary", "productId": 6 }`. Newest deletion first; the order is fixed. `productId` is the product of the item if it ever had one, so the page can read the four parts of its own log |
+| `GET /product-options` | `PRODUCT_VIEW` | `search`, a part of the name | `{ "id": 5, "name": "A4 paper", "sku": "K7Q2M9XA" }`: the product picker, every product ever listed except those of deleted items, by name from A to Z. The page shows the SKU beside a name that appears twice |
+
+- **Three ways to read a log.** All records of one kind (no `productId` or `inventoryId`), the records of one chosen product or item, and the own log of one, which the page reads as its two kinds with the same id. An id that has no records gives an empty page. The ids of a deleted item and of its product are accepted, so the Deleted items module can show their records.
+- **The item picker** is `GET /items`: every item that is not deleted, by name, with the SKU.
+- **The time filter.** `from` and `to` are days written `yyyy-MM-dd`, in Sydney time. `from` alone reads from the start of that day until now; `from` and `to` read both days and every day between. No day is no filter. `to` without `from`, a day after today, and `to` before `from` are `VALIDATION_FAILED`.
+- **The direction.** `order` is `desc` (newest first, the default) or `asc`, on the four lists of records only. The Deleted items list and the picker have a fixed order and refuse `order`.
+- **One order number.** `orderNo` finds the lines of one attempt in the order records, or the `SALE` rows of one placed order in the stock movements. It is the whole number, matched exactly, whatever case is typed: `ORD-` and the rest in lower case, as the numbers are made. It is used alone: with `productId`, `inventoryId`, `from`, or `to` it is `VALIDATION_FAILED`.
 
 ## Paging
 
