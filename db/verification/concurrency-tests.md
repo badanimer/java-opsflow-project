@@ -20,7 +20,9 @@ The check names in this file are the names the script prints, so a line in the r
 
 ## Latest run
 
-**2026-11-15, MySQL 8.4, after `V4__users_session_id.sql` and the fix of `delist_product`: 161 passed, 0 failed.** Races were repeated 4 to 12 rounds each. No check was added or changed. The schema gained `users.session_id`, which no check reads, and `delist_product` now locks the product row before it takes the time of `delisted_at` (T-66). It was started by the assistant with the root password typed by the owner in the masked dialog.
+**2026-11-15, MySQL 8.4, after the application account lost `INSERT` on `roles` (database v1.15): 162 passed, 0 failed.** Races were repeated 4 to 12 rounds each. One check was added: `app is refused: INSERT roles (the roles are fixed)`. It was started by the assistant with the root password typed by the owner in the masked dialog.
+
+The run before it, the same day: **2026-11-15, MySQL 8.4, after `V4__users_session_id.sql` and the fix of `delist_product`: 161 passed, 0 failed.** Races were repeated 4 to 12 rounds each. No check was added or changed. The schema gained `users.session_id`, which no check reads, and `delist_product` now locks the product row before it takes the time of `delisted_at` (T-66). It was started by the assistant with the root password typed by the owner in the masked dialog.
 
 The run before it, the same day, after `V4__users_session_id.sql` only: 160 passed, 1 failed. The failure was `five orders racing a delisting` (4 rounds, bad 1). `delist_product` took `delisted_at = NOW(3)` in the `UPDATE` that then waited for the shared locks of the racing orders, and MySQL fixes `NOW()` when a statement starts, so an order that committed before the delisting could carry a later `created_at`. It showed in some runs only. One passing run does not prove a race fixed; the fix rests on the order of the steps, which now takes the time after the lock.
 
@@ -30,9 +32,9 @@ The run before it: **2026-11-15, MySQL 8.4: 161 passed, 0 failed.** Races were r
 | --- | --- |
 | A. Setup | 3 |
 | B. Structure | 94 |
-| C. Privileges | 32 |
+| C. Privileges | 33 |
 | D. Concurrency | 32 |
-| Total | 161 |
+| Total | 162 |
 
 The runs before it found two wrong checks, both in the test and not in the design: the check of the binary collation of the order, ticket, and idempotency numbers expected a column count that grew twice (`order_attempts.order_no`, then `tickets.order_no`), and now expects five. Two runs were also started at the same time by mistake, and one removed the temporary database and accounts of the other; their failures were caused by that and were discarded. The runs must not overlap.
 How the count grew:
@@ -50,6 +52,7 @@ How the count grew:
 | 2026-10-27 | 156 | v1.9, audit categories: `operation_logs.category` with its check and index (`idx_operation_logs_created` replaced by `idx_operation_logs_category_created`); one check changed (the index name) and one added (a known category is required) |
 | 2026-10-27 | 155 | v1.9: the refusal of `DELETE` on `email_verification_codes` was removed, and four checks were added: the application can delete expired email codes, an item with no stock cannot be listed, an attempt needs the name of the product (`order_attempts.product_name`), and a recorded attempt carries the name the product had |
 | 2026-11-15 | 161 | v1.13: no check added or removed. Two changed: `app is refused: DELETE user_roles (until granted)` became `app is refused: DELETE roles (the roles are fixed)`, and `app can delete user_roles once DELETE is granted on that table only` became `app can delete from user_roles, to revoke a role`, because the privilege script now grants that `DELETE` |
+| 2026-11-15 | 162 | v1.15: `app is refused: INSERT roles (the roles are fixed)`, because the privilege script no longer grants `INSERT` on `roles` |
 | 2026-11-13 | 161 | v1.11: the table `email_code_request_counts` of the migration `V3`. Five checks added: `V3` applies, a count that is not positive is rejected, one row counts a window, a second row for the same window is rejected, and the application account can count and can delete old counts. One check renamed: `16 tables exist` is now `17 tables exist` |
 | 2026-10-24 | 149 | v1.7: the warehouse-first schema, products, listing and delisting, adding and deleting items, tickets on items, and orders that complete at once and are final. The confirmation, timeout, expired-confirmation, cancellation, and exception path tests (10 checks) were removed, because those flows no longer exist, and 52 checks were added, among them the 8-character ticket number and the follow-up by number. See the iteration file |
 
@@ -87,7 +90,7 @@ These are single-session checks of what the database enforces by itself. Design 
 
 The status transitions, the fields each transition must fill, and the ticket limits are enforced in the service layer, so this block does not test them. See What is not tested yet.
 
-## Block C. Privileges (32 checks)
+## Block C. Privileges (33 checks)
 
 The application account must be able to do what the flows need and nothing else. Design rule: Initial Constraints, and [`restrict-app-privileges.sql`](../admin/restrict-app-privileges.sql).
 
@@ -95,7 +98,7 @@ The application account must be able to do what the flows need and nothing else.
 | --- | --- |
 | `privilege script adapts to the temporary names without touching real accounts`; `privilege script runs` | The privilege script is applied to the temporary names only |
 | `app: update mutable tables (users, roles, products, inventory, orders, tickets, email_verification_codes), including the soft delete of an item`; `app: insert into every table it writes`; `app: SELECT ... FOR UPDATE on inventory` | The grants are enough for the flows, including the soft delete of an item and the row lock |
-| `app is refused: UPDATE` or `DELETE` on `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, `operation_logs`, `order_items` (frozen); `UPDATE` on `user_roles`; `DELETE` on `roles` | Append-only and frozen tables accept `SELECT` and `INSERT` only, a role grant is never edited, and no role is deleted (18 checks) |
+| `app is refused: UPDATE` or `DELETE` on `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, `operation_logs`, `order_items` (frozen); `UPDATE` on `user_roles`; `INSERT` and `DELETE` on `roles` | Append-only and frozen tables accept `SELECT` and `INSERT` only, a role grant is never edited, and no role is added or deleted: the roles are fixed (19 checks) |
 | `app is refused: DELETE` on `orders`, `users`, `products`, `inventory` | Nothing that is soft-deleted or kept for good can be deleted (4 checks) |
 | `app can count code requests and delete the counts of old windows` | As the application account: the counting statement run twice gives one row with the count 2, and the delete by `window_start` removes it. `email_code_request_counts` is the second table the application may delete from |
 | `app can delete email codes that have expired, and a valid code stays` | `email_verification_codes` is the first of the two tables the application may delete from. The check inserts an expired code and a valid one, runs the cleanup statement (`expires_at < NOW(3)`) as the application account, and expects only the valid one to remain (v1.9; the name and the statement changed in v1.10, when the 24 hours were dropped) |
@@ -188,10 +191,10 @@ These tests check the set-up, not a business rule. They are in `TestInfrastructu
 | `contextLoads` | The application starts against the container | The configuration |
 | `migrationsBuildTheSeventeenTables` | The migrations build exactly the 17 tables of the design | [Initial Migration](../../docs/database/database-design.md#initial-migration) |
 | `sessionsRunInUtc` | The session time zone is UTC | [Time zone](../../docs/database/database-design.md#time-zone) |
-| `applicationAccountHasOnlyItsPerTableRights` | The application account inserts into an append-only table, and is refused `UPDATE` on it and `DELETE` on it and on `roles`, and may delete from `email_verification_codes` and `email_code_request_counts` | `restrict-app-privileges.sql` |
-| `everyTestStartsWithOnlyTheSeedRows`, `everyTestStartsWithOnlyTheSeedRowsToo` | A row left by one test is gone when the other starts, and the four seeded roles are there | The clean start every race test needs |
+| `applicationAccountHasOnlyItsPerTableRights` | The application account inserts into an append-only table, and is refused `UPDATE` on it, `DELETE` on it and on `roles`, and `INSERT` on `roles`, and may delete from `email_verification_codes` and `email_code_request_counts` | `restrict-app-privileges.sql` |
+| `everyTestStartsWithOnlyTheSeedRows`, `everyTestStartsWithOnlyTheSeedRowsToo` | A row left by one test (a user) is gone when the other starts, and only the seeded SYSTEM identity is there | The clean start every race test needs |
 | `SeedMigrationTest`: `flywayAppliedTheSeedMigration`, `theFourRolesAreSeeded`, `theSystemIdentityIsOneRowThatIsNotAPersonAndHoldsNoRole` | Flyway applied `V2` after `V1`; the roles are `ADMIN`, `MANAGER`, `OPERATOR`, and `VIEWER`; the SYSTEM identity is one row with a password marker that is not a hash, and it holds no role | [The SYSTEM identity](../../docs/database/database-design.md#the-system-identity), [Initial Migration](../../docs/database/database-design.md#initial-migration) |
-| `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key lets exactly one insert succeed | The race runner itself |
+| `ofEightRacersOnAUniqueKeyExactlyOneWins` | The race runner releases 8 threads together, and the unique key on the username lets exactly one insert succeed | The race runner itself |
 
 ### Shared code (102 tests)
 

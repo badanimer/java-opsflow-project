@@ -497,6 +497,7 @@ GRANT ALL PRIVILEGES ON $DB.* TO '$ADMIN'@'localhost' WITH GRANT OPTION;
         @('UPDATE order_items (frozen)', "UPDATE order_items SET quantity=9;"),
         @('DELETE order_items', "DELETE FROM order_items;"),
         @('UPDATE user_roles', "UPDATE user_roles SET role_id=1;"),
+        @('INSERT roles (the roles are fixed)', "INSERT INTO roles(code,name) VALUES ('NEW','New role');"),
         @('DELETE roles (the roles are fixed)', "DELETE FROM roles WHERE id=999;"),
         @('DELETE orders', "DELETE FROM orders;"),
         @('DELETE users', "DELETE FROM users WHERE id=3;"),

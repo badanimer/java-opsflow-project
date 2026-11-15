@@ -16,7 +16,11 @@ REVOKE INSERT, UPDATE ON opsflow.* FROM 'opsflow_app'@'localhost';
 
 -- Mutable business tables
 GRANT INSERT, UPDATE ON opsflow.users     TO 'opsflow_app'@'localhost';
-GRANT INSERT, UPDATE ON opsflow.roles     TO 'opsflow_app'@'localhost';
+-- The roles are fixed: a new role comes with a migration, so the application never inserts, changes,
+-- or deletes one. UPDATE stays only because MySQL allows SELECT ... FOR UPDATE to an account that may
+-- change the table, and Administrator protection locks the ADMIN row (database design v1.15).
+-- On a server where this script ran before v1.15, run: REVOKE INSERT ON opsflow.roles FROM 'opsflow_app'@'localhost';
+GRANT UPDATE ON opsflow.roles TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.products  TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.inventory TO 'opsflow_app'@'localhost';
 GRANT INSERT, UPDATE ON opsflow.orders    TO 'opsflow_app'@'localhost';

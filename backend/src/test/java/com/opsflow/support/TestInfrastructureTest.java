@@ -12,9 +12,10 @@ import org.springframework.dao.DuplicateKeyException;
 /** Checks the test setup itself: the schema, the limited account, the clean start with the seed rows, and the race runner. */
 class TestInfrastructureTest extends MySqlIntegrationTest {
 
-	private static final String INSERT_ROLE = "INSERT INTO roles (code, name) VALUES (?, ?)";
-	/** The roles of the seed migration, which the base class puts back before each test. */
-	private static final int SEEDED_ROLES = 4;
+	/** A row the application account may insert, on a table with a unique key (the username). */
+	private static final String INSERT_USER = "INSERT INTO users (username, password_hash, email) VALUES (?, 'x', CONCAT(?, '@example.com'))";
+	/** The users of the seed migration (the SYSTEM identity), which the base class puts back before each test. */
+	private static final int SEEDED_USERS = 1;
 
 	@Test
 	void migrationsBuildTheSeventeenTables() {
@@ -48,29 +49,33 @@ class TestInfrastructureTest extends MySqlIntegrationTest {
 		assertThatThrownBy(() -> jdbc.update("DELETE FROM roles"))
 			.isInstanceOf(DataAccessException.class)
 			.rootCause().hasMessageContaining("denied");
+		// The roles are fixed: the application may lock a role row, but never add one.
+		assertThatThrownBy(() -> jdbc.update("INSERT INTO roles (code, name) VALUES ('NEW', 'New role')"))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause().hasMessageContaining("denied");
 	}
 
 	@Test
 	void everyTestStartsWithOnlyTheSeedRows() {
 		// The next test, whichever runs first, would see this row if the tables were not emptied.
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isEqualTo(SEEDED_ROLES);
-		jdbc.update(INSERT_ROLE, "LEFTOVER", "Leftover");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users", Integer.class)).isEqualTo(SEEDED_USERS);
+		jdbc.update(INSERT_USER, "leftover", "leftover");
 	}
 
 	@Test
 	void everyTestStartsWithOnlyTheSeedRowsToo() {
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles", Integer.class)).isEqualTo(SEEDED_ROLES);
-		jdbc.update(INSERT_ROLE, "LEFTOVER", "Leftover");
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users", Integer.class)).isEqualTo(SEEDED_USERS);
+		jdbc.update(INSERT_USER, "leftover", "leftover");
 	}
 
 	@Test
 	void ofEightRacersOnAUniqueKeyExactlyOneWins() {
-		List<RaceRunner.Outcome<Integer>> outcomes = RaceRunner.run(8, () -> jdbc.update(INSERT_ROLE, "RACE", "Race"));
+		List<RaceRunner.Outcome<Integer>> outcomes = RaceRunner.run(8, () -> jdbc.update(INSERT_USER, "racer", "racer"));
 
 		assertThat(outcomes).filteredOn(RaceRunner.Outcome::succeeded).hasSize(1);
 		assertThat(outcomes).filteredOn(outcome -> !outcome.succeeded())
 			.allSatisfy(outcome -> assertThat(outcome.error()).isInstanceOf(DuplicateKeyException.class));
-		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM roles WHERE code = 'RACE'", Integer.class)).isEqualTo(1);
+		assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE username = 'racer'", Integer.class)).isEqualTo(1);
 	}
 
 }

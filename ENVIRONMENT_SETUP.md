@@ -131,12 +131,13 @@ Privileges can only be granted on tables that exist, so the `opsflow_app` grants
 |---|---|
 | `inventory_transactions`, `ticket_assignment_history`, `ticket_inventory`, `product_listing_events`, `inventory_item_events`, `order_attempts`, `operation_logs` (append-only) | read and insert |
 | `order_items` (frozen after the order is created) | read and insert |
-| `users`, `roles`, `products`, `inventory`, `orders`, `tickets` | read, insert, and update |
+| `users`, `products`, `inventory`, `orders`, `tickets` | read, insert, and update |
+| `roles` | read and update (update only for the row lock; the roles are fixed) |
 | `email_verification_codes` | read, insert, update, and delete (expired codes are deleted by a job) |
 | `email_code_request_counts` | read, insert, update, and delete (the counts of windows that are over are deleted by the same job) |
-| `user_roles` | read and insert |
+| `user_roles` | read, insert, and delete |
 
-- Revoking a user's role deletes a `user_roles` row, so the script grants `DELETE` on `opsflow.user_roles`, for that table only (backend v1.7). On a database where the script ran before 2026-11-15, run this one line once as `root`: `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';`. Without it, taking a role away from a user fails with a permission error. The four roles are fixed, so the application gets no `DELETE` on `opsflow.roles`. It keeps `UPDATE` there, although it never changes a role: MySQL allows `SELECT ... FOR UPDATE` only to an account that may change the table, and the lock on the `ADMIN` row needs it (see Administrator protection).
+- Revoking a user's role deletes a `user_roles` row, so the script grants `DELETE` on `opsflow.user_roles`, for that table only (backend v1.7). On a database where the script ran before 2026-11-15, run this one line once as `root`: `GRANT DELETE ON opsflow.user_roles TO 'opsflow_app'@'localhost';`. Without it, taking a role away from a user fails with a permission error. The four roles are fixed, so the application gets neither `INSERT` nor `DELETE` on `opsflow.roles`; on a database where the script ran before 2026-11-15 (database v1.15), run once as `root`: `REVOKE INSERT ON opsflow.roles FROM 'opsflow_app'@'localhost';`, which was done on this machine on 2026-11-15. It keeps `UPDATE` there, although it never changes a role: MySQL allows `SELECT ... FOR UPDATE` only to an account that may change the table, and the lock on the `ADMIN` row needs it (see Administrator protection).
 - Every later migration that adds a table must be followed by a grant for that table. A missing grant shows up as a permission error, which is the safe way to fail.
 - The script was verified in a temporary database: updates and deletes on the append-only tables are refused, and the updatable tables still work. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification).
 

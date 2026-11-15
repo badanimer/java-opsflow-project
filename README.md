@@ -40,6 +40,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-15 | 1.15 | Database | The application account loses `INSERT` on `roles`, which the fixed roles never need | [database-v1.15.md](docs/iterations/database-v1.15.md) |
 | 2026-11-15 | 1.14 | Database | One signed-in device per account: `users.session_id`, written by each login and carried by its token, so the newest login ends the earlier ones; a delisting takes its time after the lock | [database-v1.14.md](docs/iterations/database-v1.14.md) |
 | 2026-11-15 | 1.8 | Backend | One signed-in device: the token check refuses an earlier login with `SESSION_REPLACED`, and an event stream tells its open page at once | [backend-v1.8.md](docs/iterations/backend-v1.8.md) |
 | 2026-11-15 | 1.6 | API | The code `SESSION_REPLACED` and the event stream `GET /auth/session-events` | [api-v1.6.md](docs/iterations/api-v1.6.md) |
