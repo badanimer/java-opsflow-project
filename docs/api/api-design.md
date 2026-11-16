@@ -10,7 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
-| 2026-11-16 | 1.9 | Designed before the backend of Phase 6: the ticket endpoints (the five screens and the search, the detail, opening a ticket, take, assign, reassign, release, resolve, cancel, and the single and batch archive), the user picker `GET /user-options`, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, the meaning of `NOT_ALLOWED`, and the limits of the two `TEXT` fields: 4,000 characters for a description and 2,000 for a resolution | [api-v1.9.md](../iterations/api-v1.9.md) |
+| 2026-11-16 | 1.9 | Phase 6: the ticket endpoints (the five screens and the search, the detail, opening a ticket, take, assign, reassign, release, resolve, cancel, and the single and batch archive), the user picker `GET /user-options`, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, the meaning of `NOT_ALLOWED`, and the limits of the two `TEXT` fields: 4,000 characters for a description and 2,000 for a resolution; and the audit log page, `GET /audit-records` and `GET /audit-order-records` | [api-v1.9.md](../iterations/api-v1.9.md) |
 | 2026-11-16 | 1.8 | Placing an order, `POST /orders`, with its number in every recorded refusal and the original order for a key used before; the three manual stock changes, `POST /items/{id}/stock-in`, `/write-off`, and `/correction`; the code `STOCK_CHANGED`; the two logs (`/listing-records`, `/order-records`, `/item-records`, `/stock-movements`) with the time filter and the search by one order number, `/deleted-items`, and the product picker `/product-options`. An order refused by its permissions gets `FORBIDDEN` and not `NOT_ALLOWED` | [api-v1.8.md](../iterations/api-v1.8.md) |
 | 2026-11-15 | 1.7 | The endpoints of warehouse items, item images, and products for Phase 4, and the codes `ITEM_NAME_TAKEN`, `ITEM_LISTED`, `ALREADY_LISTED`, `ALREADY_DELISTED`, `IMAGE_TOO_LARGE`, and `IMAGE_TYPE_NOT_ALLOWED` | [api-v1.7.md](../iterations/api-v1.7.md) |
 | 2026-11-15 | 1.6 | One signed-in device per account: the code `SESSION_REPLACED` for a token of a login that a newer login of the account ended, and the event stream `GET /auth/session-events`, which tells an open page at once | [api-v1.6.md](../iterations/api-v1.6.md) |
@@ -231,6 +231,16 @@ Built on 2026-11-16 for Phase 5 ([api-v1.8.md](../iterations/api-v1.8.md)). The 
 | `GET /deleted-items` | `DELETED_ITEMS_VIEW` (every role) | `search`, a part of the name or the SKU | `{ "id": 3, "sku": "K7Q2M9XA", "name": "Pens", "deletedAt": "...", "deletedBy": "mary", "productId": 6 }`. Newest deletion first; the order is fixed. `productId` is the product of the item if it ever had one, so the page can read the four parts of its own log |
 | `GET /product-options` | `PRODUCT_VIEW` | `search`, a part of the name | `{ "id": 5, "name": "A4 paper", "sku": "K7Q2M9XA" }`: the product picker, every product ever listed except those of deleted items, by name from A to Z. The page shows the SKU beside a name that appears twice |
 
+**The audit log page** (T-48, `AUDIT_VIEW`: administrator, manager). The rules are in [Audit log page](../database/database-design.md#audit-log-page).
+
+| Endpoint | Filters | A row |
+| --- | --- | --- |
+| `GET /audit-records` | `area` (required: `ACCOUNT`, `ROLE`, `TICKET`, `STOCK`, `ITEM`, or `PRODUCT`), `action` (one action of that area), the time filter, `order`, and either `userId` (from `GET /user-options?use=filter`) or `system=true` | `{ "id": 30, "at": "...", "area": "ITEM", "action": "ITEM_DELETED", "userId": 4, "by": "mary", "targetType": "ITEM", "targetId": 3, "before": { "name": "Pens", "availableQuantity": 9 }, "after": { "deleted": true, "cancelledTicketIds": [12], "cancelledTicketNos": ["K7Q2M9XA"], "sku": "K7Q2M9XA", "name": "Pens" }, "ipAddress": "10.0.0.5", "remark": null }`. `userId` and `by` are null for an action of the system, which the page shows as System. `before` and `after` are the data of the row as written, with its labels (see [Labels in audit rows](../database/database-design.md#labels-in-audit-rows)) |
+| `GET /audit-order-records` | `result` (`COMPLETED`, `PRODUCT_DELISTED`, `PRODUCT_CHANGED`, `OUT_OF_STOCK`, `INVALID_QUANTITY`, or `BUSY`), `userId`, the time filter, `order` | The row of `GET /order-records`: the Orders area reads the same attempts |
+
+- An action of another area, an unknown area or result, `system=true` with a `userId`, and a bad day are `VALIDATION_FAILED` with the field. The values are read without regard to case. Newest first unless `order=asc`.
+- A row is never edited or deleted: the page only reads.
+
 - **Three ways to read a log.** All records of one kind (no `productId` or `inventoryId`), the records of one chosen product or item, and the own log of one, which the page reads as its two kinds with the same id. An id that has no records gives an empty page. The ids of a deleted item and of its product are accepted, so the Deleted items module can show their records.
 - **The item picker** is `GET /items`: every item that is not deleted, by name, with the SKU.
 - **The time filter.** `from` and `to` are days written `yyyy-MM-dd`, in Sydney time. `from` alone reads from the start of that day until now; `from` and `to` read both days and every day between. No day is no filter. `to` without `from`, a day after today, and `to` before `from` are `VALIDATION_FAILED`.
@@ -239,7 +249,7 @@ Built on 2026-11-16 for Phase 5 ([api-v1.8.md](../iterations/api-v1.8.md)). The 
 
 ## Tickets
 
-Designed on 2026-11-16 for Phase 6 ([api-v1.9.md](../iterations/api-v1.9.md)), before the backend is built. The rules behind it are in [Tickets](../database/database-design.md#tickets), [Ticket search](../database/database-design.md#ticket-search), [The user picker](../database/database-design.md#the-user-picker), [Ticket logs](../database/database-design.md#ticket-logs), and the ticket rows of [Concurrency by Module](../database/database-design.md#concurrency-by-module). The audit log page (T-48) gets its endpoints when it is built, later in the phase.
+Designed on 2026-11-16 for Phase 6 ([api-v1.9.md](../iterations/api-v1.9.md)) and built in [backend-v1.11.md](../iterations/backend-v1.11.md). The rules behind it are in [Tickets](../database/database-design.md#tickets), [Ticket search](../database/database-design.md#ticket-search), [The user picker](../database/database-design.md#the-user-picker), [Ticket logs](../database/database-design.md#ticket-logs), and the ticket rows of [Concurrency by Module](../database/database-design.md#concurrency-by-module). The audit log page is under Logs.
 
 **Reading.**
 

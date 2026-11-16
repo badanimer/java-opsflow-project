@@ -14,6 +14,10 @@ import com.opsflow.common.paging.PageResponse;
 import com.opsflow.common.paging.SortOrder;
 import com.opsflow.common.security.Permission;
 import com.opsflow.common.security.RequiresPermission;
+import com.opsflow.log.LogRepository.AuditRecord;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * The product log, the warehouse log, the Deleted items module, and the product picker. See Logs in
@@ -45,12 +49,54 @@ public class LogController {
 	public record ProductOptionResponse(long id, String name, String sku) {
 	}
 
+	/**
+	 * A row of the audit page. {@code by} is null for an action of the system, which the page shows as System.
+	 * {@code before} and {@code after} are the data of the row as JSON, with the labels of the row.
+	 */
+	public record AuditRecordResponse(long id, Instant at, String area, String action, Long userId, String by, String targetType,
+			long targetId, JsonNode before, JsonNode after, String ipAddress, String remark) {
+	}
+
 	private final LogService logs;
 	private final PageQueryFactory pages;
+	private final JsonMapper json;
 
-	LogController(LogService logs, PageQueryFactory pages) {
+	LogController(LogService logs, PageQueryFactory pages, JsonMapper json) {
 		this.logs = logs;
 		this.pages = pages;
+		this.json = json;
+	}
+
+	/** One of the six areas of the audit page that read {@code operation_logs}. */
+	@RequiresPermission(Permission.AUDIT_VIEW)
+	@GetMapping("/audit-records")
+	public PageResponse<AuditRecordResponse> auditRecords(@RequestParam(required = false) String area,
+			@RequestParam(required = false) String action, @RequestParam(required = false) Long userId,
+			@RequestParam(required = false) Boolean system, @RequestParam(required = false) String from,
+			@RequestParam(required = false) String to, @RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) String cursor, @RequestParam(required = false) String direction,
+			@RequestParam(required = false) String order) {
+		PageQuery page = pages.create(limit, cursor, direction, order, true);
+		return map(logs.auditRecords(area, action, userId, system, from, to, page), this::audit);
+	}
+
+	/** The Orders area of the audit page: the attempts, the same rows as the order records. */
+	@RequiresPermission(Permission.AUDIT_VIEW)
+	@GetMapping("/audit-order-records")
+	public PageResponse<OrderRecordResponse> auditOrderRecords(@RequestParam(required = false) String result,
+			@RequestParam(required = false) Long userId, @RequestParam(required = false) String from,
+			@RequestParam(required = false) String to, @RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) String cursor, @RequestParam(required = false) String direction,
+			@RequestParam(required = false) String order) {
+		PageQuery page = pages.create(limit, cursor, direction, order, true);
+		return map(logs.auditOrderRecords(result, userId, from, to, page), r -> new OrderRecordResponse(r.id(), r.at(), r.productId(),
+				r.productName(), r.orderNo(), r.orderedBy(), r.quantity(), r.result(), r.stockDeducted()));
+	}
+
+	private AuditRecordResponse audit(AuditRecord r) {
+		return new AuditRecordResponse(r.id(), r.at(), r.category(), r.action(), r.operatorId(), r.by(), r.targetType(), r.targetId(),
+				r.beforeData() == null ? null : json.readTree(r.beforeData()), r.afterData() == null ? null : json.readTree(r.afterData()),
+				r.ipAddress(), r.remark());
 	}
 
 	@RequiresPermission(Permission.PRODUCT_VIEW)

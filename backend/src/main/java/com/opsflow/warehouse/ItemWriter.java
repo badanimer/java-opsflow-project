@@ -137,14 +137,15 @@ public class ItemWriter {
 		String remark = "ITEM_DELETED:" + itemId;
 
 		// The tickets linked to the item are cancelled as the SYSTEM identity, after the item is held (T-39).
-		List<Long> cancelled = tickets.cancelLinkedTo(itemId, remark);
+		TicketCascades.Changed cancelled = tickets.cancelLinkedTo(itemId, remark);
 
 		if (product != null && product.listed()) {
 			repository.delist(product.id(), now, actorId);
 			repository.insertListingEvent(product.id(), itemId, "DELISTED", product.name(), product.price(), actorId);
 			Map<String, Object> after = new LinkedHashMap<>();
 			after.put("status", "UNLISTED");
-			after.put("cancelledTicketIds", cancelled);
+			after.put("cancelledTicketIds", cancelled.ids());
+			after.put("cancelledTicketNos", cancelled.ticketNos());
 			after.put("name", product.name());
 			after.put("sku", item.sku());
 			audit.write(AuditAction.PRODUCT_DELISTED, actorId, AuditLogWriter.TARGET_PRODUCT, product.id(), Map.of("status", "LISTED"),
@@ -157,7 +158,8 @@ public class ItemWriter {
 		before.put("availableQuantity", item.availableQuantity());
 		Map<String, Object> after = new LinkedHashMap<>();
 		after.put("deleted", true);
-		after.put("cancelledTicketIds", cancelled);
+		after.put("cancelledTicketIds", cancelled.ids());
+		after.put("cancelledTicketNos", cancelled.ticketNos());
 		after.put("sku", item.sku());
 		after.put("name", item.name());
 		audit.write(AuditAction.ITEM_DELETED, actorId, AuditLogWriter.TARGET_ITEM, itemId, before, after, ipAddress, null);

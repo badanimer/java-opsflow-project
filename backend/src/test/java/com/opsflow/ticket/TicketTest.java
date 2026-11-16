@@ -479,7 +479,8 @@ class TicketTest extends TicketIntegrationSupport {
 		assertThat(statusOf(done)).isEqualTo("RESOLVED");
 		assertThat(logs(open).get(1)).containsEntry("action", "TICKET_CANCELLED").containsEntry("operator_id", null);
 		assertThat(root().queryForObject("SELECT CAST(after_data AS CHAR) FROM operation_logs WHERE action = 'ITEM_DELETED'", String.class))
-				.contains("\"cancelledTicketIds\": [" + open + ", " + held + "]");
+				.contains("\"cancelledTicketIds\": [" + open + ", " + held + "]")
+				.contains("\"cancelledTicketNos\": [\"" + numberOf(open) + "\", \"" + numberOf(held) + "\"]");
 
 		getAs("olive", "/tickets/" + open).andExpect(jsonPath("$.cancelCause.kind").value("ITEM_DELETED"))
 				.andExpect(jsonPath("$.cancelCause.name").value("A4 paper")).andExpect(jsonPath("$.cancelledBy.system").value(true))

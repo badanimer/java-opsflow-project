@@ -50,6 +50,14 @@ class LogRepository {
 	record DeletedItem(long id, String sku, String name, Instant deletedAt, String deletedBy, Long productId) {
 	}
 
+	/**
+	 * A row of {@code operation_logs} as the audit page shows it. {@code operatorId} and {@code by} are null for
+	 * an action of the system. The data is the JSON text of the row.
+	 */
+	record AuditRecord(long id, Instant at, String category, String action, Long operatorId, String by, String targetType, long targetId,
+			String beforeData, String afterData, String ipAddress, String remark) {
+	}
+
 	/** A product of the picker: every product ever listed, except those of deleted items. */
 	record ProductOption(long id, String name, String sku) {
 	}
@@ -85,6 +93,58 @@ class LogRepository {
 				WHERE 1 = 1""");
 		q.equal("a.product_id", productId);
 		q.equal("a.order_no", orderNo);
+		q.during("a.created_at", range);
+		RowMapper<OrderRecord> mapper = (rs, row) -> new OrderRecord(rs.getLong("id"), time(rs.getObject("created_at", LocalDateTime.class)),
+				rs.getLong("product_id"), rs.getString("product_name"), rs.getString("order_no"), rs.getString("username"),
+				rs.getInt("quantity"), rs.getString("result"), rs.getInt("stock_deducted"));
+		return jdbc.query(q.byTime("a.created_at", "a.id", page), mapper, q.args());
+	}
+
+	// The audit page
+
+	/**
+	 * The rows of one category of the audit page, read through {@code (category, created_at)}, or through
+	 * {@code (operator_id, created_at)} when one user is chosen.
+	 *
+	 * @param action one action of the category, or null for all
+	 * @param userId the user who acted, or null for anyone
+	 * @param systemOnly only the actions of the system (no operator)
+	 */
+	List<AuditRecord> auditRecords(String category, String action, Long userId, boolean systemOnly, Range range, PageQuery page) {
+		Query q = new Query("""
+				SELECT l.id, l.created_at, l.category, l.action, l.operator_id, u.username, l.target_type, l.target_id,
+				       CAST(l.before_data AS CHAR) AS before_data, CAST(l.after_data AS CHAR) AS after_data, l.ip_address, l.remark
+				FROM operation_logs l LEFT JOIN users u ON u.id = l.operator_id
+				WHERE 1 = 1""");
+		q.equal("l.category", category);
+		q.equal("l.action", action);
+		q.equal("l.operator_id", userId);
+		if (systemOnly) {
+			q.condition("l.operator_id IS NULL");
+		}
+		q.during("l.created_at", range);
+		RowMapper<AuditRecord> mapper = (rs, row) -> {
+			long operator = rs.getLong("operator_id");
+			Long operatorId = rs.wasNull() ? null : operator;
+			return new AuditRecord(rs.getLong("id"), time(rs.getObject("created_at", LocalDateTime.class)), rs.getString("category"),
+					rs.getString("action"), operatorId, rs.getString("username"), rs.getString("target_type"), rs.getLong("target_id"),
+					rs.getString("before_data"), rs.getString("after_data"), rs.getString("ip_address"), rs.getString("remark"));
+		};
+		return jdbc.query(q.byTime("l.created_at", "l.id", page), mapper, q.args());
+	}
+
+	/**
+	 * The Orders area of the audit page: the lines of every attempt, the same rows as the order records, filtered
+	 * by the result and the user who ordered, read through {@code idx_order_attempts_created} or
+	 * {@code idx_order_attempts_user_created}.
+	 */
+	List<OrderRecord> auditOrderRecords(String result, Long userId, Range range, PageQuery page) {
+		Query q = new Query("""
+				SELECT a.id, a.created_at, a.product_id, a.product_name, a.order_no, u.username, a.quantity, a.result, a.stock_deducted
+				FROM order_attempts a JOIN users u ON u.id = a.user_id
+				WHERE 1 = 1""");
+		q.equal("a.result", result);
+		q.equal("a.user_id", userId);
 		q.during("a.created_at", range);
 		RowMapper<OrderRecord> mapper = (rs, row) -> new OrderRecord(rs.getLong("id"), time(rs.getObject("created_at", LocalDateTime.class)),
 				rs.getLong("product_id"), rs.getString("product_name"), rs.getString("order_no"), rs.getString("username"),

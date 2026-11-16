@@ -38,7 +38,7 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
-| 2026-11-16 | 1.11 | Backend | Phase 6: the ticket module with its changes, limits, races, archive job, and the cascades of the user and warehouse modules; the user picker | [backend-v1.11.md](docs/iterations/backend-v1.11.md) |
+| 2026-11-16 | 1.11 | Backend | Phase 6: the ticket module with its changes, limits, races, archive job, and the cascades of the user and warehouse modules; the user picker; the audit log page | [backend-v1.11.md](docs/iterations/backend-v1.11.md) |
 | 2026-11-16 | 1.9 | API | Phase 6 designed: the ticket endpoints, the user picker, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, and the limits of a ticket description (4,000) and a resolution (2,000) | [api-v1.9.md](docs/iterations/api-v1.9.md) |
 | 2026-11-16 | 1.8 | Frontend | Phase 5: the order dialog, Adjust quantity, the two logs with the time filter, the picker, and the order number box, the own logs, and Deleted items | [frontend-v1.8.md](docs/iterations/frontend-v1.8.md) |
 | 2026-11-16 | 1.10 | Backend | Phase 5 in the backend: the `order` module (an order in one transaction, its idempotency key, its number, and the record of every attempt), the three manual stock changes, and the `log` module (the two logs, the Deleted items module, the product picker, and the time filter), with 48 tests | [backend-v1.10.md](docs/iterations/backend-v1.10.md) |

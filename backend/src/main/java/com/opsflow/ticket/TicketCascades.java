@@ -23,6 +23,13 @@ import com.opsflow.ticket.TicketRepository.Locked;
 @Component
 public class TicketCascades {
 
+	/**
+	 * The tickets a cascade changed, in ascending id, with their numbers as labels for the log row of the
+	 * change that started it (see Labels in audit rows).
+	 */
+	public record Changed(List<Long> ids, List<String> ticketNos) {
+	}
+
 	/** The reason of the history row when the assignee's account was disabled. */
 	public static final String ASSIGNEE_DISABLED = "The assignee's account was disabled";
 	/** The reason of the history row when the assignee's account was deleted. */
@@ -59,17 +66,19 @@ public class TicketCascades {
 	 * locked for its deletion (reason {@code ITEM_DELETED:} and the item id), or after its product is locked
 	 * for its delisting (reason {@code PRODUCT_DELISTED:} and the product id).
 	 *
-	 * @return the ids of the tickets cancelled
+	 * @return the tickets cancelled
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
-	public List<Long> cancelLinkedTo(long inventoryId, String reason) {
-		List<Long> cancelled = new ArrayList<>();
+	public Changed cancelLinkedTo(long inventoryId, String reason) {
+		List<Long> ids = new ArrayList<>();
+		List<String> numbers = new ArrayList<>();
 		for (Locked ticket : repository.lockLiveLinkedTo(inventoryId)) {
 			if (writer.cancelBySystem(ticket, reason)) {
-				cancelled.add(ticket.id());
+				ids.add(ticket.id());
+				numbers.add(ticket.ticketNo());
 			}
 		}
-		return cancelled;
+		return new Changed(List.copyOf(ids), List.copyOf(numbers));
 	}
 
 }

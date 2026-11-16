@@ -687,9 +687,9 @@ Every action on a warehouse item or a product writes one `operation_logs` row in
 | --- | --- | --- | --- | --- |
 | Add a warehouse item | `ITEM_CREATED` | `ITEM`, the `inventory` id | Empty | `{"sku": "K7Q2M9XA", "name": "A4 paper", "imageUrl": null, "quantity": 25}` |
 | Edit the name or image of an item | `ITEM_UPDATED` | `ITEM` | The changed fields before | The changed fields after |
-| Delete a warehouse item | `ITEM_DELETED` | `ITEM` | `{"name": "A4 paper", "availableQuantity": 10}` | `{"deleted": true, "cancelledTicketIds": [12, 15]}`. The stock is not touched, so it is not repeated here. |
+| Delete a warehouse item | `ITEM_DELETED` | `ITEM` | `{"name": "A4 paper", "availableQuantity": 10}` | `{"deleted": true, "cancelledTicketIds": [12, 15], "cancelledTicketNos": ["K7Q2M9XA", "P2X9M3L8"]}`. The stock is not touched, so it is not repeated here. |
 | List a product | `PRODUCT_LISTED` | `PRODUCT`, the `products` id | Empty on the first listing, `{"status": "UNLISTED"}` afterwards | `{"status": "LISTED", "inventoryId": 3, "name": "A4 paper", "price": "4.50"}` |
-| Delist a product | `PRODUCT_DELISTED` | `PRODUCT` | `{"status": "LISTED"}` | `{"status": "UNLISTED", "cancelledTicketIds": [12, 15]}` |
+| Delist a product | `PRODUCT_DELISTED` | `PRODUCT` | `{"status": "LISTED"}` | `{"status": "UNLISTED", "cancelledTicketIds": [12, 15], "cancelledTicketNos": ["K7Q2M9XA", "P2X9M3L8"]}` |
 
 Each ticket cancelled by a delisting also writes its own `TICKET_CANCELLED` row, with an empty `operator_id` because the system acts, and `PRODUCT_DELISTED:` and the product id in `remark`. A deletion of an item does the same with `ITEM_DELETED:` and the `inventory` id, and when the item had a listed product it also writes a `PRODUCT_DELISTED` row, because the product is delisted in the same transaction.
 

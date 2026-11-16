@@ -13,7 +13,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | Version | 1.11 |
 | Date | 2026-11-16 |
 | Baseline | [backend-v1.10.md](backend-v1.10.md) |
-| Type | The ticket module of Phase 6, built against [api-v1.9.md](api-v1.9.md) |
+| Type | The ticket module and the audit log page of Phase 6, built against [api-v1.9.md](api-v1.9.md) |
 | Trigger | Phase 6 in the backend: tickets (T-12, T-14, T-21, T-33, T-35, T-36, T-39, T-40, T-44, T-47, T-50, T-67), and the ticket races of T-17. Work on the branch `phase-6-backend` |
 
 ## Summary
@@ -26,7 +26,8 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 - The user picker `GET /user-options` is in `user`.
 - Two permissions: `TICKET_ASSIGN_PROTECTED` (administrator) and `TICKET_HANDLE_ANY` (administrator, manager). The limits of a description (4,000) and a resolution (2,000) are in `Limits`.
 - The stock movements now take their time from the clock of the application, as a `SALE` does, which two `LogTest` checks needed when the database clock differed.
-- 32 new tests. The last full run: 427 passed, 0 failed.
+- The audit log page in the backend, with the time of every audit row from the clock of the application.
+- 37 new tests (32 of the tickets, 5 of the audit page). The last full run: 432 passed, 0 failed.
 
 ## Changes
 
@@ -34,7 +35,9 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | --- | --- |
 | `ticket` | New module: `TicketController`, `TicketService`, `TicketWriter`, `TicketAccess`, `TicketStatus`, `TicketCascades`, `TicketArchiveJob`, `TicketNumbers`, and `TicketRepository` |
 | `user` | `UserChangeWriter.disable` and `softDelete` return the user's tickets in progress to the pool. `UserOptionController` and `UserService.options` for the user picker |
-| `warehouse` | `ItemWriter.delete` and `ProductWriter.delist` cancel the live tickets of the item, and write their ids in `cancelledTicketIds` |
+| `warehouse` | `ItemWriter.delete` and `ProductWriter.delist` cancel the live tickets of the item, and write their ids in `cancelledTicketIds` and their numbers in `cancelledTicketNos`, so the audit page names them without a join (the owner's choice after the review of the Figma design) |
+| `log` | The audit log page (T-48): `GET /audit-records` and `GET /audit-order-records` in `LogController`, `LogService`, and `LogRepository`, read through the indexes of Audit log page |
+| `common`, audit time | `AuditLogWriter` writes `created_at` from the clock of the application, as the changes it records do |
 | `common` | `Permission.TICKET_ASSIGN_PROTECTED` and `TICKET_HANDLE_ANY`, granted in `Role`; `ErrorCode.TICKET_CHANGED` and `NOT_ELIGIBLE`; `AuditLogWriter.TARGET_TICKET`; `Limits.TICKET_DESCRIPTION` and `TICKET_RESOLUTION`; `OpsflowProperties.Ticket` |
 | Configuration | `opsflow.ticket.*` in `application.yml`: the number attempts, the two limits of 99, the items of a ticket, the size of a batch archive, and the delay, count, interval, and batch of the archive job |
 | `warehouse`, time of a movement | `WarehouseRepository.insertTransaction` takes the time from the caller, and `ItemWriter` and `StockWriter` pass the clock of the application. It left `created_at` to the column default, so a restock was dated by the clock of the database and a `SALE` by the clock of the application; with the two clocks apart, two `LogTest` checks of their order failed in both full runs of this iteration |
@@ -71,5 +74,5 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | Item | Tracked in |
 | --- | --- |
 | The ticket screens, the form, and the cancel message in the frontend | T-40, T-44, T-47, T-37 in [project-todo.md](../project-todo.md) |
-| The audit log page | T-48 |
+| The audit log page in the frontend | T-48 |
 | Two orders that lock the same items in opposite order (D6) against the real code | T-17 |

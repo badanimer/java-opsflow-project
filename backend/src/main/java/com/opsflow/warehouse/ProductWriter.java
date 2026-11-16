@@ -99,11 +99,12 @@ public class ProductWriter {
 		repository.delist(productId, now, actorId);
 		repository.insertListingEvent(productId, product.inventoryId(), "DELISTED", product.name(), product.price(), actorId);
 		// The tickets linked to the item of the product are cancelled as the SYSTEM identity (T-39).
-		List<Long> cancelled = tickets.cancelLinkedTo(product.inventoryId(), "PRODUCT_DELISTED:" + productId);
+		TicketCascades.Changed cancelled = tickets.cancelLinkedTo(product.inventoryId(), "PRODUCT_DELISTED:" + productId);
 		String sku = repository.findItem(product.inventoryId()).map(ItemRow::sku).orElse(null);
 		Map<String, Object> after = new LinkedHashMap<>();
 		after.put("status", "UNLISTED");
-		after.put("cancelledTicketIds", cancelled);
+		after.put("cancelledTicketIds", cancelled.ids());
+		after.put("cancelledTicketNos", cancelled.ticketNos());
 		after.put("name", product.name());
 		after.put("sku", sku);
 		audit.write(AuditAction.PRODUCT_DELISTED, actorId, AuditLogWriter.TARGET_PRODUCT, productId, Map.of("status", "LISTED"),

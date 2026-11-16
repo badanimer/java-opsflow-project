@@ -1,9 +1,13 @@
 package com.opsflow.log;
 
+import java.util.Arrays;
 import java.util.Locale;
+import java.util.Set;
 
 import org.springframework.stereotype.Service;
 
+import com.opsflow.common.audit.AuditAction;
+import com.opsflow.common.audit.AuditCategory;
 import com.opsflow.common.error.ApiException;
 import com.opsflow.common.paging.Cursor;
 import com.opsflow.common.paging.PageQuery;
@@ -11,6 +15,7 @@ import com.opsflow.common.paging.PageResponse;
 import com.opsflow.common.time.DayRanges;
 import com.opsflow.common.time.DayRanges.Range;
 import com.opsflow.common.validation.Limits;
+import com.opsflow.log.LogRepository.AuditRecord;
 import com.opsflow.log.LogRepository.DeletedItem;
 import com.opsflow.log.LogRepository.ItemRecord;
 import com.opsflow.log.LogRepository.ListingRecord;
@@ -28,6 +33,10 @@ import com.opsflow.log.LogRepository.StockMovement;
  */
 @Service
 public class LogService {
+
+	/** The results of an order attempt, as {@code chk_order_attempts_result} allows them. */
+	private static final Set<String> RESULTS = Set.of("COMPLETED", "PRODUCT_DELISTED", "PRODUCT_CHANGED", "OUT_OF_STOCK", "INVALID_QUANTITY",
+			"BUSY");
 
 	private final LogRepository repository;
 	private final DayRanges days;
@@ -70,6 +79,55 @@ public class LogService {
 
 	public PageResponse<ProductOption> productOptions(String search, PageQuery page) {
 		return PageResponse.of(repository.productOptions(search(search), page), page, r -> new Cursor(r.name(), r.id()));
+	}
+
+	/**
+	 * One area of the audit page (see Audit log page in docs/database/database-design.md): the rows of one
+	 * category, with the action, the time filter, and the user, or {@code system} for the actions of the system.
+	 */
+	public PageResponse<AuditRecord> auditRecords(String area, String action, Long userId, Boolean system, String from, String to,
+			PageQuery page) {
+		AuditCategory category = category(area);
+		String checkedAction = null;
+		if (action != null && !action.isBlank()) {
+			String name = action.strip().toUpperCase(Locale.ROOT);
+			checkedAction = Arrays.stream(AuditAction.values()).filter(a -> a.category() == category && a.name().equals(name)).findFirst()
+					.map(AuditAction::name)
+					.orElseThrow(() -> ApiException.invalid("action", "must be an action of the area " + category.name()));
+		}
+		boolean systemOnly = Boolean.TRUE.equals(system);
+		if (systemOnly && userId != null) {
+			throw ApiException.invalid("system", "is used instead of a user, not with one");
+		}
+		Range range = days.parse(from, to);
+		return PageResponse.of(repository.auditRecords(category.name(), checkedAction, id("userId", userId), systemOnly, range, page), page,
+				r -> new Cursor(LogRepository.timeKey(r.at()), r.id()));
+	}
+
+	/** The Orders area of the audit page: the attempts, with the result, the time filter, and the user who ordered. */
+	public PageResponse<OrderRecord> auditOrderRecords(String result, Long userId, String from, String to, PageQuery page) {
+		String checkedResult = null;
+		if (result != null && !result.isBlank()) {
+			checkedResult = result.strip().toUpperCase(Locale.ROOT);
+			if (!RESULTS.contains(checkedResult)) {
+				throw ApiException.invalid("result", "must be COMPLETED, PRODUCT_DELISTED, PRODUCT_CHANGED, OUT_OF_STOCK, INVALID_QUANTITY, or BUSY");
+			}
+		}
+		Range range = days.parse(from, to);
+		return PageResponse.of(repository.auditOrderRecords(checkedResult, id("userId", userId), range, page), page,
+				r -> new Cursor(LogRepository.timeKey(r.at()), r.id()));
+	}
+
+	private static AuditCategory category(String area) {
+		if (area == null || area.isBlank()) {
+			throw ApiException.invalid("area", "is required: ACCOUNT, ROLE, TICKET, STOCK, ITEM, or PRODUCT");
+		}
+		try {
+			return AuditCategory.valueOf(area.strip().toUpperCase(Locale.ROOT));
+		}
+		catch (IllegalArgumentException unknown) {
+			throw ApiException.invalid("area", "must be ACCOUNT, ROLE, TICKET, STOCK, ITEM, or PRODUCT");
+		}
 	}
 
 	private static Long id(String field, Long id) {

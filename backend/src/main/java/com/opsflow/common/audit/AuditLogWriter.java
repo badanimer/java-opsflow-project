@@ -1,10 +1,14 @@
 package com.opsflow.common.audit;
 
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import com.opsflow.common.time.UtcTime;
 
 import tools.jackson.databind.json.JsonMapper;
 
@@ -13,6 +17,9 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * A log row is written in the same transaction as the change it describes, so that neither exists
  * without the other. The writer therefore refuses to run outside a transaction.
+ *
+ * The time of a row is taken from the clock of the application, as the times of the changes are, so that
+ * the audit page and the time filter agree with them even when the clock of the database differs.
  *
  * The data of a row must never hold a password, a code, or a hash. A time is passed as its ISO 8601
  * text ({@code Instant.toString()}).
@@ -30,16 +37,19 @@ public class AuditLogWriter {
 	public static final String TARGET_TICKET = "TICKET";
 
 	private static final String INSERT = """
-			INSERT INTO operation_logs (operator_id, category, action, target_type, target_id, before_data, after_data, ip_address, remark)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO operation_logs (operator_id, category, action, target_type, target_id, before_data, after_data, ip_address, remark,
+			                            created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			""";
 
 	private final JdbcTemplate jdbc;
 	private final JsonMapper json;
+	private final Clock clock;
 
-	public AuditLogWriter(JdbcTemplate jdbc, JsonMapper json) {
+	public AuditLogWriter(JdbcTemplate jdbc, JsonMapper json, Clock clock) {
 		this.jdbc = jdbc;
 		this.json = json;
+		this.clock = clock;
 	}
 
 	/**
@@ -54,7 +64,7 @@ public class AuditLogWriter {
 			throw new IllegalStateException("An audit row must be written in the transaction of the change it describes");
 		}
 		jdbc.update(INSERT, operatorId, action.category().name(), action.name(), targetType, targetId, toJson(before),
-				toJson(after), ipAddress, remark);
+				toJson(after), ipAddress, remark, UtcTime.toLocalDateTime(clock.instant().truncatedTo(ChronoUnit.MILLIS)));
 	}
 
 	private String toJson(Map<String, ?> data) {
