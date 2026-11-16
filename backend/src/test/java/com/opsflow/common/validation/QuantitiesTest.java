@@ -22,7 +22,7 @@ class QuantitiesTest {
 			new BigInteger("99999999999999999999"), Double.NaN, Double.POSITIVE_INFINITY };
 
 	private final Quantities quantities = new Quantities(new OpsflowProperties(null, null, null, null, null, null, null,
-			new OpsflowProperties.Quantity(999_999, 9999), null, null, null));
+			new OpsflowProperties.Quantity(999_999, 9999), null, null, null, null));
 
 	@Test
 	void anEmptyStartingQuantityIsZero() {

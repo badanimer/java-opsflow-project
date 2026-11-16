@@ -52,6 +52,7 @@ Two more pages of the file were drawn for Phase 3 and reviewed by the owner on 2
 Rules that the states follow:
 
 - **The page checks a value before it sends it.** An empty field, a username or a password that breaks its rule, an address that is not an email address, and a code that is not 6 digits are shown under the field, in red, and nothing is sent. The server checks the same rules again. The message for a password is "Use 8 to 24 characters, with at least one letter and one digit."
+- **Every text field has the length limit of the API**, checked in the page after the spaces around the text are removed: a text over it is shown in red under the field and nothing is sent, as the stock dialogs already do. The limits are a name 200, a reason 255 (stock changes, and releasing, reassigning, assigning, and cancelling a ticket), a ticket title 200, a ticket description 4,000, and a resolution 2,000. A long text box (a description or a resolution) shows how many characters are used, such as "120 / 4000". See Limits in [api-design.md](../api/api-design.md#general-rules).
 - **Every "too many" message says "Please try again in a minute."**, for the lock of the login and for the limits on code requests alike, and names no time. This is the owner's wording. The real wait can be longer: the lock grows to 5 and 15 minutes and to midnight, and the limits on code requests last to the end of the hour or of the day. A person who tries again after a minute is then refused again with the same message.
 - **While a request runs** the button is disabled and says what is happening ("Signing in…"), so a second click sends nothing.
 - **A failure that is not the user's** has two messages: "Something went wrong" with the request id for `INTERNAL_ERROR` and `BUSY`, and "Cannot reach the server" when no answer came.
@@ -275,7 +276,7 @@ The buttons depend on the status and on the role:
 | Button | Who | Needs |
 | --- | --- | --- |
 | Take | An operator, a manager, or an administrator, on an `OPEN` ticket | Under 99 tickets in progress |
-| Assign | A manager or an administrator, on an `OPEN` ticket | An eligible assignee, chosen from the user picker: an operator or a manager, and an administrator only when an administrator assigns |
+| Assign | A manager or an administrator, on an `OPEN` ticket | An eligible assignee, chosen from the user picker: an operator or a manager, and an administrator only when an administrator assigns; and a reason |
 | Reassign | A manager or an administrator, on an `IN_PROGRESS` ticket | A new assignee from the same picker, and a reason |
 | Release | The assignee, or a manager or an administrator | A reason |
 | Resolve | The assignee, or a manager or an administrator | A resolution text |
@@ -286,8 +287,8 @@ The buttons depend on the status and on the role:
 
 A Create ticket button on the pool screen opens a form, in this order:
 
-1. choose zero or more warehouse items from a list searched by name;
-2. choose the type, and write the title and the description;
+1. choose 0 to 20 warehouse items from a list searched by name;
+2. choose the type, and write the title (1 to 200 characters) and the description (1 to 4,000, with a counter);
 3. optionally type the number of an earlier ticket to make this one a follow-up;
 4. optionally type the number of an order (required for an order exception; the number comes from the result the person saw when placing the order, or from the order records of the product log, and it may be the number of a refused order);
 5. confirm.

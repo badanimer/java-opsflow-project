@@ -142,6 +142,49 @@ class UserRepository {
 		}, args.toArray());
 	}
 
+	/** A user as the user picker shows them: the id and the username, and nothing else. */
+	record UserOption(long id, String username) {
+	}
+
+	/**
+	 * A page of the user picker, by username from A to Z and then {@code id}. Never the SYSTEM identity.
+	 *
+	 * @param eligibleRoles null for every user, soft-deleted and disabled ones included; otherwise only the
+	 *     usable accounts that hold one of these roles
+	 * @param excludedRoles the roles whose holders are left out, when {@code eligibleRoles} is given
+	 */
+	List<UserOption> options(List<String> eligibleRoles, List<String> excludedRoles, String usernamePart, PageQuery page) {
+		StringBuilder sql = new StringBuilder("SELECT u.id, u.username FROM users u WHERE u.is_system = FALSE");
+		List<Object> args = new ArrayList<>();
+		if (eligibleRoles != null) {
+			sql.append(" AND u.status = 'ACTIVE' AND u.deleted = FALSE")
+					.append(" AND EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code IN (")
+					.append(placeholders(eligibleRoles.size())).append("))");
+			args.addAll(eligibleRoles);
+			if (!excludedRoles.isEmpty()) {
+				sql.append(" AND NOT EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code IN (")
+						.append(placeholders(excludedRoles.size())).append("))");
+				args.addAll(excludedRoles);
+			}
+		}
+		if (usernamePart != null) {
+			sql.append(" AND u.username LIKE ? ESCAPE '").append(LIKE_ESCAPE).append("'");
+			args.add("%" + likeLiteral(usernamePart) + "%");
+		}
+		boolean upward = page.ascendingRead();
+		if (page.cursor() != null) {
+			String beyond = upward ? ">" : "<";
+			sql.append(" AND (u.username ").append(beyond).append(" ? OR (u.username = ? AND u.id ").append(beyond).append(" ?))");
+			args.add(page.cursor().key());
+			args.add(page.cursor().key());
+			args.add(page.cursor().id());
+		}
+		String way = upward ? "ASC" : "DESC";
+		sql.append(" ORDER BY u.username ").append(way).append(", u.id ").append(way).append(" LIMIT ?");
+		args.add(page.fetchSize());
+		return jdbc.query(sql.toString(), (rs, row) -> new UserOption(rs.getLong("id"), rs.getString("username")), args.toArray());
+	}
+
 	private static String placeholders(int count) {
 		return String.join(", ", Collections.nCopies(count, "?"));
 	}

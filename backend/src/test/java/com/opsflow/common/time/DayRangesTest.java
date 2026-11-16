@@ -22,7 +22,7 @@ class DayRangesTest {
 	private static final Instant NOON_IN_SYDNEY = Instant.parse("2026-11-16T01:00:00Z");
 
 	private final DayRanges days = new DayRanges(Clock.fixed(NOON_IN_SYDNEY, ZoneOffset.UTC), new OpsflowProperties(null, null, null, null,
-			null, null, null, null, null, null, new OpsflowProperties.TimeFilter(ZoneId.of("Australia/Sydney"))));
+			null, null, null, null, null, null, new OpsflowProperties.TimeFilter(ZoneId.of("Australia/Sydney")), null));
 
 	@Test
 	void noDayIsNoFilter() {

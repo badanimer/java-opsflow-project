@@ -37,6 +37,8 @@ public enum ErrorCode {
 	STOCK_CHANGED(HttpStatus.CONFLICT, "Stock changed"),
 	FOLLOW_NOT_ALLOWED(HttpStatus.CONFLICT, "Ticket cannot be followed"),
 	LIMIT_REACHED(HttpStatus.CONFLICT, "Limit reached"),
+	TICKET_CHANGED(HttpStatus.CONFLICT, "Ticket changed"),
+	NOT_ELIGIBLE(HttpStatus.CONFLICT, "Assignee not eligible"),
 	USER_CHANGED(HttpStatus.CONFLICT, "User changed"),
 	USER_NOT_ACTIVE(HttpStatus.CONFLICT, "User not active"),
 	LAST_ADMIN(HttpStatus.CONFLICT, "Last administrator"),

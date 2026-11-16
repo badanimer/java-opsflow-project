@@ -26,6 +26,8 @@ public class AuditLogWriter {
 	public static final String TARGET_ITEM = "ITEM";
 	/** A product: the target id is the {@code products} id. */
 	public static final String TARGET_PRODUCT = "PRODUCT";
+	/** A ticket: the target id is the {@code tickets} id. */
+	public static final String TARGET_TICKET = "TICKET";
 
 	private static final String INSERT = """
 			INSERT INTO operation_logs (operator_id, category, action, target_type, target_id, before_data, after_data, ip_address, remark)

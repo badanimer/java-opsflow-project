@@ -10,6 +10,7 @@ import java.util.TreeSet;
 import org.springframework.stereotype.Service;
 
 import com.opsflow.common.error.ApiException;
+import com.opsflow.common.error.ErrorCode;
 import com.opsflow.common.paging.Cursor;
 import com.opsflow.common.paging.PageQuery;
 import com.opsflow.common.paging.PageResponse;
@@ -22,6 +23,7 @@ import com.opsflow.user.UserChangeWriter.UserRoles;
 import com.opsflow.user.UserChangeWriter.UserStatus;
 import com.opsflow.user.UserRepository.ListFilter;
 import com.opsflow.user.UserRepository.ListedUser;
+import com.opsflow.user.UserRepository.UserOption;
 
 /**
  * The user page and the changes one user makes to another (see User page and Authority over roles and
@@ -85,6 +87,49 @@ public class UserService {
 
 		ListFilter where = new ListFilter(hiddenRoles, hiddenUserId, part, List.copyOf(filter), withoutRole);
 		return PageResponse.of(repository.list(where, page), page, user -> new Cursor(user.username(), user.id()));
+	}
+
+	/**
+	 * A page of the user picker (see The user picker in docs/database/database-design.md): ids and usernames
+	 * only, never the SYSTEM identity.
+	 *
+	 * @param use {@code filter}: every user, for the search filters of the tickets and the audit page, open
+	 *     to {@code TICKET_SEARCH} or {@code AUDIT_VIEW}; {@code assignee}: the eligible assignees the caller
+	 *     may give a ticket to, open to {@code TICKET_ASSIGN}
+	 */
+	public PageResponse<UserOption> options(CurrentUser caller, String use, String search, PageQuery page) {
+		if (caller.roles().isEmpty()) {
+			throw new ApiException(ErrorCode.ACCOUNT_NO_ROLE, "This account is waiting for an administrator to assign permissions");
+		}
+		String part = search == null || search.isBlank() ? null : search.strip();
+		if (part != null && part.length() > Limits.USERNAME) {
+			throw ApiException.invalid("search", "must be at most " + Limits.USERNAME + " characters");
+		}
+		String kind = use == null ? "" : use.strip().toLowerCase(Locale.ROOT);
+		List<String> eligible;
+		List<String> excluded;
+		switch (kind) {
+			case "filter" -> {
+				if (!caller.can(Permission.TICKET_SEARCH) && !caller.can(Permission.AUDIT_VIEW)) {
+					throw new ApiException(ErrorCode.FORBIDDEN, "Your roles do not allow choosing users for a filter");
+				}
+				eligible = null;
+				excluded = List.of();
+			}
+			case "assignee" -> {
+				if (!caller.can(Permission.TICKET_ASSIGN)) {
+					throw new ApiException(ErrorCode.FORBIDDEN, "Your roles do not allow assigning tickets");
+				}
+				eligible = rolesGranting(Permission.TICKET_TAKE);
+				excluded = caller.can(Permission.TICKET_ASSIGN_PROTECTED) ? List.of() : rolesGranting(Permission.TICKET_ASSIGN_PROTECTED);
+			}
+			default -> throw ApiException.invalid("use", "must be filter or assignee");
+		}
+		return PageResponse.of(repository.options(eligible, excluded, part, page), page, user -> new Cursor(user.username(), user.id()));
+	}
+
+	private static List<String> rolesGranting(Permission permission) {
+		return Arrays.stream(Role.values()).filter(role -> role.grants(permission)).map(Role::code).toList();
 	}
 
 	/**

@@ -16,6 +16,7 @@ import com.opsflow.common.audit.AuditAction;
 import com.opsflow.common.audit.AuditLogWriter;
 import com.opsflow.common.error.ApiException;
 import com.opsflow.common.error.ErrorCode;
+import com.opsflow.ticket.TicketCascades;
 import com.opsflow.warehouse.WarehouseRepository.ItemRow;
 import com.opsflow.warehouse.WarehouseRepository.ProductRow;
 
@@ -43,8 +44,10 @@ public class ItemWriter {
 	private final WarehouseRepository repository;
 	private final AuditLogWriter audit;
 	private final Clock clock;
+	private final TicketCascades tickets;
 
-	ItemWriter(WarehouseRepository repository, AuditLogWriter audit, Clock clock) {
+	ItemWriter(WarehouseRepository repository, AuditLogWriter audit, Clock clock, TicketCascades tickets) {
+		this.tickets = tickets;
 		this.repository = repository;
 		this.audit = audit;
 		this.clock = clock;
@@ -67,7 +70,8 @@ public class ItemWriter {
 			throw nameTaken();
 		}
 		if (startingQuantity > 0) {
-			repository.insertTransaction(id, "RESTOCK", startingQuantity, 0, startingQuantity, INITIAL_STOCK_REASON, actorId);
+			repository.insertTransaction(id, "RESTOCK", startingQuantity, 0, startingQuantity, INITIAL_STOCK_REASON, actorId,
+					clock.instant().truncatedTo(ChronoUnit.MILLIS));
 		}
 		repository.insertItemEvent(id, "CREATED", sku, name, startingQuantity, actorId);
 		Map<String, Object> after = new LinkedHashMap<>();
@@ -132,20 +136,20 @@ public class ItemWriter {
 		Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
 		String remark = "ITEM_DELETED:" + itemId;
 
+		// The tickets linked to the item are cancelled as the SYSTEM identity, after the item is held (T-39).
+		List<Long> cancelled = tickets.cancelLinkedTo(itemId, remark);
+
 		if (product != null && product.listed()) {
 			repository.delist(product.id(), now, actorId);
 			repository.insertListingEvent(product.id(), itemId, "DELISTED", product.name(), product.price(), actorId);
 			Map<String, Object> after = new LinkedHashMap<>();
 			after.put("status", "UNLISTED");
-			after.put("cancelledTicketIds", List.of());
+			after.put("cancelledTicketIds", cancelled);
 			after.put("name", product.name());
 			after.put("sku", item.sku());
 			audit.write(AuditAction.PRODUCT_DELISTED, actorId, AuditLogWriter.TARGET_PRODUCT, product.id(), Map.of("status", "LISTED"),
 					after, ipAddress, remark);
 		}
-		// Phase 6 (T-21, T-33): cancel here every OPEN or IN_PROGRESS ticket linked to the item, as the SYSTEM
-		// identity, with the reason ITEM_DELETED: and the item id, and log each as TICKET_CANCELLED.
-
 		repository.softDeleteItem(itemId, now, actorId);
 		repository.insertItemEvent(itemId, "DELETED", item.sku(), item.name(), item.availableQuantity(), actorId);
 		Map<String, Object> before = new LinkedHashMap<>();
@@ -153,7 +157,7 @@ public class ItemWriter {
 		before.put("availableQuantity", item.availableQuantity());
 		Map<String, Object> after = new LinkedHashMap<>();
 		after.put("deleted", true);
-		after.put("cancelledTicketIds", List.of());
+		after.put("cancelledTicketIds", cancelled);
 		after.put("sku", item.sku());
 		after.put("name", item.name());
 		audit.write(AuditAction.ITEM_DELETED, actorId, AuditLogWriter.TARGET_ITEM, itemId, before, after, ipAddress, null);

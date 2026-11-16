@@ -23,7 +23,25 @@ import jakarta.validation.constraints.NotNull;
 public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Paging paging, @NotNull @Valid Login login,
 		@NotNull @Valid Token token, @NotNull @Valid EmailCode emailCode, @NotNull @Valid Mail mail, @NotNull @Valid Jobs jobs,
 		@NotNull @Valid Quantity quantity, @NotNull @Valid Warehouse warehouse, @NotNull @Valid Order order,
-		@NotNull @Valid TimeFilter timeFilter) {
+		@NotNull @Valid TimeFilter timeFilter, @NotNull @Valid Ticket ticket) {
+
+	/**
+	 * The ticket module (T-11, T-12, T-33, T-35).
+	 *
+	 * @param numberAttempts how many generated ticket numbers are tried before opening a ticket fails on a clash
+	 * @param maxOpenCreated the most {@code OPEN} tickets one person may have created
+	 * @param maxInProgress the most {@code IN_PROGRESS} tickets one person may hold
+	 * @param maxItems the most warehouse items one ticket may link
+	 * @param maxArchiveBatch the most tickets one batch archive may name
+	 * @param autoArchiveAfter how long after {@code resolved_at} the archive job archives a resolved ticket
+	 * @param autoArchiveAtResolved the number of {@code RESOLVED} tickets in the whole system at which the job archives all of them
+	 * @param archiveInterval how often the archive job runs (read by its schedule)
+	 * @param archiveJobBatch the most tickets one run of the archive job archives
+	 */
+	public record Ticket(@Min(1) int numberAttempts, @Min(1) int maxOpenCreated, @Min(1) int maxInProgress, @Min(1) int maxItems,
+			@Min(1) int maxArchiveBatch, @NotNull Duration autoArchiveAfter, @Min(1) int autoArchiveAtResolved,
+			@NotNull Duration archiveInterval, @Min(1) int archiveJobBatch) {
+	}
 
 	/**
 	 * The time filter of the logs and the other lists (see The time filter).

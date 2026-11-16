@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-16 | 1.9 | Designed before the backend of Phase 6: the ticket endpoints (the five screens and the search, the detail, opening a ticket, take, assign, reassign, release, resolve, cancel, and the single and batch archive), the user picker `GET /user-options`, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, the meaning of `NOT_ALLOWED`, and the limits of the two `TEXT` fields: 4,000 characters for a description and 2,000 for a resolution | [api-v1.9.md](../iterations/api-v1.9.md) |
 | 2026-11-16 | 1.8 | Placing an order, `POST /orders`, with its number in every recorded refusal and the original order for a key used before; the three manual stock changes, `POST /items/{id}/stock-in`, `/write-off`, and `/correction`; the code `STOCK_CHANGED`; the two logs (`/listing-records`, `/order-records`, `/item-records`, `/stock-movements`) with the time filter and the search by one order number, `/deleted-items`, and the product picker `/product-options`. An order refused by its permissions gets `FORBIDDEN` and not `NOT_ALLOWED` | [api-v1.8.md](../iterations/api-v1.8.md) |
 | 2026-11-15 | 1.7 | The endpoints of warehouse items, item images, and products for Phase 4, and the codes `ITEM_NAME_TAKEN`, `ITEM_LISTED`, `ALREADY_LISTED`, `ALREADY_DELISTED`, `IMAGE_TOO_LARGE`, and `IMAGE_TYPE_NOT_ALLOWED` | [api-v1.7.md](../iterations/api-v1.7.md) |
 | 2026-11-15 | 1.6 | One signed-in device per account: the code `SESSION_REPLACED` for a token of a login that a newer login of the account ended, and the event stream `GET /auth/session-events`, which tells an open page at once | [api-v1.6.md](../iterations/api-v1.6.md) |
@@ -33,7 +34,7 @@ This document always describes the current API conventions. Each iteration has a
 | Success | No envelope: the response body is the resource itself. `200` for a read or an update, `201` with the new resource for a create, `204` with no body when there is nothing to return. |
 | Idempotency | An order request may carry the header `Idempotency-Key`. A repeated submission with the same key returns the original order and adds no row. The key is 1 to 128 visible ASCII characters (a UUID fits), because it is stored in a 128-character column; an empty, longer, or other key is refused with `VALIDATION_FAILED`, and `errors` names the field `Idempotency-Key`. |
 | Request id | Every response, successful or not, carries the header `X-Request-Id`: 32 hexadecimal characters that the server makes new for each request. The same value is on every log line of the request, so the id from a report finds the request in the log. The server ignores an `X-Request-Id` sent by the client. |
-| Limits | The length limit of every text field equals the length of its database column, so that over-long input is refused with `VALIDATION_FAILED` and never truncated (T-13). |
+| Limits | The length limit of every text field equals the length of its database column, so that over-long input is refused with `VALIDATION_FAILED` and never truncated (T-13). The two `TEXT` columns have no length, so their limits are chosen: a ticket description has at most 4,000 characters and a resolution at most 2,000. |
 
 ## Error Response
 
@@ -70,7 +71,7 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 401 | `UNAUTHENTICATED` | No token, an invalid or expired token, a token not issued after `password_changed_at`, a token that carries no login id (issued before logins were kept), or a token of a user who does not exist or is soft-deleted. At login: a wrong username or password | General |
 | 401 | `SESSION_REPLACED` | The account logged in again, on this or another device, after this token was issued: only the newest login is signed in | [One signed-in device](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `FORBIDDEN` | The user is logged in and holds a role, and the Permission Matrix does not allow the action for any of the user's roles. Also a request to an endpoint that declares nothing or does not exist, whatever the roles | General |
-| 403 | `NOT_ALLOWED` | Reserved for the ticket module. An order is refused by the permission check like every endpoint: `FORBIDDEN`, `ACCOUNT_DISABLED`, or `ACCOUNT_NO_ROLE` | Ticket results |
+| 403 | `NOT_ALLOWED` | The permission is held, and a rule of the ticket refuses it: an operator who releases, resolves, or cancels a ticket that is not theirs. An order is refused by the permission check like every endpoint: `FORBIDDEN`, `ACCOUNT_DISABLED`, or `ACCOUNT_NO_ROLE` | [Status transitions](../database/database-design.md#status-transitions) |
 | 403 | `ACCOUNT_DISABLED` | The account is disabled. At login it is the answer to the right password, with no token. On any other request it means the account was disabled after login. The frontend clears its login state and shows the message on the login page | [Login security and account recovery](../database/database-design.md#login-security-and-account-recovery) |
 | 403 | `ACCOUNT_NO_ROLE` | The account has no role yet, and the endpoint needs one. The pending page shows it | [Users without roles](../database/database-design.md#users-without-roles) |
 | 404 | `NOT_FOUND` | The resource does not exist, or the user may not know that it exists. In a change to a user: the user does not exist, is soft-deleted, or is the SYSTEM identity | General |
@@ -89,6 +90,8 @@ The codes already defined in [database-design.md](../database/database-design.md
 | 409 | `STOCK_CHANGED` | A correction was made from a stock that is no longer the stock of the item: someone changed it in the meantime. Nothing is changed, and the page reloads the item | [Manual stock changes](../database/database-design.md#manual-stock-changes) |
 | 409 | `FOLLOW_NOT_ALLOWED` | The ticket to follow is not `RESOLVED` or `CLOSED` | [Follow-up tickets](../database/database-design.md#follow-up-tickets) |
 | 409 | `LIMIT_REACHED` | The person already has 99 open tickets, or 99 in progress | [Ticket limits](../database/database-design.md#ticket-limits) |
+| 409 | `TICKET_CHANGED` | The ticket is not as the sender saw it: its status no longer allows the change, or its assignee is not the one the sender saw. The body carries the status now as `ticketStatus`. Nothing is changed, and the page reloads the ticket | [Status transitions](../database/database-design.md#status-transitions), [Reassigning and releasing a ticket](../database/database-design.md#reassigning-and-releasing-a-ticket) |
+| 409 | `NOT_ELIGIBLE` | The chosen assignee may not hold the ticket: not a usable account, no role that may take tickets, the SYSTEM identity, an administrator chosen by someone who is not one, or the person who holds it now | [Who may take a ticket](../database/database-design.md#who-may-take-a-ticket) |
 | 409 | `USER_CHANGED` | The user is not as the sender saw it: someone else changed the roles, or disabled or enabled the account, in which case the body carries the current status as `userStatus`. Nothing is changed, and the page reloads the user | [Steps of a change to a user](../database/database-design.md#steps-of-a-change-to-a-user) |
 | 409 | `USER_NOT_ACTIVE` | A role is to be given to a disabled user. Roles can still be taken away. The user is enabled first | [Role grants](../database/database-design.md#role-grants) |
 | 409 | `LAST_ADMIN` | The change would leave the system with no usable administrator | [Administrator protection](../database/database-design.md#administrator-protection) |
@@ -233,6 +236,77 @@ Built on 2026-11-16 for Phase 5 ([api-v1.8.md](../iterations/api-v1.8.md)). The 
 - **The time filter.** `from` and `to` are days written `yyyy-MM-dd`, in Sydney time. `from` alone reads from the start of that day until now; `from` and `to` read both days and every day between. No day is no filter. `to` without `from`, a day after today, and `to` before `from` are `VALIDATION_FAILED`.
 - **The direction.** `order` is `desc` (newest first, the default) or `asc`, on the four lists of records only. The Deleted items list and the picker have a fixed order and refuse `order`.
 - **One order number.** `orderNo` finds the lines of one attempt in the order records, or the `SALE` rows of one placed order in the stock movements. It is the whole number, matched exactly, whatever case is typed: `ORD-` and the rest in lower case, as the numbers are made. It is used alone: with `productId`, `inventoryId`, `from`, or `to` it is `VALIDATION_FAILED`.
+
+## Tickets
+
+Designed on 2026-11-16 for Phase 6 ([api-v1.9.md](../iterations/api-v1.9.md)), before the backend is built. The rules behind it are in [Tickets](../database/database-design.md#tickets), [Ticket search](../database/database-design.md#ticket-search), [The user picker](../database/database-design.md#the-user-picker), [Ticket logs](../database/database-design.md#ticket-logs), and the ticket rows of [Concurrency by Module](../database/database-design.md#concurrency-by-module). The audit log page (T-48) gets its endpoints when it is built, later in the phase.
+
+**Reading.**
+
+| Endpoint | Who | Request | Answer |
+| --- | --- | --- | --- |
+| `GET /tickets` | `TICKET_VIEW` (every role) | `status` (required: `OPEN`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`, or `CANCELLED`, one screen), the parameters of Paging with `order`, and the search below | `200` with a page of `{ "id": 12, "ticketNo": "K7Q2M9XA", "type": "INVENTORY_EXCEPTION", "source": "MANUAL", "title": "Count of A4 paper is short", "createdBy": { "id": 7, "username": "olive", "system": false }, "createdAt": "...", "status": "OPEN", "closedAt": null, "cancelledAt": null }` |
+| `GET /tickets/{id}` | `TICKET_VIEW` | None | `200` with the ticket (below) |
+| `GET /user-options` | `use=filter`: `TICKET_SEARCH` or `AUDIT_VIEW`. `use=assignee`: `TICKET_ASSIGN` | `use` (required), `search` (a part of the username, at most 64 characters), the parameters of Paging | `200` with a page of `{ "id": 9, "username": "bob" }`, by username from A to Z and then `id`. The order is fixed |
+
+The ticket of `GET /tickets/{id}`, and of every answer that changes a ticket:
+
+```json
+{
+  "id": 12, "ticketNo": "K7Q2M9XA", "type": "ORDER_EXCEPTION", "source": "MANUAL", "status": "IN_PROGRESS",
+  "title": "Order refused though stock was there", "description": "...",
+  "orderNo": "ORD-3f2b...",
+  "items": [ { "inventoryId": 3, "sku": "K7Q2M9XA", "name": "A4 paper", "deleted": false } ],
+  "follows": { "id": 8, "ticketNo": "P2X9..." },
+  "followUps": [ { "id": 15, "ticketNo": "Q4M1..." } ],
+  "createdBy": { "id": 7, "username": "olive", "system": false }, "createdAt": "...",
+  "assignee": { "id": 9, "username": "bob", "system": false },
+  "history": [ { "from": null, "to": { "id": 9, "username": "bob", "system": false }, "by": { "id": 9, "username": "bob", "system": false }, "reason": null, "at": "..." } ],
+  "resolution": null, "resolvedBy": null, "resolvedAt": null,
+  "closedBy": null, "closedAt": null,
+  "cancelReason": null, "cancelCause": null, "cancelledBy": null, "cancelledAt": null
+}
+```
+
+- **A person** is `{ "id", "username", "system" }`. `system` is true only for the SYSTEM identity, which the page shows as System: the creator of a `SYSTEM` ticket, the one who closed a ticket by the archive job, cancelled it by a deletion or a delisting, or released it when its assignee was disabled.
+- **Who sees which ticket.** A user with `TICKET_VIEW_ALL` sees every ticket. Any other user sees the whole pool, and on the other screens only the tickets of Ticket screens and who sees what: `IN_PROGRESS` assigned to them, `RESOLVED` resolved by them, `CANCELLED` created or last held by them, and no `CLOSED` ticket. The list filters on the user id in the query, and `GET /tickets/{id}` answers `NOT_FOUND` for a ticket the user cannot see, the same as for a ticket that does not exist. `status=CLOSED` without `TICKET_VIEW_ALL` is `FORBIDDEN`.
+- **The history and the follow-ups.** `history` is the assignment history, oldest first; `reason` is null for a take. `follows` and `followUps` name every linked ticket by its number; a ticket the user cannot see has `id` null, and the page shows the number without a link.
+- **The cancel cause.** `cancelCause` is null for a ticket a person cancelled. For a ticket the system cancelled it is `{ "kind": "PRODUCT_DELISTED", "name": "Widget" }` or `{ "kind": "ITEM_DELETED", "name": "Widget" }`, with the name of the product (for a delisting) or of the item (for a deletion), so the page can say "Widget has been delisted, please open the ticket again". `cancelReason` keeps the code the system wrote (`PRODUCT_DELISTED:5`).
+- **The list order.** `SYSTEM` tickets first, then `MANUAL`, and inside each the time of the screen in the chosen direction: `createdAt` on the pool, in progress, and resolved, `closedAt` on the archive, `cancelledAt` on the cancelled screen (see [Ticket list order](../database/database-design.md#ticket-list-order)). `order` is `desc` (the default) or `asc`.
+- **The search** needs `TICKET_SEARCH`; without it any of these parameters is `FORBIDDEN`. The filters combine: `source` (`SYSTEM` or `MANUAL`), `createdBy` and `assigneeId` (user ids from `GET /user-options?use=filter`), and the time filter `from` and `to` on the creation day, as in Logs. The other two ways are used alone, like `orderNo` in Logs: `ticketNo` (8 characters, turned into upper case, matched exactly) or `orderNo` (written as order numbers are made, then matched exactly). With any other filter they are `VALIDATION_FAILED`. Every search stays inside the `status` of its screen.
+- **The user picker.** `use=filter` returns every user, disabled and soft-deleted users included. `use=assignee` returns the eligible assignees the caller may assign to: usable accounts that hold `TICKET_TAKE`, and among them the users who hold `ADMIN` only for a caller who holds `TICKET_ASSIGN_PROTECTED`. Neither returns the SYSTEM identity. The list is a help: the change checks again under the lock.
+
+**Opening a ticket.**
+
+| Endpoint | Who | Request | Answer |
+| --- | --- | --- | --- |
+| `POST /tickets` | `TICKET_CREATE` (administrator, manager, operator) | `{ "type": "INVENTORY_EXCEPTION", "title": "...", "description": "...", "inventoryIds": [3, 5], "orderNo": null, "followsTicketNo": null }` | `201` with the ticket |
+
+- **The fields.** `type` is required. `title` is 1 to 200 characters and `description` 1 to 4,000, both after the spaces around them are removed (T-13). `inventoryIds` is 0 to 20 ids of items, each once; an `INVENTORY_EXCEPTION` needs at least one. `orderNo` is required for an `ORDER_EXCEPTION` and optional for the others. `followsTicketNo` is optional. A field that breaks these rules is `VALIDATION_FAILED` with the field, before any transaction. The item list of the form is `GET /items`.
+- **The refusals**, in the order the transaction meets them: `LIMIT_REACHED` (409) when the creator already has 99 `OPEN` tickets they created; `FOLLOW_NOT_FOUND` (404) and `FOLLOW_NOT_ALLOWED` (409) for the follow-up number; `ORDER_NOT_FOUND` (404) when no order attempt has the number; `ITEM_CHANGED` (409) when a chosen item does not exist or is deleted, with `items`, the ids and names of those items (`[ { "inventoryId": 5, "name": "Widget" } ]`), so the page can say which; and `BUSY` (503). Nothing is written on a refusal, and the page keeps what the person typed.
+- `source` is `MANUAL`, `createdBy` is the caller, and the number is made by the server.
+
+**Changing a ticket.** Each is a `POST` on the ticket, and each answers `200` with the ticket as it is now.
+
+| Endpoint | Who | Request | What it does |
+| --- | --- | --- | --- |
+| `POST /tickets/{id}/take` | `TICKET_TAKE` (administrator, manager, operator) | None | `OPEN` to `IN_PROGRESS`, the caller as assignee |
+| `POST /tickets/{id}/assign` | `TICKET_ASSIGN` (administrator, manager) | `{ "assigneeId": 9, "reason": "..." }` | `OPEN` to `IN_PROGRESS`, with the chosen assignee |
+| `POST /tickets/{id}/reassign` | `TICKET_ASSIGN` | `{ "assigneeId": 12, "expectedAssigneeId": 9, "reason": "..." }` | Another assignee for an `IN_PROGRESS` ticket |
+| `POST /tickets/{id}/release` | `TICKET_RELEASE` (administrator, manager, operator) | `{ "expectedAssigneeId": 9, "reason": "..." }` | `IN_PROGRESS` back to `OPEN`, with no assignee |
+| `POST /tickets/{id}/resolve` | `TICKET_RESOLVE` (administrator, manager, operator) | `{ "resolution": "..." }` | `IN_PROGRESS` to `RESOLVED` |
+| `POST /tickets/{id}/cancel` | `TICKET_CANCEL` (administrator, manager, operator) | `{ "reason": "..." }` | `OPEN` or `IN_PROGRESS` to `CANCELLED` |
+| `POST /tickets/{id}/archive` | `TICKET_ARCHIVE` (administrator, manager) | None | `RESOLVED` to `CLOSED` |
+| `POST /tickets/archive` | `TICKET_ARCHIVE` | `{ "ids": [12, 13] }`, 1 to 100 ids, each once | `200` with `{ "archived": ["K7Q2M9XA"], "skipped": [ { "id": 13, "ticketNo": "P2X9...", "status": "CLOSED" } ] }`; `ticketNo` and `status` are null for an id that does not exist or that the caller cannot see. Each ticket in its own transaction; one that is no longer `RESOLVED`, or that the caller cannot see, is skipped and the rest go on |
+
+- **Texts.** A `reason` is 1 to 255 characters and a `resolution` 1 to 2,000, after the spaces around them are removed. Anything else is `VALIDATION_FAILED` with the field.
+- **`expectedAssigneeId`** is the assignee the person saw on the screen. Under the lock of the ticket row it must still be the assignee, so a release cannot take the ticket from someone who got it a moment ago, and two reassignments cannot overwrite each other.
+- **`NOT_ALLOWED` (403)** is the refusal of a rule that depends on the ticket, when the permission itself is held: a user without `TICKET_HANDLE_ANY` (an operator) who releases, resolves, or cancels a ticket that is not theirs (theirs is the one assigned to them, or for a cancel one they created while it is `OPEN`). A manager and an administrator hold `TICKET_HANDLE_ANY`. A permission that is not held is `FORBIDDEN`, as on every endpoint. A ticket the caller cannot see is `NOT_FOUND` before any of this.
+- **`TICKET_CHANGED` (409)** means the ticket is no longer as the person saw it: its status does not allow the change any more (taken, released, resolved, cancelled, or archived by someone else in the meantime), or its assignee is not `expectedAssigneeId`. The body carries `ticketStatus`, the status now. Nothing is changed, and the page reloads the ticket. A `CLOSED` or `CANCELLED` ticket always answers `TICKET_CHANGED` to a change.
+- **`NOT_ELIGIBLE` (409)** means the new assignee may not hold the ticket: not a usable account, no role that may take tickets, the SYSTEM identity, an administrator chosen by a caller without `TICKET_ASSIGN_PROTECTED`, or, on a reassignment, the person who holds it now. A user id that does not exist is `NOT_ELIGIBLE` too.
+- **`LIMIT_REACHED` (409)** when the person who would hold the ticket (the caller on a take, the chosen assignee on an assign or a reassign) already has 99 tickets in progress.
+- **`NOT_FOUND`** when the ticket does not exist or the caller cannot see it. **`BUSY`** when the retries are used up.
+- Every change writes its `ticket_assignment_history` row, if the assignee changes, and its `operation_logs` row in the same transaction (see [Ticket logs](../database/database-design.md#ticket-logs)).
 
 ## Paging
 

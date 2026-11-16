@@ -16,6 +16,7 @@ import com.opsflow.common.audit.AuditAction;
 import com.opsflow.common.audit.AuditLogWriter;
 import com.opsflow.common.error.ApiException;
 import com.opsflow.common.error.ErrorCode;
+import com.opsflow.ticket.TicketCascades;
 import com.opsflow.warehouse.WarehouseRepository.ItemRow;
 import com.opsflow.warehouse.WarehouseRepository.ProductRow;
 
@@ -35,8 +36,10 @@ public class ProductWriter {
 	private final WarehouseRepository repository;
 	private final AuditLogWriter audit;
 	private final Clock clock;
+	private final TicketCascades tickets;
 
-	ProductWriter(WarehouseRepository repository, AuditLogWriter audit, Clock clock) {
+	ProductWriter(WarehouseRepository repository, AuditLogWriter audit, Clock clock, TicketCascades tickets) {
+		this.tickets = tickets;
 		this.repository = repository;
 		this.audit = audit;
 		this.clock = clock;
@@ -95,12 +98,12 @@ public class ProductWriter {
 		Instant now = clock.instant().truncatedTo(ChronoUnit.MILLIS);
 		repository.delist(productId, now, actorId);
 		repository.insertListingEvent(productId, product.inventoryId(), "DELISTED", product.name(), product.price(), actorId);
-		// Phase 6 (T-21, T-33): cancel here every OPEN or IN_PROGRESS ticket linked to the item of the product,
-		// as the SYSTEM identity, with the reason PRODUCT_DELISTED: and the product id.
+		// The tickets linked to the item of the product are cancelled as the SYSTEM identity (T-39).
+		List<Long> cancelled = tickets.cancelLinkedTo(product.inventoryId(), "PRODUCT_DELISTED:" + productId);
 		String sku = repository.findItem(product.inventoryId()).map(ItemRow::sku).orElse(null);
 		Map<String, Object> after = new LinkedHashMap<>();
 		after.put("status", "UNLISTED");
-		after.put("cancelledTicketIds", List.of());
+		after.put("cancelledTicketIds", cancelled);
 		after.put("name", product.name());
 		after.put("sku", sku);
 		audit.write(AuditAction.PRODUCT_DELISTED, actorId, AuditLogWriter.TARGET_PRODUCT, productId, Map.of("status", "LISTED"),

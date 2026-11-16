@@ -9,6 +9,10 @@ package com.opsflow.common.validation;
  * compares each one with the column in the database, so a migration that changes a length fails the
  * build until the constant follows. Add a constant here, and a line in that test, when a request type
  * gets a new text field.
+ *
+ * A {@code TEXT} column has no length of its own, so its limit is a decision of the design (Field
+ * Specifications in database-design.md): the test checks only that the limit fits the column, at four
+ * bytes a character.
  */
 public final class Limits {
 
@@ -38,6 +42,10 @@ public final class Limits {
 	public static final int TICKET_TITLE = 200;
 	/** A reason typed by a person: {@code inventory_transactions.reason}, {@code tickets.cancel_reason}, and the reasons of the ticket histories */
 	public static final int REASON = 255;
+	/** {@code tickets.description}, a {@code TEXT} column: the limit is the design's, not the column's */
+	public static final int TICKET_DESCRIPTION = 4000;
+	/** {@code tickets.resolution}, a {@code TEXT} column: the limit is the design's, not the column's */
+	public static final int TICKET_RESOLUTION = 2000;
 
 	private Limits() {
 	}

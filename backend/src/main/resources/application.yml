@@ -56,6 +56,16 @@ opsflow:
   order:
     max-lines: 20            # product lines in one order; the product page sends one
     number-attempts: 5       # generated order numbers tried before an order fails on a clash
+  ticket:
+    number-attempts: 5          # generated ticket numbers tried before opening a ticket fails on a clash
+    max-open-created: 99        # OPEN tickets one person may have created
+    max-in-progress: 99         # IN_PROGRESS tickets one person may hold
+    max-items: 20               # warehouse items one ticket may link
+    max-archive-batch: 100      # tickets one batch archive may name
+    auto-archive-after: 7d      # a RESOLVED ticket is archived by the job this long after resolved_at
+    auto-archive-at-resolved: 99 # at this many RESOLVED tickets the job archives all of them
+    archive-interval: 1m        # how often the archive job runs
+    archive-job-batch: 500      # the most tickets one run of the job archives; the next run takes the rest
   time-filter:
     zone: Australia/Sydney   # the days a person picks in a time filter are days of this zone
   jobs:

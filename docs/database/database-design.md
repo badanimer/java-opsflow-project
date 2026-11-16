@@ -272,10 +272,10 @@ A person with the right to create tickets (see the Permission Matrix) opens the 
 | `CREATED` | The ticket was opened, with its number | The ticket and its links were written |
 | `FOLLOW_NOT_FOUND` | No ticket has that number | The number in the follow-up field belongs to no ticket |
 | `FOLLOW_NOT_ALLOWED` | That ticket cannot be followed yet: only a resolved or archived ticket can | The ticket exists but is `OPEN`, `IN_PROGRESS`, or `CANCELLED` |
-| `ORDER_NOT_FOUND` | No order has that number | The number in the order field belongs to no order attempt, or the type is `ORDER_EXCEPTION` and the field is empty |
+| `ORDER_NOT_FOUND` | No order has that number | The number in the order field belongs to no order attempt. An `ORDER_EXCEPTION` with the field empty is `VALIDATION_FAILED`, before the transaction |
 | `ITEM_CHANGED` | The named item no longer exists, please choose again | A chosen item was deleted after the list was loaded |
 | `LIMIT_REACHED` | You already have 99 open tickets | The open limit of the creator is reached |
-| `NOT_ALLOWED` | You may not create tickets | The account is not usable or its role does not allow it |
+| `FORBIDDEN` | You may not create tickets | The roles of the account do not allow it. An account that is not usable gets the answer of the token check (see [api-design.md](../api/api-design.md)) |
 | `BUSY` | The system is busy, please try again | The retries on a deadlock or a lock wait were used up. Nothing was created. |
 
 The shared lock on each item is what keeps a ticket from being linked to an item that is being deleted: a deletion needs the item exclusively and cancels the tickets linked to it after it holds the lock, so a ticket that committed first is cancelled, and a ticket that comes later is refused (see Concurrency by Module).
@@ -1078,6 +1078,9 @@ These values belong in application configuration, not in the database.
 | Auto-archive delay | 7 days after `resolved_at` | A resolved ticket that nobody archived does not wait for ever. A `MANAGER` or an `ADMIN` can archive it earlier at any time. |
 | Resolved tickets waiting before auto-archive | 99 in the whole system | When 99 `RESOLVED` tickets are waiting, the system archives all of them, so the waiting list stays short. |
 | Archive job interval | 1 minute | A simple schedule. The job checks the 7-day rule and the count of 99. |
+| Tickets one run of the archive job archives | 500 | One run never holds a connection for long after a backlog; the next run takes the rest. |
+| Items one ticket may link | 20 | As the lines of an order: one request never locks many rows. |
+| Tickets one batch archive may name | 100 | A batch from the resolved screen, one ticket per transaction, stays short. |
 | Email code | 6 digits, valid 10 minutes, 5 wrong entries, resend after 60 seconds | Long enough to be inconvenient to guess, short enough to be quick to use |
 | Password length and token life | 8 to 24 characters with a letter and a digit; the token lasts 12 hours | The owner's rule, and a token that needs no refresh because each request checks the account |
 | Code requests per client address | 10 accepted requests in an hour | One client cannot request codes for many addresses. A person who mistypes an address a few times is not stopped |
@@ -1130,7 +1133,7 @@ Money is kept to two decimal places and calculated with Java `BigDecimal`.
 | `operation_logs.ip_address` | `VARCHAR(45)` |
 | `operation_logs.action`, `operation_logs.target_type` | `VARCHAR(64)` |
 | `operation_logs.category` | `VARCHAR(16)`, restricted to the six values under Categories |
-| Ticket descriptions, `tickets.resolution` | `TEXT` |
+| Ticket descriptions, `tickets.resolution` | `TEXT`. The column has no length, so the application sets the limit: 4,000 characters for a description and 2,000 for a resolution (T-13), which fit the 65,535 bytes of the column at four bytes a character |
 | `operation_logs.before_data`, `after_data` | `JSON` |
 
 `orders.order_no`, `order_attempts.order_no`, `tickets.ticket_no`, and `orders.idempotency_key` use the `utf8mb4_0900_bin` collation, so they are compared exactly and `Abc` and `abc` are different values. `users.username`, `users.email`, `inventory.sku`, and `roles.code` keep the default case-insensitive, accent-insensitive collation, so two usernames that differ only in case count as the same.

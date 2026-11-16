@@ -65,6 +65,16 @@ public enum Permission {
 	TICKET_TAKE,
 	/** Assign a ticket from the pool, or reassign one that is in progress. */
 	TICKET_ASSIGN,
+	/**
+	 * Assign or reassign a ticket to a user who holds a role that grants this permission too: only an
+	 * administrator gives a ticket to an administrator (see Who may take a ticket, T-67).
+	 */
+	TICKET_ASSIGN_PROTECTED,
+	/**
+	 * Release, resolve, or cancel any ticket, and not only one's own (the assignee's, or for a cancel the
+	 * creator's while it is {@code OPEN}). See the ticket rows of the Permission Matrix.
+	 */
+	TICKET_HANDLE_ANY,
 	/** Release a ticket back to the pool. */
 	TICKET_RELEASE,
 	/** Move a ticket to {@code RESOLVED}. */

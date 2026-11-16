@@ -122,13 +122,17 @@ class WarehouseRepository {
 		jdbc.update("UPDATE inventory SET deleted_at = ?, deleted_by = ? WHERE id = ?", UtcTime.toLocalDateTime(at), deletedBy, id);
 	}
 
-	/** A stock movement. The snapshots are taken from the row the caller holds. */
-	long insertTransaction(long inventoryId, String type, int quantity, int before, int after, String reason, long operatorId) {
+	/**
+	 * A stock movement. The snapshots are taken from the row the caller holds. The time comes from the clock
+	 * of the application, as the time of a {@code SALE} does, so that the movements of one item sort in the
+	 * order they happened even when the clock of the database differs.
+	 */
+	long insertTransaction(long inventoryId, String type, int quantity, int before, int after, String reason, long operatorId, Instant at) {
 		KeyHolder key = new GeneratedKeyHolder();
 		jdbc.update(connection -> {
 			PreparedStatement statement = connection.prepareStatement("""
-					INSERT INTO inventory_transactions (inventory_id, operator_id, type, quantity, available_before, available_after, reason)
-					VALUES (?, ?, ?, ?, ?, ?, ?)
+					INSERT INTO inventory_transactions (inventory_id, operator_id, type, quantity, available_before, available_after, reason, created_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					""", Statement.RETURN_GENERATED_KEYS);
 			statement.setLong(1, inventoryId);
 			statement.setLong(2, operatorId);
@@ -137,6 +141,7 @@ class WarehouseRepository {
 			statement.setInt(5, before);
 			statement.setInt(6, after);
 			statement.setString(7, reason);
+			statement.setObject(8, UtcTime.toLocalDateTime(at));
 			return statement;
 		}, key);
 		return key.getKey().longValue();

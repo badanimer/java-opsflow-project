@@ -1,5 +1,7 @@
 package com.opsflow.warehouse;
 
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -33,7 +35,10 @@ public class StockWriter {
 	private final WarehouseRepository repository;
 	private final AuditLogWriter audit;
 
-	StockWriter(WarehouseRepository repository, AuditLogWriter audit) {
+	private final Clock clock;
+
+	StockWriter(WarehouseRepository repository, AuditLogWriter audit, Clock clock) {
+		this.clock = clock;
 		this.repository = repository;
 		this.audit = audit;
 	}
@@ -83,7 +88,8 @@ public class StockWriter {
 		}
 		int newQuantity = (int) after;
 		repository.setAvailable(itemId, newQuantity);
-		long transactionId = repository.insertTransaction(itemId, type, moved, before, newQuantity, reason, actorId);
+		long transactionId = repository.insertTransaction(itemId, type, moved, before, newQuantity, reason, actorId,
+				clock.instant().truncatedTo(ChronoUnit.MILLIS));
 
 		Map<String, Object> afterData = new LinkedHashMap<>();
 		afterData.put("availableQuantity", newQuantity);

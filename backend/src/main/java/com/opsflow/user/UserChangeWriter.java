@@ -15,6 +15,7 @@ import com.opsflow.common.error.ApiException;
 import com.opsflow.common.error.ErrorCode;
 import com.opsflow.common.security.Permission;
 import com.opsflow.common.security.Role;
+import com.opsflow.ticket.TicketCascades;
 import com.opsflow.user.UserRepository.UserRow;
 
 /**
@@ -28,7 +29,8 @@ import com.opsflow.user.UserRepository.UserRow;
  * it is now: the roles the request arrived with may have been taken away since.</li>
  * <li>Compare with what the actor saw on the screen.</li>
  * <li>If the target holds {@code ADMIN}, lock the {@code ADMIN} row in {@code roles}.</li>
- * <li>Apply the change.</li>
+ * <li>Apply the change. Disabling and deleting also return the user's tickets in progress to the pool
+ * ({@link TicketCascades}), after the locks on {@code users} and {@code roles}.</li>
  * <li>If step 5 applied, count the usable administrators, and roll back when there is none.</li>
  * <li>Write the log rows.</li>
  * </ol>
@@ -74,10 +76,12 @@ public class UserChangeWriter {
 
 	private final UserRepository repository;
 	private final AuditLogWriter audit;
+	private final TicketCascades tickets;
 
-	UserChangeWriter(UserRepository repository, AuditLogWriter audit) {
+	UserChangeWriter(UserRepository repository, AuditLogWriter audit, TicketCascades tickets) {
 		this.repository = repository;
 		this.audit = audit;
+		this.tickets = tickets;
 	}
 
 	/**
@@ -156,8 +160,8 @@ public class UserChangeWriter {
 	 * Disables an account. The roles stay, and count for nothing until the account is enabled again
 	 * (see Role grants). The next request of the user is answered {@code ACCOUNT_DISABLED}.
 	 *
-	 * The tickets the user holds are not returned to the pool yet: that step belongs to the ticket rules
-	 * and is added with the ticket module (T-35), as for a soft deletion.
+	 * Every ticket the user holds in progress goes back to the pool in the same transaction, as the SYSTEM
+	 * identity (T-21). The tickets do not come back when the account is enabled again.
 	 */
 	@Transactional
 	public UserStatus disable(long actorId, long targetId, String ipAddress) {
@@ -170,6 +174,7 @@ public class UserChangeWriter {
 		if (guarded) {
 			requireAnAdministrator();
 		}
+		tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DISABLED);
 		audit.write(AuditAction.USER_STATUS_CHANGED, actorId, AuditLogWriter.TARGET_USER, targetId, Map.of("status", ACTIVE),
 				statusData(DISABLED, target), ipAddress, null);
 		return new UserStatus(targetId, target.user().username(), DISABLED);
@@ -201,6 +206,7 @@ public class UserChangeWriter {
 		if (guarded) {
 			requireAnAdministrator();
 		}
+		tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DELETED);
 		Map<String, Object> before = new LinkedHashMap<>();
 		before.put("status", target.user().active() ? ACTIVE : DISABLED);
 		before.put("deleted", false);

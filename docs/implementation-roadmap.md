@@ -132,7 +132,7 @@ Tickets link to orders and to items, so they come after both.
 | T-14, T-40 | Opening a ticket, by hand and on chosen items, with the limit of 99 and the order and follow-up checks |
 | T-12 | The ticket number |
 | T-33 | The status rules, the archive, and the jobs that archive tickets |
-| T-35 | Taking, assigning, reassigning, and the two limits, with their races |
+| T-35, T-67 | Taking, assigning, reassigning, and the two limits, with their races; the permission to assign to an administrator |
 | T-21 | Return the tickets of a user to the pool when the user is disabled or soft-deleted |
 | T-36 | Exempt the SYSTEM identity from the limits |
 | T-39 | Add the ticket cancellation to deleting an item and delisting a product |
@@ -140,6 +140,8 @@ Tickets link to orders and to items, so they come after both.
 | T-47 | The ticket search |
 | T-50 | The ticket logs |
 | T-48 | The audit log page, now that every module writes its logs |
+
+**Built so far** (2026-11-16, on `phase-6-backend`): the backend of the whole phase except the audit log page, that is opening a ticket, the eight changes with their limits and races, the archive job, the cascades of the user and warehouse modules, the screens and the search with who sees what, and the user picker ([backend-v1.11.md](iterations/backend-v1.11.md), [api-v1.9.md](iterations/api-v1.9.md)). Still to do: the audit log page (T-48), and the frontend (T-40, T-44, T-47, T-37), after the Figma drawing is reviewed.
 
 **Done when:** a ticket goes through every allowed status and refuses every other transition, two people cannot take the same ticket, an operator cannot read another person's ticket by its number, and deleting an item cancels its tickets as the SYSTEM identity.
 

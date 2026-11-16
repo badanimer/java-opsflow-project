@@ -17,11 +17,16 @@ import com.opsflow.support.MySqlIntegrationTest;
  * T-13: the limit of every text field equals the length of its database column. The table lists, for
  * each constant of {@link Limits}, the columns it stands for; the length of each column is read from the
  * database that Flyway built, so a migration that changes a length fails here until the constant follows.
+ * A {@code TEXT} column has no length to match: its limit is chosen by the design, and the test checks
+ * that it fits the column at four bytes a character ({@code utf8mb4}).
  */
 class LimitsMatchSchemaTest extends MySqlIntegrationTest {
 
 	private record Column(String table, String column) {
 	}
+
+	/** The {@code TEXT} columns, whose limit must fit and need not be equal. */
+	private static final Set<String> TEXT_COLUMNS = Set.of("tickets.description", "tickets.resolution");
 
 	private static List<Column> columnsOf(String name) {
 		return switch (name) {
@@ -41,6 +46,8 @@ class LimitsMatchSchemaTest extends MySqlIntegrationTest {
 			case "TICKET_TITLE" -> List.of(new Column("tickets", "title"));
 			case "REASON" -> List.of(new Column("inventory_transactions", "reason"), new Column("tickets", "cancel_reason"),
 					new Column("ticket_assignment_history", "reason"));
+			case "TICKET_DESCRIPTION" -> List.of(new Column("tickets", "description"));
+			case "TICKET_RESOLUTION" -> List.of(new Column("tickets", "resolution"));
 			default -> throw new AssertionError("Limits." + name + " has no column listed in this test: add it to columnsOf");
 		};
 	}
@@ -55,10 +62,20 @@ class LimitsMatchSchemaTest extends MySqlIntegrationTest {
 			}
 			int limit = field.getInt(null);
 			for (Column column : columnsOf(field.getName())) {
+				String name = column.table() + "." + column.column();
+				checked.add(name);
+				if (TEXT_COLUMNS.contains(name)) {
+					Long bytes = root().queryForObject(
+							"SELECT character_octet_length FROM information_schema.columns WHERE table_schema = 'opsflow' AND table_name = ? AND column_name = ? AND data_type = 'text'",
+							Long.class, column.table(), column.column());
+					if (bytes == null || (long) limit * 4 > bytes) {
+						mismatches.add("Limits." + field.getName() + " is " + limit + " characters but the TEXT column " + name + " holds " + bytes + " bytes");
+					}
+					continue;
+				}
 				Long length = root().queryForObject(
 						"SELECT character_maximum_length FROM information_schema.columns WHERE table_schema = 'opsflow' AND table_name = ? AND column_name = ?",
 						Long.class, column.table(), column.column());
-				checked.add(column.table() + "." + column.column());
 				if (length == null || length != limit) {
 					mismatches.add("Limits." + field.getName() + " is " + limit + " but " + column.table() + "." + column.column() + " is " + length);
 				}

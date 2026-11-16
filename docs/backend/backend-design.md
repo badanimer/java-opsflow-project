@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-16 | 1.11 | Phase 6 in the backend: the `ticket` module, which opens a ticket and makes its eight changes through the status gate with their locks, the limits of 99, the history, and the log rows; who sees which ticket, in one place; the list of the five screens with the search; the archive job; the cascades that return the tickets of a disabled or deleted user to the pool and cancel the tickets of a deleted item or a delisted product; the user picker in `user`; the permissions `TICKET_ASSIGN_PROTECTED` and `TICKET_HANDLE_ANY`; the parameters `opsflow.ticket.*`; and 32 tests | [backend-v1.11.md](../iterations/backend-v1.11.md) |
 | 2026-11-16 | 1.10 | Phase 5 in the backend: the `order` module, which places an order in one transaction with its idempotency key, its number, and the record of every attempt, a refused one included; and the three manual stock changes in `warehouse`. The `log` module: the two logs, the Deleted items module, and the product picker, with the shared time filter `DayRanges`. The ranges of a stock change and an order line in `Quantities`, the parameters `opsflow.order.*` and `opsflow.time-filter.zone`, and 48 tests | [backend-v1.10.md](../iterations/backend-v1.10.md) |
 | 2026-11-15 | 1.9 | The `warehouse` module of Phase 4: warehouse items, their images, the product page, the catalog, listing, and delisting, with the five write paths and their locks, the image store and `OPSFLOW_IMAGE_DIR`, the shared quantity rule `Quantities`, and 37 tests | [backend-v1.9.md](../iterations/backend-v1.9.md) |
 | 2026-11-15 | 1.8 | One signed-in device per account: a login writes a new session id that its token carries, `TokenAuthenticator` refuses an earlier login with `SESSION_REPLACED`, and `SessionEvents` keeps an event stream (`GET /auth/session-events`) open for each signed-in page and tells it at once when a newer login commits | [backend-v1.8.md](../iterations/backend-v1.8.md) |
@@ -119,13 +120,15 @@ The HTTP conventions of the controllers (paths, error responses, result codes, p
 
 ## Scheduled Jobs
 
-The application has two jobs, each run once a minute: the cleanup of expired email codes, which is built, and the archive of resolved tickets, which comes with the ticket module (T-33). A job is a method with `@Scheduled` in its module, and `JobsConfig` turns the schedule on. Three rules apply to them and to any later job:
+The application has two jobs, each run once a minute: the cleanup of expired email codes and the archive of resolved tickets. A job is a method with `@Scheduled` in its module, and `JobsConfig` turns the schedule on. Three rules apply to them and to any later job:
 
 - **One instance.** The application is designed to run as one instance, so a job runs in one place. This is an assumption, not something the code enforces. Before a second instance is added, the jobs need a lock that only one instance can hold.
 - **Safe to run twice.** A job that runs twice, or at the same time as a person doing the same thing, must change nothing wrongly. The archive goes through the status gate for each ticket, and the cleanup deletes only rows that have expired, so both already are.
 - **A limit on each run.** A run handles at most a fixed number of rows and leaves the rest to the next run, so one run never holds locks or a connection for long after a backlog has built up. The number is an operating parameter, set when each job is built.
 
 `EmailCodeCleanupJob` deletes the email codes whose `expires_at` has passed and the request counts whose window started more than two days ago, at most `opsflow.email-code.cleanup-batch` rows of each table in one run. It finds the rows with a plain read and deletes each one by its id in a statement of its own, so it holds no lock between two rows and never locks a range that a request is writing into.
+
+`TicketArchiveJob` archives every `RESOLVED` ticket resolved at least `opsflow.ticket.auto-archive-after` ago, and all of them when `opsflow.ticket.auto-archive-at-resolved` are waiting, at most `opsflow.ticket.archive-job-batch` in one run. It reads the ids with a plain read and archives each ticket in its own transaction through `TicketWriter.archive`, as the SYSTEM identity, so a ticket that a person archived meanwhile is skipped. All the rows of one run share one `batchId`.
 
 With `opsflow.jobs.enabled` set to false no job runs by itself. The integration tests set it, so that no job changes rows in the middle of another test, and call a job directly when they test it.
 
@@ -141,7 +144,7 @@ A rule that is only written in a document is broken without anyone noticing. A r
 | The roles in the code are the roles in the database | `RoleTest.theRolesOfTheCodeAreTheRowsOfTheSeedMigration` | Built |
 | Every permission is granted by a role, and the roles keep the principles of the Permission Matrix | `PermissionTest` | Built |
 | A module does not use the repository of another module, a controller does not read the database itself, and `common` depends on no module | `PackageDependencyRulesTest` reads the compiled classes of `src/main` with ArchUnit. A module is the package directly under `com.opsflow`, and a repository is a class named `...Repository` or annotated `@Repository`. Each rule is also run over a made-up application in the test package `rulefixture` that breaks it once, so a rule that could not fail is noticed | Built |
-| Only the allowed ticket status transitions happen | The transitions are one table in the code, and a test tries every pair of the five statuses and expects a refusal for each pair that is not in the table | With the ticket module (T-33) |
+| Only the allowed ticket status transitions happen | The transitions are one table in `TicketStatus`, and `TicketStatusTest` tries every pair of the five statuses and expects a refusal for each pair that is not in the table | Built |
 | Every action of the audit log has a category | `AuditLogTest`: every action of `AuditAction` has a category, and the categories are exactly the ones the database accepts | Built |
 | A password is never hashed or checked inside a transaction | `PasswordHasherTest.hashingOrCheckingInsideATransactionIsRefused` | Built |
 | A mail is never sent inside a transaction | `MailerTest.sendingInsideATransactionIsRefused` | Built |
@@ -310,7 +313,7 @@ Every controller method carries exactly one of three annotations from `common.se
 - An endpoint names a permission, never a role.
 - A service asks `CurrentUser.can(Permission)` before an action, and not which role the user holds. `CurrentUser.holds(Role)` is for a rule about the role itself, such as who may change an administrator.
 - `GET /auth/me` returns `CurrentUser.permissions()`, the permissions of all the roles of the user, and the frontend shows a control by its permission ([api-v1.4.md](../iterations/api-v1.4.md)). So the frontend names no role either.
-- A wider reach that is itself a row of the matrix is a permission of its own: `TICKET_VIEW` opens the ticket screens, and `TICKET_VIEW_ALL` shows everyone's tickets on them. A reach that depends on the data, such as an operator who may resolve only a ticket assigned to them, stays a rule of the service; when a module is built, such a rule gets a permission where it would otherwise ask for a role.
+- A wider reach that is itself a row of the matrix is a permission of its own: `TICKET_VIEW` opens the ticket screens, and `TICKET_VIEW_ALL` shows everyone's tickets on them. A reach that depends on the data, such as an operator who may resolve only a ticket assigned to them, stays a rule of the service; when a module is built, such a rule gets a permission where it would otherwise ask for a role. The ticket module added two such permissions: `TICKET_ASSIGN_PROTECTED` (administrator), to give a ticket to an administrator, and `TICKET_HANDLE_ANY` (administrator, manager), to release, resolve, or cancel a ticket that is not one's own.
 
 So each kind of change has one place:
 
@@ -431,6 +434,46 @@ Built on 2026-11-16 for Phase 5, the first part (T-10, T-12, T-30, T-41; [backen
 
 `QuantitiesTest` checks the ranges of a stock change, a correction, and an order line, and what an attempt records for a quantity that is not valid.
 
+## Tickets
+
+Built on 2026-11-16 for Phase 6 (T-12, T-14, T-21, T-33, T-35, T-36, T-39, T-40, T-44, T-47, T-67; [backend-v1.11.md](../iterations/backend-v1.11.md)). The rules are in [Tickets](../database/database-design.md#tickets) and the ticket rows of [Concurrency by Module](../database/database-design.md#concurrency-by-module), and the endpoints in [Tickets](../api/api-design.md#tickets).
+
+| Class | Purpose |
+| --- | --- |
+| `TicketController` | `GET /tickets` and `GET /tickets/{id}` (`TICKET_VIEW`), `POST /tickets` (`TICKET_CREATE`), and the changes: `take` (`TICKET_TAKE`), `assign` and `reassign` (`TICKET_ASSIGN`), `release` (`TICKET_RELEASE`), `resolve` (`TICKET_RESOLVE`), `cancel` (`TICKET_CANCEL`), and the single and batch `archive` (`TICKET_ARCHIVE`). Every change answers with the ticket as it is after it |
+| `TicketService` | No transaction. Checks the shape of a request (the type, the texts and their limits, 0 to 20 items each once, the order number written as the numbers are made, the follow-up number in upper case), makes the ticket number and makes another on a clash, runs each change through `TransactionRetry`, archives a batch one ticket at a time, and reads the lists and the detail with what the caller may see |
+| `TicketWriter` | The transactions: opening a ticket and the eight changes, each through the status gate, with the history row and the log row of Ticket logs |
+| `TicketAccess` | Who sees which ticket, asked by the list, the detail, and every change, and whether a set of roles grants a permission |
+| `TicketStatus` | The five statuses and the one table of the allowed transitions |
+| `TicketCascades` | The steps that a change of another module starts in its own transaction (`MANDATORY`): `returnToPool` from `UserChangeWriter.disable` and `softDelete`, and `cancelLinkedTo` from `ItemWriter.delete` and `ProductWriter.delist`. The SYSTEM identity acts, and the log rows have no operator |
+| `TicketArchiveJob` | The archive job (see Scheduled Jobs) |
+| `TicketNumbers` | 8 characters from `A-Z` and `0-9` from `SecureRandom`; a typed number in upper case |
+| `TicketRepository` | The SQL of the module. The lists are read by key on the source (downward, so `SYSTEM` comes first in either direction), the time of the screen, and the id; the cursor key is the source, a bar, and the UTC wall time |
+| `UserOptionController`, `UserService.options` (in `user`) | `GET /user-options`, the user picker. The two uses need different permissions, so the endpoint is `@AnyAccount` and the service checks the permission of the use |
+
+**The write paths.** Each runs in one transaction under the deadlock and lock-wait retry. Lock order: `users` (ascending id), then `tickets`, then `inventory`.
+
+| Path | Reads and locks | What stops a concurrent request | Writes |
+| --- | --- | --- | --- |
+| Open a ticket | The creator's user row `FOR UPDATE` and the count of their `OPEN` tickets; the followed ticket and the order attempt with plain reads; the new ticket row; each chosen item `FOR SHARE`, in ascending id, all locked before any is judged | Two tickets of one creator wait at the user row, so the limit holds. A deletion of an item needs it exclusively, so it waits for the ticket and cancels it, or the ticket waits and sees the item deleted (`ITEM_CHANGED`). `uk_tickets_ticket_no` refuses a number used before | The ticket, its links, and `TICKET_CREATED` |
+| Take | The taker's user row `FOR UPDATE`, their roles, and the count of their tickets in progress; the ticket row `FOR UPDATE` | A disabling or a change of roles waits for the user row, or the take sees it. Two takes of one ticket: the second waits for the ticket row and finds it no longer `OPEN` (`TICKET_CHANGED`). Two takes by one person at 98 wait at the user row | `IN_PROGRESS` and the assignee, a history row, and `TICKET_ASSIGNED` (`taken`) |
+| Assign, reassign | The rows of the actor and the new assignee `FOR UPDATE`, in ascending id, and the roles of both; the count of the assignee; the ticket row `FOR UPDATE`, and for a reassignment the assignee compared with the one the actor saw | As for a take, for both people; a reassignment that meets a release, a resolve, or another reassignment finds another status or assignee under the ticket lock (`TICKET_CHANGED`) | The assignee (and `IN_PROGRESS` for an assignment), a history row, and `TICKET_ASSIGNED` (`assigned`) or `TICKET_REASSIGNED` |
+| Release, resolve, cancel | The ticket row `FOR UPDATE`; whether the caller may see it, and whether it is theirs | The status gate and the compared assignee: the second of two changes finds another status (`TICKET_CHANGED`) | The status and its fields, a history row for a release, and the log row |
+| Archive | The ticket row `FOR UPDATE` | The status gate, one ticket per transaction, so a batch, the job, and a person never archive a ticket twice | `CLOSED`, `closed_by`, `closed_at`, and `TICKET_CLOSED`, with `batchId` in a batch or a run of the job |
+| Return to the pool (a user disabled or deleted) | After the user row of `UserChangeWriter`: every `IN_PROGRESS` ticket of the user `FOR UPDATE`, in ascending id | A take or an assignment for the user waits for the user row and then fails the check. A release or a resolve by the user at the same moment: one of the two finds the ticket changed | Each ticket `OPEN` with no assignee, a history row by the SYSTEM identity, and `TICKET_RELEASED` with no operator |
+| Cancel the tickets of an item (deleted) or a product (delisted) | After the product and item rows of the warehouse change: every `OPEN` or `IN_PROGRESS` ticket linked to the item, `FOR UPDATE OF` the tickets and `FOR SHARE OF` the links, in ascending id | A ticket opened on the item waits for the item, as above. A ticket resolved or cancelled a moment earlier is not read | Each ticket `CANCELLED` by the SYSTEM identity with `ITEM_DELETED:` or `PRODUCT_DELISTED:` and the id, `TICKET_CANCELLED`, and the ids in `cancelledTicketIds` of the item or product row |
+
+**How a refusal is chosen.** A ticket the caller may not see is `NOT_FOUND` before anything else, the same as a ticket that does not exist. A take is the exception: the pool is open to everyone, so a ticket that just left it is `TICKET_CHANGED`, with `ticketStatus` only for a caller who may see it now. A rule of the ticket that the caller's permission does not cover is `NOT_ALLOWED`: an operator, who lacks `TICKET_HANDLE_ANY`, releasing, resolving, or cancelling a ticket that is not theirs. The roles of the actor that decide an assignment are read again under the lock of the actor's user row.
+
+**Tests.** In `backend/src/test/java/com/opsflow/ticket`:
+
+| Class | Purpose |
+| --- | --- |
+| `TicketStatusTest` (2, unit) | Every pair of the five statuses against the table of Status transitions; only `CLOSED` and `CANCELLED` are final |
+| `TicketIntegrationSupport` | The base of the integration classes: accounts with roles and their tokens, the HTTP calls, tickets opened through the service, items and tickets in any status made directly, and reads of the rows, the history, and the log rows |
+| `TicketTest` (23) | Opening a ticket with its number, links, and log; each check of the fields; an order number of a refused attempt, typed in another case; a follow-up of each status, and a link the caller cannot see; a deleted item that refuses the whole ticket; the limit of 99 open; a take and a lost take; the limit of 99 in progress for a take, an assignment, and a reassignment; each kind of assignee that is not eligible, a manager who cannot give a ticket to an administrator, and the reason; a reassignment from a stale screen, to the same person, and what the previous assignee loses; a release; a resolve by the assignee and by a manager; a cancel of one's own and of another's, and a final ticket that never moves; the single and the batch archive with one `batchId`; the job after 7 days and at 99; what an operator sees on each screen and in the detail; `SYSTEM` first in both directions with the paging; the search and a number used alone; a disabled and a deleted user; a deleted item and a delisted product, with the cause on the page; the user picker; and the times taken from the clock of the application |
+| `TicketRaceTest` (7) | Two people take one ticket; a person at 98 takes two; a person at 98 opens two; a reassignment against a release; a user disabled while taking a ticket; a ticket opened on an item as it is deleted; two batch archives of the same tickets |
+
 ## Logs
 
 Built on 2026-11-16 for Phase 5 (T-46; [backend-v1.10.md](../iterations/backend-v1.10.md)). The rules are in [Logs](../database/database-design.md#logs), and the endpoints in [Logs](../api/api-design.md#logs).
@@ -523,6 +566,15 @@ The operating parameters are under `opsflow.*` in `application.yml` and are boun
 | `opsflow.order.max-lines` | 20 | The most product lines of one order |
 | `opsflow.order.number-attempts` | 5 | The generated order numbers tried before an order fails on a clash |
 | `opsflow.time-filter.zone` | `Australia/Sydney` | The zone of the days a person picks in a time filter |
+| `opsflow.ticket.number-attempts` | 5 | The generated ticket numbers tried before opening a ticket fails on a clash |
+| `opsflow.ticket.max-open-created` | 99 | The most `OPEN` tickets one person may have created |
+| `opsflow.ticket.max-in-progress` | 99 | The most `IN_PROGRESS` tickets one person may hold |
+| `opsflow.ticket.max-items` | 20 | The most items one ticket may link |
+| `opsflow.ticket.max-archive-batch` | 100 | The most tickets one batch archive may name |
+| `opsflow.ticket.auto-archive-after` | 7d | How long after `resolved_at` the job archives a resolved ticket |
+| `opsflow.ticket.auto-archive-at-resolved` | 99 | The number of `RESOLVED` tickets at which the job archives all of them |
+| `opsflow.ticket.archive-interval` | 1m | How often the archive job runs |
+| `opsflow.ticket.archive-job-batch` | 500 | The most tickets one run of the job archives |
 | `spring.servlet.multipart.max-file-size`, `max-request-size` | 3MB | A little above the image limit, so a larger upload is refused before it is read; that refusal is answered `IMAGE_TOO_LARGE` |
 
 A module adds its own parameters to this table and to `OpsflowProperties` when it is built.
