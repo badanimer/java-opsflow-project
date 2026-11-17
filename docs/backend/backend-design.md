@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-18 | 1.13 | The local deployment (Q-32): Docker Compose with MySQL, the migrations, the rights of the application account, Redis, RabbitMQ, the backend, and nginx, with secrets made at random; the image of the backend; the client address from nginx only; Actuator on a management port of its own with the counters of retries and `BUSY` answers; and 4 tests | [backend-v1.13.md](../iterations/backend-v1.13.md) |
 | 2026-11-18 | 1.12 | Redis and RabbitMQ are brought in (Q-07). `LoginLimits` keeps the login counts of each client address in Redis, so the steps of the lockout lock one address out of one account, and an address is refused after 50 failures in 15 minutes; the user row keeps the ceiling of 100 failures a day. `Mailer` puts each mail in a durable RabbitMQ queue, a listener sends it with three tries and keeps a refused mail as a dead letter, and without the broker the mail is sent at once. The variables `OPSFLOW_REDIS_*` and `OPSFLOW_RABBITMQ_*`, the parameters of the new counts and of the queue, Redis and RabbitMQ containers in the tests, and 11 tests | [backend-v1.12.md](../iterations/backend-v1.12.md) |
 | 2026-11-16 | 1.11 | Phase 6 in the backend: the `ticket` module, which opens a ticket and makes its eight changes through the status gate with their locks, the limits of 99, the history, and the log rows; who sees which ticket, in one place; the list of the five screens with the search; the archive job; the cascades that return the tickets of a disabled or deleted user to the pool and cancel the tickets of a deleted item or a delisted product; the user picker in `user`; the permissions `TICKET_ASSIGN_PROTECTED` and `TICKET_HANDLE_ANY`; the parameters `opsflow.ticket.*`; the return of the tickets of a user who loses every role that may take tickets, and its warning `GET /users/{id}/role-change`; the two endpoints of the audit log page in `log`; the times of the audit rows and the stock movements from the clock of the application; the requests of the click-through of 2026-11-17 (the tickets of one item, a fixed remark for every action, the status buttons and the deleted users, the rows about one user); and 42 tests | [backend-v1.11.md](../iterations/backend-v1.11.md) |
 | 2026-11-16 | 1.10 | Phase 5 in the backend: the `order` module, which places an order in one transaction with its idempotency key, its number, and the record of every attempt, a refused one included; and the three manual stock changes in `warehouse`. The `log` module: the two logs, the Deleted items module, and the product picker, with the shared time filter `DayRanges`. The ranges of a stock change and an order line in `Quantities`, the parameters `opsflow.order.*` and `opsflow.time-filter.zone`, and 48 tests | [backend-v1.10.md](../iterations/backend-v1.10.md) |
@@ -41,6 +42,7 @@ This document always describes the current backend. Each iteration has a summary
 | Driver | `mysql-connector-j` |
 | Redis | `spring-boot-starter-data-redis` (Lettuce): the login counts of each client address. See Authentication. Added on 2026-11-18 (Q-07) |
 | RabbitMQ | `spring-boot-starter-amqp`: the mail queue. See Mail. Added on 2026-11-18 (Q-07) |
+| Health and counters | `spring-boot-starter-actuator` on a management port of its own: the health check and two counters of the retry. See Deployment. Added on 2026-11-18 (Q-32) |
 
 Neither Redis nor RabbitMQ holds anything that cannot be lost: when one cannot be reached, the login goes on with the ceiling in the user row only, and a mail is sent at once without the queue.
 
@@ -53,6 +55,7 @@ Neither Redis nor RabbitMQ holds anything that cannot be lost: when one cannot b
 | `backend/src/main/resources/application.yml` | The configuration, with no secrets |
 | `backend/src/main/resources/db/migration` | The Flyway migrations, applied in version order. Never edit one that has been applied: add a new one |
 | `.github/workflows/backend-tests.yml` | The continuous integration job. See Continuous integration |
+| `backend/Dockerfile`, `deploy/` | The image of the backend and the local deployment with Docker Compose. See Deployment |
 
 The code is organized by feature, not by layer. Inside a module the classes keep their layer in the name (`OrderController`, `OrderService`, `OrderRepository`). A module does not call the repository of another module: it calls the service. `PackageDependencyRulesTest` checks this, and that a controller does not read the database itself and that `common` depends on no module. The second module is `user` (the changes one user makes to another; see Users). The modules so far: `warehouse` (items, products, and the manual stock changes), `order` (placing an order), `log` (the two logs, which only read), `auth` (login, the token, the security rules, the email codes, sign-up, the password reset, and the console command that creates an administrator). The write path of an order touches the stock and the product tables, and all of its SQL stays in the order module, so that the lock order of [Concurrency by Module](../database/database-design.md#concurrency-by-module) can be read in one place.
 
@@ -184,7 +187,8 @@ The tests of the shared code are in `backend/src/test/java/com/opsflow/common`, 
 | `CursorCodecTest` | Unit | The cursor survives the round trip with any key, and a string that is not a cursor is refused |
 | `PageQueryFactoryTest` | Unit | The defaults, the limit of the page size, the refusal of a bad `limit`, `direction`, `order`, or `cursor`, and a list whose fixed order is ascending |
 | `PagingWalkTest` | Unit | Walks a list forward and back with the query a repository would run: every row once, no cursor at the two ends, and rows inserted or deleted between two reads neither repeat nor skip a row |
-| `TransactionRetryTest` | Unit | The retry rules with a fake pause: the configured attempts, `BUSY` at the end, no retry of any other failure or of a refusal of the API, the waits, and the refusal to run inside a transaction |
+| `TransactionRetryTest` | Unit | The retry rules with a fake pause: the configured attempts, `BUSY` at the end, no retry of any other failure or of a refusal of the API, the waits, the refusal to run inside a transaction, and the two counters |
+| `ActuatorTest` | Integration | In a real server with two ports: the health check sees the database, Redis, and RabbitMQ and the two counters answer on the management port without a login, and the port of the API refuses both |
 | `TransactionRetryMySqlTest` | Integration | The retry against a real deadlock between two transactions and a real lock wait timeout |
 | `UtcTimeTest` | Unit | The conversions between `DATETIME` values and instants, whatever the time zone of the machine |
 | `UtcSourceRuleTest` | Unit | No code in `src/main/java` calls a method that reads the default time zone |
@@ -556,6 +560,8 @@ The Redis and RabbitMQ variables are optional too. Without them the application 
 | `OPSFLOW_REDIS_HOST`, `OPSFLOW_REDIS_PORT` | The Redis server. The defaults are `127.0.0.1` and 6379 |
 | `OPSFLOW_REDIS_PASSWORD` | The password of Redis, when it has one. A secret. Empty by default, as the local service has none |
 | `OPSFLOW_RABBITMQ_HOST`, `OPSFLOW_RABBITMQ_PORT` | The RabbitMQ broker. The defaults are `127.0.0.1` and 5672 |
+| `OPSFLOW_MANAGEMENT_PORT` | The port of Actuator, 8081 by default. Not the port of the API, which a reverse proxy passes on |
+| `SERVER_FORWARD_HEADERS_STRATEGY` | Set to `native` only behind nginx, in the deployment, so the client address comes from `X-Forwarded-For`. Not set on the development machine |
 | `OPSFLOW_RABBITMQ_USERNAME`, `OPSFLOW_RABBITMQ_PASSWORD` | The account of the broker. Without them the default local account of RabbitMQ is used, which RabbitMQ lets in from the same machine only. On another machine set both; the password is a secret |
 
 The operating parameters are under `opsflow.*` in `application.yml` and are bound and checked at startup by `OpsflowProperties` (T-11). They hold no secret. The reasons for the values are in Operating Parameters in the database design.
@@ -618,3 +624,31 @@ mvn spring-boot:run
 ```
 
 The first start makes Flyway apply `V1__initial_schema.sql` to `opsflow`. After it, run [`db/admin/restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql) once as `root` (T-02). The next start after a new migration applies it: `V2__seed_roles_and_system_identity.sql` adds the four roles and the SYSTEM identity, and needs no new grant because it adds no table. `V3__email_code_request_counts.sql` adds a table, so after it the grant for `email_code_request_counts` in the privilege script is run once as `root`. Until then a request for an email code fails with a permission error, which is the safe way to fail. On the local machine all three migrations are applied and the grant is run (2026-11-13).
+
+The health check and the counters answer on the management port, 8081 by default: `http://localhost:8081/actuator/health` and `http://localhost:8081/actuator/metrics/opsflow.retry.busy`.
+
+## Deployment
+
+Decided on 2026-11-18 (Q-32): the whole system runs on one machine with Docker Compose, from [`deploy/compose.yaml`](../../deploy/compose.yaml), as one instance. It is the way to show OpsFlow working end to end without the services of the development machine; a server on the internet would run the same file with a domain and HTTPS in front.
+
+```
+cd deploy
+.\new-env.ps1                    # once: makes .env with random secrets, shows none of them
+docker compose up -d --build     # then open http://localhost:8000
+docker compose run --rm backend create-admin    # once: the first administrator, at a hidden prompt
+```
+
+| Service | Image | What it does |
+| --- | --- | --- |
+| `mysql` | `mysql:8.4` | The database, in the volume `mysql-data`. When the volume is new, `deploy/mysql/01-accounts.sh` makes the migration account and the application account with the passwords of `.env` |
+| `migrate` | `flyway/flyway:11.14.1`, the version of the backend | Applies the migrations of `backend/src/main/resources/db/migration` as the migration account, and ends. Its MariaDB driver asks the server for its public key to send the password, which is safe on the private network of the containers |
+| `privileges` | `mysql:8.4` | Runs [`restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql) for the application account after every migration, and ends. It gives the database-wide rights again first, because the script starts by revoking them, so it runs on every start and a new table gets its grant |
+| `redis`, `rabbitmq` | `redis:8.0`, `rabbitmq:4.1` | The login counts and the mail queue. RabbitMQ has its own account with the password of `.env`, and keeps its queues in the volume `rabbitmq-data` |
+| `backend` | built from [`backend/Dockerfile`](../../backend/Dockerfile) | The application, as a user that is not root, with Flyway off and no migration password. It starts after the rights are set and Redis and RabbitMQ are healthy, and is healthy when `/actuator/health/readiness` answers. The item images are in the volume `images` |
+| `web` | built from [`frontend/Dockerfile`](../../frontend/Dockerfile) | nginx with the built pages and [`nginx.conf`](../../frontend/nginx.conf), which passes `/api` to the backend and does not buffer the event stream. The only port on the machine: `127.0.0.1:8000` |
+
+- **Secrets.** `.env` holds the root password of MySQL, the two account passwords, the RabbitMQ password, and the token signing key, all made at random by `new-env.ps1`, which prints none of them; git ignores `.env`. [`.env.example`](../../deploy/.env.example) shows the names. The mail variables are taken from the shell when they are set there. The deployment has its own secrets, so a token of the development backend does not open it.
+- **The client address.** nginx sets `X-Forwarded-For` to the address of the connection and never passes on one the client sent. The backend runs with `SERVER_FORWARD_HEADERS_STRATEGY=native`, so Tomcat takes the address from that header, and only when the request comes from a private address, such as the nginx container. On 2026-11-18 a login sent through nginx with a forged `X-Forwarded-For: 1.2.3.4` was counted for `172.18.0.1`, the address of the machine, and not for the forged one or for nginx. The development backend does not trust the header: nothing stands in front of it.
+- **Health and counters.** Actuator answers on the management port 8081, which is not published and which nginx does not reach: `docker compose exec backend curl -s localhost:8081/actuator/health`. The security rules let a request through without a token on that port only; on the port of the API the same paths are refused. `opsflow.retry.retries` counts the transactions tried again after a lock conflict, and `opsflow.retry.busy` the `BUSY` answers.
+- **One instance.** The scheduled jobs and the event streams of one signed-in device are kept by one instance. A second one needs a lock for the jobs and the logins sent between the instances through Redis; that waits until it is wanted.
+- **Starting over.** `docker compose down` stops the system and keeps the data; `docker compose down -v` deletes the volumes too, and then `.env` can be made again.

@@ -24,7 +24,7 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 5 | Done: orders, the three stock changes, the two logs with the time filter, the picker, and Deleted items, in the backend and the frontend, checked by the owner | |
 | 6 | Done: tickets, their screens and search, the cascades of the user and warehouse modules, and the audit log page, in the backend and the frontend, checked by the owner | |
 | 7 | Frontend. Started beside the backend, with the account pages; every page is built. Left: the one open detail of the page design | Q-34, T-27 |
-| 8 | Hardening and the rest. Started 2026-11-18: Redis and RabbitMQ are in (Q-07) | T-17, T-34, Q-32, Q-28 |
+| 8 | Hardening and the rest. Started 2026-11-18: Redis and RabbitMQ are in (Q-07), and the system runs from Docker Compose (Q-32) | T-17, T-34, Q-28 |
 
 ## Every Phase
 
@@ -166,7 +166,7 @@ It is built beside the backend and grows one module at a time as each backend pa
 | --- | --- |
 | T-17, T-34 | Repeat the concurrency checks for tickets, roles, and authentication against the real code, and check that the test log matches the code |
 | Q-07, T-08 | Done ([backend-v1.12.md](iterations/backend-v1.12.md)): Redis for the login counts of each client address, and RabbitMQ for the mail queue, with their variables. Idempotency stays in MySQL |
-| Q-32 | The deployment plan, with the counters, the health check, and the question of more than one instance. The tests already run in continuous integration |
+| Q-32 | Done for one machine ([backend-v1.13.md](iterations/backend-v1.13.md)): Docker Compose with nginx, the health check, and the counters. Left for when it is wanted: more than one instance, and a server on the internet |
 | Q-28 | How the creator and the assignee are told that a ticket was cancelled |
 | | The README and the documentation brought up to the finished system |
 

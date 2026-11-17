@@ -200,7 +200,7 @@ The backend uses RabbitMQ since 2026-11-18 for the mail queue `opsflow.mail` and
 - On 2026-11-04 the WSL default version was 2, a `docker-desktop` distribution existed, and after starting Docker Desktop, `docker run --rm hello-world` ran correctly (Docker engine 29.7.2).
 - Docker Desktop does not start with Windows. Start it before running the integration tests, which use Testcontainers to create a temporary MySQL 8.4 (see [OpsFlow Backend](docs/backend/backend-design.md#tests)).
 - The WSL2 virtual machine takes memory. To limit it, create `%UserProfile%\.wslconfig` with a `[wsl2]` section and a `memory=` line.
-- MySQL, Redis, and RabbitMQ stay as native Windows services for development (decided on 2026-11-04). Docker is used for the temporary MySQL, Redis, and RabbitMQ of the tests.
+- MySQL, Redis, and RabbitMQ stay as native Windows services for development (decided on 2026-11-04). Docker is used for the temporary MySQL, Redis, and RabbitMQ of the tests, and for the local deployment of the whole system in `deploy/` (since 2026-11-18, see [Deployment](docs/backend/backend-design.md#deployment)). The deployment has its own MySQL, Redis, and RabbitMQ in containers, with no port on the machine, so it does not touch the Windows services; only nginx listens, on `127.0.0.1:8000`. Its secrets are in `deploy/.env`, made by `deploy/new-env.ps1` and ignored by git, and are separate from the environment variables of section 3. It was made on this machine on 2026-11-18.
 
 ---
 

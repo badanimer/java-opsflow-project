@@ -17,6 +17,10 @@ import com.opsflow.common.config.OpsflowProperties;
 import com.opsflow.common.error.ApiException;
 import com.opsflow.common.error.ErrorCode;
 
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+
 /**
  * Calls a {@code @Transactional} service method and tries again when MySQL aborted the transaction on a
  * deadlock or a lock wait timeout. See Transactions in docs/backend/backend-design.md.
@@ -51,16 +55,36 @@ public class TransactionRetry {
 	private final int attempts;
 	private final List<Duration> delays;
 	private final Sleeper sleeper;
+	/** Each retry after a lock conflict, read at {@code /actuator/metrics/opsflow.retry.retries}. */
+	private final Counter retries;
+	/** Each {@code BUSY} answer, when the retries were used up, read at {@code /actuator/metrics/opsflow.retry.busy}. */
+	private final Counter busy;
 
 	@Autowired
-	public TransactionRetry(OpsflowProperties properties) {
-		this(properties.retry(), Thread::sleep);
+	public TransactionRetry(OpsflowProperties properties, MeterRegistry meters) {
+		this(properties.retry(), Thread::sleep, meters);
 	}
 
 	TransactionRetry(OpsflowProperties.Retry retry, Sleeper sleeper) {
+		this(retry, sleeper, new SimpleMeterRegistry());
+	}
+
+	TransactionRetry(OpsflowProperties.Retry retry, Sleeper sleeper, MeterRegistry meters) {
 		this.attempts = retry.attempts();
 		this.delays = List.copyOf(retry.delays());
 		this.sleeper = sleeper;
+		this.retries = Counter.builder("opsflow.retry.retries").description("Transactions tried again after a deadlock or a lock wait timeout")
+				.register(meters);
+		this.busy = Counter.builder("opsflow.retry.busy").description("Requests answered BUSY after the retries were used up")
+				.register(meters);
+	}
+
+	double retriesCounted() {
+		return retries.count();
+	}
+
+	double busyCounted() {
+		return busy.count();
 	}
 
 	public <T> T run(Supplier<T> action) {
@@ -77,9 +101,11 @@ public class TransactionRetry {
 				}
 				if (attempt >= attempts) {
 					log.warn("Giving up after {} attempts: {}", attempt, e.toString());
+					busy.increment();
 					throw new ApiException(ErrorCode.BUSY, "The system is busy, please try again", e);
 				}
 				log.info("Attempt {} lost a lock conflict, retrying: {}", attempt, e.toString());
+				retries.increment();
 				pause(attempt, e);
 			}
 		}

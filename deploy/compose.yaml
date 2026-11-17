@@ -1,0 +1,134 @@
+# The local deployment of OpsFlow: one command starts the whole system (Q-32, decided 2026-11-18).
+# See Deployment in docs/backend/backend-design.md. From this folder:
+#
+#   .\new-env.ps1          once: makes .env with random passwords and a signing key, and shows none of them
+#   docker compose up -d --build
+#
+# Then open http://localhost:8000. The secrets come from .env, which git ignores; the mail variables, when they
+# are set in the shell, are passed on, and without them no mail is sent.
+#
+# Order: MySQL, then the migrations, then the privileges of the application account, then the backend, then nginx.
+# Only nginx has a port on the machine, and only on 127.0.0.1.
+
+name: opsflow
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run new-env.ps1 first}
+      MYSQL_DATABASE: opsflow
+      OPSFLOW_DB_PASSWORD: ${OPSFLOW_DB_PASSWORD:?run new-env.ps1 first}
+      OPSFLOW_MIGRATION_PASSWORD: ${OPSFLOW_MIGRATION_PASSWORD:?run new-env.ps1 first}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # Runs once, when the volume is new: the two accounts of ENVIRONMENT_SETUP.md.
+      - ./mysql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # The migrations, as the migration account, with the Flyway of the backend's version.
+  migrate:
+    image: flyway/flyway:11.14.1
+    command: migrate
+    environment:
+      # The Flyway image connects with the MariaDB driver, which needs the public key of MySQL 8.4 to send the
+      # password encrypted, and is allowed to ask the server for it. The connection stays on the private network
+      # of the containers, where nobody can stand between the two.
+      FLYWAY_URL: jdbc:mysql://mysql:3306/opsflow?allowPublicKeyRetrieval=true
+      FLYWAY_USER: opsflow_migrator
+      FLYWAY_PASSWORD: ${OPSFLOW_MIGRATION_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+    volumes:
+      - ../backend/src/main/resources/db/migration:/flyway/sql:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  # The per-table rights of the application account, from db/admin/restrict-app-privileges.sql, on every start.
+  privileges:
+    image: mysql:8.4
+    entrypoint: ["sh", "/deploy/privileges.sh"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./privileges.sh:/deploy/privileges.sh:ro
+      - ../db/admin/restrict-app-privileges.sql:/deploy/restrict-app-privileges.sql:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  redis:
+    image: redis:8.0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.1
+    environment:
+      RABBITMQ_DEFAULT_USER: opsflow
+      RABBITMQ_DEFAULT_PASS: ${OPSFLOW_RABBITMQ_PASSWORD:?run new-env.ps1 first}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  backend:
+    build: ../backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/opsflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
+      OPSFLOW_DB_USERNAME: opsflow_app
+      OPSFLOW_DB_PASSWORD: ${OPSFLOW_DB_PASSWORD}
+      # The migrations ran in their own container; the backend never holds the migration password.
+      SPRING_FLYWAY_ENABLED: "false"
+      OPSFLOW_TOKEN_SIGNING_KEY: ${OPSFLOW_TOKEN_SIGNING_KEY:?run new-env.ps1 first}
+      OPSFLOW_REDIS_HOST: redis
+      OPSFLOW_RABBITMQ_HOST: rabbitmq
+      OPSFLOW_RABBITMQ_USERNAME: opsflow
+      OPSFLOW_RABBITMQ_PASSWORD: ${OPSFLOW_RABBITMQ_PASSWORD}
+      OPSFLOW_IMAGE_DIR: /data/images
+      # The client address is the one nginx reports in X-Forwarded-For, trusted from a private address only.
+      SERVER_FORWARD_HEADERS_STRATEGY: native
+      # Optional: taken from the shell when set there, as on the development machine.
+      OPSFLOW_MAIL_HOST: ${OPSFLOW_MAIL_HOST:-}
+      OPSFLOW_MAIL_PORT: ${OPSFLOW_MAIL_PORT:-587}
+      OPSFLOW_MAIL_USERNAME: ${OPSFLOW_MAIL_USERNAME:-}
+      OPSFLOW_MAIL_PASSWORD: ${OPSFLOW_MAIL_PASSWORD:-}
+      OPSFLOW_MAIL_FROM: ${OPSFLOW_MAIL_FROM:-}
+    volumes:
+      - images:/data/images
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8081/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 12
+    depends_on:
+      privileges:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  web:
+    build: ../frontend
+    ports:
+      - "127.0.0.1:${OPSFLOW_WEB_PORT:-8000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
+  rabbitmq-data:
+  images:

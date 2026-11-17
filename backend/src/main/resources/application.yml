@@ -34,6 +34,20 @@ spring:
     publisher-confirm-type: simple
     connection-timeout: 2s
 
+# Actuator answers on a port of its own, which the reverse proxy does not pass on, so the health check and the
+# counters are reachable only from the machine or the containers beside it (see Deployment in the backend design).
+management:
+  server:
+    port: ${OPSFLOW_MANAGEMENT_PORT:8081}
+  endpoints:
+    web:
+      exposure:
+        include: health, metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
 # Every log line of a request carries the id of the request, set by RequestIdFilter.
 logging:
   pattern:

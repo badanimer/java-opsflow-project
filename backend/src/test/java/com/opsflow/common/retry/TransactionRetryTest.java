@@ -30,6 +30,27 @@ class TransactionRetryTest {
 		return new CannotAcquireLockException("deadlock", new SQLException("Deadlock found", "40001", 1213));
 	}
 
+	/** The two counters of the health of the system: one for each retry, one for each BUSY answer. */
+	@Test
+	void eachRetryAndEachBusyAnswerIsCounted() {
+		TransactionRetry counted = retry(3, Duration.ofMillis(50));
+		AtomicInteger calls = new AtomicInteger();
+
+		counted.run(() -> {
+			if (calls.incrementAndGet() < 2) {
+				throw deadlock();
+			}
+			return "done";
+		});
+		assertThatThrownBy(() -> counted.run(() -> {
+			throw deadlock();
+		})).isInstanceOf(ApiException.class);
+
+		// One retry in the first call, two in the second, which then answers BUSY.
+		assertThat(counted.retriesCounted()).isEqualTo(3);
+		assertThat(counted.busyCounted()).isEqualTo(1);
+	}
+
 	@Test
 	void aCallThatSucceedsIsNotRetried() {
 		AtomicInteger calls = new AtomicInteger();

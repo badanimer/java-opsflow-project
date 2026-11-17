@@ -3,6 +3,7 @@ package com.opsflow.auth;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -35,7 +36,7 @@ public class SecurityConfig {
 
 	@Bean
 	SecurityFilterChain securityFilterChain(HttpSecurity http, TokenService tokens, TokenAuthenticator authenticator,
-			SecurityErrorHandler errors, EndpointPermissions permissions) throws Exception {
+			SecurityErrorHandler errors, EndpointPermissions permissions, Environment environment) throws Exception {
 		http
 			.csrf(AbstractHttpConfigurer::disable)
 			.formLogin(AbstractHttpConfigurer::disable)
@@ -48,6 +49,9 @@ public class SecurityConfig {
 				.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
 				// The second dispatch of an event stream that was already allowed, when the stream ends.
 				.dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
+				// Actuator, on the management port only: the health check and the counters. The reverse proxy
+				// passes nothing to that port, so it is reachable from the machine and its containers only.
+				.requestMatchers(request -> onManagementPort(request.getLocalPort(), environment)).permitAll()
 				// Every other request is decided by what its controller method declares.
 				.anyRequest().access(permissions))
 			.oauth2ResourceServer(server -> server
@@ -56,6 +60,17 @@ public class SecurityConfig {
 				.accessDeniedHandler(errors))
 			.exceptionHandling(handling -> handling.authenticationEntryPoint(errors).accessDeniedHandler(errors));
 		return http.build();
+	}
+
+	/**
+	 * Whether a request came in on the management port. The port is read when the request comes, because the
+	 * server publishes the port it really took ({@code local.management.port}) only after it started. With
+	 * no management port of its own, Actuator would answer on the port of the API, and nothing is opened.
+	 */
+	static boolean onManagementPort(int localPort, Environment environment) {
+		Integer management = environment.getProperty("local.management.port", Integer.class);
+		Integer server = environment.getProperty("local.server.port", Integer.class);
+		return management != null && management > 0 && !management.equals(server) && management == localPort;
 	}
 
 }

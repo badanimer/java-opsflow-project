@@ -1,8 +1,56 @@
 # OpsFlow
 
-OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a realistic back-office system with transactional consistency, role-based access control, exception handling, and auditability.
+OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a back-office system where several people change the same stock, orders, and tickets at the same moment, and it is built so that none of those changes can break another: every write path has a stated lock order, a race test, and an audit row.
 
-The repository contains the Spring Boot backend, the React frontend, the database migrations, and the project design documents.
+The repository contains the Spring Boot backend, the React frontend, the database migrations, the local deployment, and the design documents behind all of them.
+
+## What It Does
+
+| Area | What a person can do |
+| --- | --- |
+| Accounts | Sign up with an email code, log in, recover a password by email. One signed-in device per account: a newer login signs the older one out at once. Wrong passwords lock out the address they came from, not the owner |
+| Users and roles | Four fixed roles (administrator, manager, operator, viewer), combined per user. Administrators and managers change roles, disable, enable, and delete accounts, within their authority, always with a second confirmation |
+| Warehouse and products | Add warehouse items with a generated SKU and a picture, put them on sale with a price, delist them, and delete them. Stock in, write off, and correct a count, each with a reason |
+| Orders | Order from the product page. The stock is taken in one transaction, a repeated click places one order, and every attempt, a refused one included, gets an order number a person can put in a ticket |
+| Tickets | Open a ticket on an order or on warehouse items. Take it from the pool, assign, reassign, release, resolve, cancel, and archive it, with limits per person and a history of every hand-over. The system opens, cancels, returns, and archives tickets on its own when the data they depend on changes |
+| Logs and audit | A product log and a warehouse log for every role, with a time filter and a search by order number, and an audit log page for administrators and managers, in seven areas |
+
+What each role may do is the [Permission Matrix](docs/database/database-design.md#permission-matrix). The pages are drawn in [Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) and described in the [page design](docs/frontend/page-design.md).
+
+## Tech Stack
+
+| Part | Choice |
+| --- | --- |
+| Backend | Java 17, Spring Boot 4, Spring Security with BCrypt and a signed JWT, plain JDBC through `JdbcTemplate`, Flyway |
+| Database | MySQL 8.4, with per-table rights for the application account |
+| Redis | The login counts of each client address |
+| RabbitMQ | The mail queue, with retries and dead letters |
+| Frontend | React 18, TypeScript, Vite, Ant Design |
+| Tests | JUnit 5 and Testcontainers (MySQL, Redis, and RabbitMQ in containers), Vitest with Testing Library; both run in GitHub Actions on every push |
+| Deployment | Docker Compose with nginx in front, and Spring Boot Actuator for the health check and the counters |
+
+Some choices behind it, each explained in the design documents: pessimistic row locks in one fixed lock order, with a retry on a deadlock ([Concurrency by Module](docs/database/database-design.md#concurrency-by-module)); paging by key, never by offset; every time stored in UTC and shown in Sydney time; the permissions named in code and mapped to roles in one place; and no slow work, such as a password hash or a mail, inside a transaction.
+
+## Running It
+
+The whole system runs on one machine with Docker Compose. Docker Desktop must be running.
+
+```
+cd deploy
+.\new-env.ps1                                     # once: random passwords and a signing key in .env
+docker compose up -d --build                      # MySQL, migrations, Redis, RabbitMQ, backend, nginx
+docker compose run --rm backend create-admin      # once: the first administrator, at a hidden prompt
+```
+
+Then open `http://localhost:8000`, log in as that administrator, and give roles to the people who sign up. Mail is sent when the `OPSFLOW_MAIL_*` variables are set in the shell; without them, sign-up and password recovery cannot finish. The details are in [Deployment](docs/backend/backend-design.md#deployment).
+
+For development, the backend and the frontend run on their own against local services: see [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md), [Running](docs/backend/backend-design.md#running) for the backend, and [Running the Frontend Locally](docs/frontend/page-design.md#running-the-frontend-locally).
+
+## Tests
+
+- Backend: from `backend/`, `mvnw test`, with Docker running. About 450 tests, most of them against a real MySQL, among them race tests that release several threads at the same moment. Every test is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports.
+- Frontend: from `frontend/`, `npm test`, `npm run lint`, and `npm run build`. About 290 tests that drive whole pages against a fake server.
+- Database: [`db/verification/run-db-verification.ps1`](db/verification/run-db-verification.ps1) checks the schema, the rights, and the order and stock races in a temporary database, by hand.
 
 ## Design Documents
 
@@ -12,7 +60,7 @@ The current project design is documented here:
 - [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) - a concise overview for the README and project introduction.
 - [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) - table fields, keys, and implementation-oriented relationships.
 - [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) - the English order, inventory, audit, and exception-ticket flow.
-- [UI design in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) - the drawn pages. The account pages are a first draft. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files).
+- [UI design in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) - every page, drawn before it was built. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files).
 
 The simplified ERD is intended for quick communication. The physical ERD and database document are the references for implementation.
 
@@ -23,6 +71,7 @@ The simplified ERD is intended for quick communication. The physical ERD and dat
 - [`docs/api`](docs/api/) contains the conventions of the HTTP API: the paths, the data formats, the error response, the result codes, and the paging.
 - [`docs/frontend`](docs/frontend/) contains the page design and local frontend instructions. The code is in [`frontend`](frontend/).
 - [`backend/src/main/resources/db/migration`](backend/src/main/resources/db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
+- [`deploy`](deploy/) contains the local deployment with Docker Compose. See [Deployment](docs/backend/backend-design.md#deployment).
 - [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
 - [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification). The test log [`concurrency-tests.md`](db/verification/concurrency-tests.md) lists every test by block, with what it shows and what is not tested yet.
 - [`docs/iterations`](docs/iterations/) contains one summary file per design iteration, indexed in the Project Log below.
@@ -38,6 +87,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-18 | 1.13 | Backend | The local deployment with Docker Compose (Q-32): MySQL, the migrations, the rights of the application account, Redis, RabbitMQ, the backend, and nginx; the client address from nginx only; Actuator with the health check and the counters of retries and `BUSY` answers | [backend-v1.13.md](docs/iterations/backend-v1.13.md) |
+| 2026-11-18 | 1.11 | Frontend | The frontend image of the deployment: the pages served by nginx, which passes `/api` to the backend | [frontend-v1.11.md](docs/iterations/frontend-v1.11.md) |
 | 2026-11-18 | 1.12 | Backend | Redis and RabbitMQ brought in (Q-07): the login counts of each client address in Redis, and the mail through a durable RabbitMQ queue with three tries and dead letters; both optional at run time | [backend-v1.12.md](docs/iterations/backend-v1.12.md) |
 | 2026-11-18 | 1.18 | Database | The login lockout counts by client address: the steps lock one address out of one account, the account itself is locked at 100 failures a day, and one address is refused after 50 failures in 15 minutes | [database-v1.18.md](docs/iterations/database-v1.18.md) |
 | 2026-11-18 | 1.10 | API | `LOGIN_LOCKED` and `TOO_MANY_REQUESTS` cover the locks and the limit of a client address at login | [api-v1.10.md](docs/iterations/api-v1.10.md) |
@@ -92,20 +143,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 | 2026-10-14 | 1.2 | Database | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](docs/iterations/database-v1.2.md) |
 | 2026-10-14 | 1.1 | Database | Added stock reservation, redefined order statuses, and aligned the physical ERD with the design document | [database-v1.1.md](docs/iterations/database-v1.1.md) |
 
-## Current Scope
+## Status
 
-The initial system scope includes:
-
-- User authentication and role-based authorization
-- Product and inventory management
-- Transactional order creation with inventory deduction
-- Inventory transaction history
-- Exception-ticket assignment and reassignment history
-- Ticket resolution tracking
-- Auditable business operations
-
-## Implementation Direction
-
-The backend will be implemented with Spring Boot and MySQL. Database changes will be managed as versioned migrations alongside the application code. Redis and RabbitMQ are not used. Duplicate submissions, the limits on email codes, and the login lock are kept in MySQL, in the same transaction as the change they protect, so they cannot disagree with it. Redis becomes necessary when the backend runs on more than one server: the event of one signed-in device must then reach the pages connected to the other servers, through Redis publish and subscribe (see One signed-in device in the [database design](docs/database/database-design.md#login-security-and-account-recovery)).
+Phases 1 to 6 of the [implementation roadmap](docs/implementation-roadmap.md) are built and were clicked through by the owner against the running system. Phase 8 is under way: Redis, RabbitMQ, and the Docker Compose deployment are in. What is still open, such as how people are told that the system cancelled their ticket, is in [project-todo.md](docs/project-todo.md).
 
 `README.md` and `docs/` define the current project scope and implementation decisions.
