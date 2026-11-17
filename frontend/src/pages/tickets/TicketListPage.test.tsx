@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { FakeServer, me, openApp, problem, storeToken } from '../../test/server'
-import { MARY, SYSTEM, page, row } from './ticketFixtures'
+import { MARY, SYSTEM, page, row, ticket } from './ticketFixtures'
 
 /**
  * The ticket screens (Figma section A): the rows with the system tickets first, what each role is offered,
@@ -25,7 +25,7 @@ describe('a ticket screen', SLOW, () => {
   it('lists the rows with the system tickets first, marked, and opens a ticket from its row', async () => {
     const { user } = await openScreen('/tickets/pool', ['MANAGER'], {
       'GET /tickets?status=OPEN': page([row(1, 'R5F2C8LU', { source: 'SYSTEM', createdBy: SYSTEM }), row(2, 'K7Q2M9XA')]),
-      'GET /tickets/2': { status: 200, body: { id: 2 } },
+      'GET /tickets/2': { status: 200, body: ticket({ id: 2, ticketNo: 'K7Q2M9XA' }) },
     })
     const region = await list()
     await within(region).findByText('K7Q2M9XA')
@@ -36,6 +36,8 @@ describe('a ticket screen', SLOW, () => {
     expect(within(rows[1]).getByText('Waiting to be taken')).toBeInTheDocument()
     expect(within(region).getByRole('link', { name: 'K7Q2M9XA' })).toHaveAttribute('href', '/tickets/2')
     await user.click(within(rows[1]).getByText('Stock count does not match the record'))
+    // The detail must open before the test ends, or it would render after the test on a slow machine.
+    expect(await screen.findByRole('heading', { name: 'K7Q2M9XA' })).toBeInTheDocument()
   })
 
   it('offers an operator Create ticket and the direction, and no search', async () => {
