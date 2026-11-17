@@ -141,7 +141,7 @@ Tickets link to orders and to items, so they come after both.
 | T-50 | The ticket logs |
 | T-48 | The audit log page, now that every module writes its logs |
 
-**Built so far** (2026-11-16, on `phase-6-backend`): the backend of the whole phase, that is opening a ticket, the eight changes with their limits and races, the archive job, the cascades of the user and warehouse modules, the screens and the search with who sees what, the user picker, and the audit log page ([backend-v1.11.md](iterations/backend-v1.11.md), [api-v1.9.md](iterations/api-v1.9.md)). Still to do: the frontend (T-40, T-44, T-47, T-37, T-48), after the Figma drawing is reviewed.
+**Built so far** (2026-11-16, on `phase-6-backend`): the backend of the whole phase, that is opening a ticket, the eight changes with their limits and races, the archive job, the cascades of the user and warehouse modules, the screens and the search with who sees what, the user picker, and the audit log page ([backend-v1.11.md](iterations/backend-v1.11.md), [api-v1.9.md](iterations/api-v1.9.md)). The Figma design was reviewed and the frontend built on 2026-11-16, on `phase-6-frontend` ([frontend-v1.9.md](iterations/frontend-v1.9.md)): the five screens, the detail with its actions, Create ticket, and the audit log page. The owner clicked through the phase against the running backend on 2026-11-17, and the four changes it asked for were built the same day ([database-v1.17.md](iterations/database-v1.17.md)). Phase 6 is done.
 
 **Done when:** a ticket goes through every allowed status and refuses every other transition, two people cannot take the same ticket, an operator cannot read another person's ticket by its number, and deleting an item cancels its tickets as the SYSTEM identity.
 
@@ -151,10 +151,10 @@ It is built beside the backend and grows one module at a time as each backend pa
 
 | Task | What |
 | --- | --- |
-| Q-34 | The visual design and the open details of the [page design](frontend/page-design.md) |
+| Q-34 | The visual design: every page is drawn and built; one open detail is left in the [page design](frontend/page-design.md#open-details) |
 | T-27 | Hide the controls the user cannot use |
 | T-30 | The plus and minus for operators, and Save enabled only when the quantity and the reason are filled in |
-| T-37 | The ticket list order |
+| T-37 | Done ([frontend-v1.9.md](iterations/frontend-v1.9.md)): the ticket list order, system tickets first in either direction |
 
 **Decisions needed:** the review of each drawn page before it is built. The account pages are reviewed and built.
 

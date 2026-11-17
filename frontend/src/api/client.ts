@@ -51,8 +51,11 @@ export class ApiError extends Error {
   readonly errors: FieldError[]
   /** The number of a refused attempt to order, which the person may name in a ticket. */
   readonly orderNo?: string
+  /** The other fields of the error body that belong to the result, such as `items` of ITEM_CHANGED. */
+  readonly extras: Record<string, unknown>
 
-  constructor(status: number, code: ResultCode, detail?: string, requestId?: string, errors: FieldError[] = [], orderNo?: string) {
+  constructor(status: number, code: ResultCode, detail?: string, requestId?: string, errors: FieldError[] = [], orderNo?: string,
+    extras: Record<string, unknown> = {}) {
     super(detail ?? code)
     this.name = 'ApiError'
     this.status = status
@@ -60,6 +63,7 @@ export class ApiError extends Error {
     this.requestId = requestId
     this.errors = errors
     this.orderNo = orderNo
+    this.extras = extras
   }
 }
 
@@ -191,6 +195,7 @@ async function readError(response: Response): Promise<ApiError> {
       requestId?: string
       errors?: FieldError[]
       orderNo?: string
+      [extra: string]: unknown
     }
     if (typeof problem.code === 'string') {
       return new ApiError(
@@ -200,6 +205,7 @@ async function readError(response: Response): Promise<ApiError> {
         problem.requestId ?? requestId,
         Array.isArray(problem.errors) ? problem.errors : [],
         typeof problem.orderNo === 'string' ? problem.orderNo : undefined,
+        problem,
       )
     }
   } catch {

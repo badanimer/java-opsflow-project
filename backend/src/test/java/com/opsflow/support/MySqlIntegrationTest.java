@@ -11,6 +11,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.flywaydb.core.Flyway;
@@ -132,17 +133,50 @@ public abstract class MySqlIntegrationTest {
 		mailbox.clear();
 		emptyAllTables();
 		seed();
+		requireOnlyTheSeedRows();
 	}
 
+	/** The rows the seed migration puts back: the four roles and the SYSTEM identity. */
+	private static final Map<String, Integer> SEED_ROWS = Map.of("roles", 4, "users", 1);
+
+	/**
+	 * Every test starts with the seed rows and nothing else, in every table. A table the clean step missed
+	 * fails the next test here, whichever test left the rows, instead of changing what that test sees.
+	 */
+	private static void requireOnlyTheSeedRows() {
+		List<String> dirty = new java.util.ArrayList<>();
+		for (String table : tables) {
+			int rows = ROOT.queryForObject("SELECT COUNT(*) FROM `" + table + "`", Integer.class);
+			if (rows != SEED_ROWS.getOrDefault(table, 0)) {
+				dirty.add(table + " has " + rows + " rows");
+			}
+		}
+		if (!dirty.isEmpty()) {
+			throw new IllegalStateException("The test did not start clean: " + dirty);
+		}
+	}
+
+	/** The tables of the schema, read once: the migrations ran before the first test. */
+	private static List<String> tables;
+
+	/**
+	 * Empties every table with {@code DELETE}, and sets the next id of each back to 1, so that the seed rows
+	 * get the ids they have after the migration and every test starts from the same ids. A test writes a few
+	 * rows, and deleting them takes milliseconds, where {@code TRUNCATE} drops and rebuilds each of the 17
+	 * tables and took more than two seconds before every test.
+	 */
 	private static void emptyAllTables() {
-		List<String> tables = ROOT.queryForList(
-				"SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE' AND table_name <> 'flyway_schema_history'",
-				String.class, DATABASE);
+		if (tables == null) {
+			tables = ROOT.queryForList(
+					"SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE' AND table_name <> 'flyway_schema_history'",
+					String.class, DATABASE);
+		}
 		ROOT.execute((java.sql.Connection connection) -> {
 			try (Statement statement = connection.createStatement()) {
 				statement.execute("SET FOREIGN_KEY_CHECKS = 0");
 				for (String table : tables) {
-					statement.execute("TRUNCATE TABLE `" + table + "`");
+					statement.execute("DELETE FROM `" + table + "`");
+					statement.execute("ALTER TABLE `" + table + "` AUTO_INCREMENT = 1");
 				}
 				statement.execute("SET FOREIGN_KEY_CHECKS = 1");
 			}

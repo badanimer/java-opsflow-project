@@ -13,7 +13,12 @@ import { ChangeRolesDialog } from './ChangeRolesDialog'
 import { RoleTags, StatusTag, YouTag } from './UserTags'
 import { changeFailure, filterOptions, hasActionColumn, rowActions, type Outcome } from './userRules'
 
-const NO_FILTER: UserFilter = { search: '', roles: [] }
+const NO_FILTER: UserFilter = { search: '', roles: [], statuses: [] }
+const STATUS_BUTTONS = [
+  { value: 'ACTIVE', label: TEXT.users.active },
+  { value: 'DISABLED', label: TEXT.users.disabled },
+  { value: 'DELETED', label: TEXT.users.deleted },
+]
 const SEARCH_MAX = 64
 
 type Dialog =
@@ -89,6 +94,10 @@ export function UsersPage() {
     applyFilter({ ...filter, roles: checked ? [...filter.roles, code] : filter.roles.filter((role) => role !== code) })
   }
 
+  function toggleStatus(status: string, checked: boolean) {
+    applyFilter({ ...filter, statuses: checked ? [...filter.statuses, status] : filter.statuses.filter((other) => other !== status) })
+  }
+
   /** A refusal that closes the dialog: the page says why and shows the list as it is now. */
   function refusedOnPage(outcome: Outcome) {
     setDialog(null)
@@ -105,12 +114,12 @@ export function UsersPage() {
     reload()
   }
 
-  async function runConfirmed(action: () => Promise<unknown>, message: string) {
+  async function runConfirmed<T>(action: () => Promise<T>, message: string | ((result: T) => string)) {
     setRunning(true)
     setDialogNotice(null)
     try {
-      await action()
-      done(message)
+      const result = await action()
+      done(typeof message === 'string' ? message : message(result))
     } catch (error) {
       const outcome = changeFailure(error)
       if (outcome.where === 'page') refusedOnPage(outcome)
@@ -143,7 +152,7 @@ export function UsersPage() {
   }
 
   const showActions = hasActionColumn(account)
-  const filtered = filter.search.trim() !== '' || filter.roles.length > 0
+  const filtered = filter.search.trim() !== '' || filter.roles.length > 0 || filter.statuses.length > 0
 
   function actionsOf(user: ListedUser) {
     const allowed = rowActions(account, user)
@@ -225,6 +234,22 @@ export function UsersPage() {
             )
           })}
         </div>
+        <div className="filter-bar__toggles" role="group" aria-label={TEXT.users.statusFilter}>
+          {STATUS_BUTTONS.map((option) => {
+            const checked = filter.statuses.includes(option.value)
+            return (
+              <Button
+                key={option.value}
+                type={checked ? 'primary' : 'default'}
+                ghost={checked}
+                aria-pressed={checked}
+                onClick={() => toggleStatus(option.value, !checked)}
+              >
+                {option.label}
+              </Button>
+            )
+          })}
+        </div>
       </section>
 
       {notice && <Alert type={notice.type} showIcon message={notice.message} closable onClose={() => setNotice(null)} role="alert" className="page-notice" />}
@@ -284,7 +309,7 @@ export function UsersPage() {
       {dialog?.kind === 'roles' && (
         <ChangeRolesDialog
           user={dialog.user}
-          onSaved={() => done(TEXT.users.rolesUpdated)}
+          onSaved={(message) => done(message)}
           onRefused={refusedOnPage}
           onStale={reload}
           onClose={() => setDialog(null)}
@@ -299,10 +324,13 @@ export function UsersPage() {
         danger
         running={running}
         notice={dialogNotice}
-        onConfirm={() => dialog && void runConfirmed(() => disableUser(dialog.user.id), TEXT.users.userDisabled)}
+        onConfirm={() => dialog && void runConfirmed(() => disableUser(dialog.user.id), (result) => ((result.ticketsReturned ?? 0) > 0 ? TEXT.users.userDisabledReturned(result.ticketsReturned!) : TEXT.users.userDisabled))}
         onCancel={() => setDialog(null)}
       >
         <Typography.Paragraph className="dialog-text">{TEXT.users.disableDescription}</Typography.Paragraph>
+        {dialog && (dialog.user.ticketsInProgress ?? 0) > 0 && (
+          <Alert type="warning" showIcon message={TEXT.users.ticketsWillReturnOn(dialog.user.username, dialog.user.ticketsInProgress!)} />
+        )}
       </ConfirmDialog>
       <ConfirmDialog
         open={dialog?.kind === 'delete'}
@@ -317,6 +345,9 @@ export function UsersPage() {
         onCancel={() => setDialog(null)}
       >
         <Typography.Paragraph className="dialog-text">{TEXT.users.deleteDescription}</Typography.Paragraph>
+        {dialog && (dialog.user.ticketsInProgress ?? 0) > 0 && (
+          <Alert type="warning" showIcon message={TEXT.users.ticketsWillReturnOn(dialog.user.username, dialog.user.ticketsInProgress!)} />
+        )}
       </ConfirmDialog>
     </>
   )

@@ -53,6 +53,9 @@ public class TicketWriter {
 		}
 	}
 
+	/** The reason of the history row of a take, which asks the person for none (T-69). */
+	static final String TAKEN = "Taken from the pool";
+
 	private final TicketRepository repository;
 	private final AuditLogWriter audit;
 	private final Clock clock;
@@ -160,7 +163,7 @@ public class TicketWriter {
 					: new ApiException(ErrorCode.TICKET_CHANGED, "The ticket is no longer in the pool, please reload");
 		}
 		Instant now = now();
-		repository.insertHistory(ticketId, null, actor.id(), actor.id(), null, now);
+		repository.insertHistory(ticketId, null, actor.id(), actor.id(), TAKEN, now);
 		logAssigned(actor.id(), ticket, taker, "taken", ipAddress);
 	}
 

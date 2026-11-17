@@ -51,12 +51,20 @@ public class UserChangeWriter {
 	/** The role that must always have a usable holder (see Administrator protection). */
 	private static final Role GUARDED = Role.ADMIN;
 
-	/** The roles of a user after a change. */
-	public record UserRoles(long id, String username, List<String> roles) {
+	/**
+	 * The roles of a user after a change.
+	 *
+	 * @param ticketsReturned the tickets in progress that went back to the pool, because the user can no longer take tickets
+	 */
+	public record UserRoles(long id, String username, List<String> roles, int ticketsReturned) {
 	}
 
-	/** The status of a user after a change: {@code ACTIVE} or {@code DISABLED}. */
-	public record UserStatus(long id, String username, String status) {
+	/**
+	 * The status of a user after a change: {@code ACTIVE} or {@code DISABLED}.
+	 *
+	 * @param ticketsReturned the tickets in progress that a disabling sent back to the pool
+	 */
+	public record UserStatus(long id, String username, String status, int ticketsReturned) {
 	}
 
 	/** A locked user with the roles read under the lock. */
@@ -117,7 +125,7 @@ public class UserChangeWriter {
 			throw new ApiException(ErrorCode.USER_CHANGED, "The roles of this user were changed by someone else, please reload");
 		}
 		if (added.isEmpty() && removed.isEmpty()) {
-			return new UserRoles(targetId, target.user().username(), List.copyOf(current));
+			return new UserRoles(targetId, target.user().username(), List.copyOf(current), 0);
 		}
 		if (!added.isEmpty() && !target.user().active()) {
 			throw new ApiException(ErrorCode.USER_NOT_ACTIVE, "A disabled user cannot be given a role. Enable the user first");
@@ -137,6 +145,12 @@ public class UserChangeWriter {
 		for (String code : added) {
 			repository.grant(targetId, roleIds.get(code));
 		}
+		// A user who could take tickets and no longer can gives back the tickets in progress (step 6).
+		List<String> returnedNos = List.of();
+		if (takesTickets(current) && !takesTickets(wantedCodes)) {
+			returnedNos = tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_NO_TAKING_ROLE).ticketNos();
+		}
+		int returned = returnedNos.size();
 
 		// Step 7.
 		if (guarded) {
@@ -146,14 +160,21 @@ public class UserChangeWriter {
 		// Step 8.
 		String username = target.user().username();
 		for (String code : removed) {
+			// The tickets this replacement sent back to the pool are named on the rows of the roles it took away.
+			Map<String, Object> after = returnedNos.isEmpty() ? null : Map.of("returnedTicketNos", returnedNos, "username", username);
 			audit.write(AuditAction.ROLE_REVOKED, actorId, AuditLogWriter.TARGET_USER, targetId,
-					roleData(roleIds.get(code), code, username), null, ipAddress, REPLACE_ROLES);
+					roleData(roleIds.get(code), code, username), after, ipAddress, REPLACE_ROLES);
 		}
 		for (String code : added) {
 			audit.write(AuditAction.ROLE_GRANTED, actorId, AuditLogWriter.TARGET_USER, targetId, null,
 					roleData(roleIds.get(code), code, username), ipAddress, REPLACE_ROLES);
 		}
-		return new UserRoles(targetId, username, List.copyOf(wantedCodes));
+		return new UserRoles(targetId, username, List.copyOf(wantedCodes), returned);
+	}
+
+	/** Whether any of these roles may take a ticket, and so hold one in progress. */
+	static boolean takesTickets(Set<String> roleCodes) {
+		return roleCodes.stream().anyMatch(code -> Role.ofCode(code).filter(role -> role.grants(Permission.TICKET_TAKE)).isPresent());
 	}
 
 	/**
@@ -174,10 +195,12 @@ public class UserChangeWriter {
 		if (guarded) {
 			requireAnAdministrator();
 		}
-		tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DISABLED);
-		audit.write(AuditAction.USER_STATUS_CHANGED, actorId, AuditLogWriter.TARGET_USER, targetId, Map.of("status", ACTIVE),
-				statusData(DISABLED, target), ipAddress, null);
-		return new UserStatus(targetId, target.user().username(), DISABLED);
+		List<String> returnedNos = tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DISABLED).ticketNos();
+		Map<String, Object> after = statusData(DISABLED, target);
+		after.put("returnedTicketNos", returnedNos);
+		audit.write(AuditAction.USER_STATUS_CHANGED, actorId, AuditLogWriter.TARGET_USER, targetId, Map.of("status", ACTIVE), after,
+				ipAddress, "Disabled on the user page");
+		return new UserStatus(targetId, target.user().username(), DISABLED, returnedNos.size());
 	}
 
 	/** Enables a disabled account. The roles it still holds take effect again. */
@@ -189,8 +212,8 @@ public class UserChangeWriter {
 		}
 		repository.setStatus(targetId, ACTIVE);
 		audit.write(AuditAction.USER_STATUS_CHANGED, actorId, AuditLogWriter.TARGET_USER, targetId, Map.of("status", DISABLED),
-				statusData(ACTIVE, target), ipAddress, null);
-		return new UserStatus(targetId, target.user().username(), ACTIVE);
+				statusData(ACTIVE, target), ipAddress, "Enabled on the user page");
+		return new UserStatus(targetId, target.user().username(), ACTIVE, 0);
 	}
 
 	/**
@@ -206,12 +229,13 @@ public class UserChangeWriter {
 		if (guarded) {
 			requireAnAdministrator();
 		}
-		tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DELETED);
+		List<String> returnedNos = tickets.returnToPool(targetId, TicketCascades.ASSIGNEE_DELETED).ticketNos();
 		Map<String, Object> before = new LinkedHashMap<>();
 		before.put("status", target.user().active() ? ACTIVE : DISABLED);
 		before.put("deleted", false);
 		Map<String, Object> after = statusData(DISABLED, target);
 		after.put("deleted", true);
+		after.put("returnedTicketNos", returnedNos);
 		audit.write(AuditAction.USER_DELETED, actorId, AuditLogWriter.TARGET_USER, targetId, before, after, ipAddress, null);
 	}
 

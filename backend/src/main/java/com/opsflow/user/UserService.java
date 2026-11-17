@@ -40,6 +40,9 @@ public class UserService {
 	/** The value of the role filter that stands for the button No role: the users who hold no role. */
 	public static final String NO_ROLE = "NONE";
 
+	/** The values of the status buttons of the user page. A deleted user is listed only with {@code DELETED}. */
+	private static final Set<String> STATUSES = Set.of("ACTIVE", "DISABLED", "DELETED");
+
 	private final UserChangeWriter writer;
 	private final UserRepository repository;
 	private final TransactionRetry retry;
@@ -60,9 +63,11 @@ public class UserService {
 	 *
 	 * @param search a part of the username, or null or blank for any
 	 * @param roleCodes the role buttons: role codes, and {@link #NO_ROLE}; empty for no button
+	 * @param statusCodes the status buttons: {@code ACTIVE}, {@code DISABLED}, {@code DELETED}; empty for the users who are not deleted
 	 * @param page the paging, in the one order of this list, from A to Z
 	 */
-	public PageResponse<ListedUser> list(CurrentUser viewer, String search, List<String> roleCodes, PageQuery page) {
+	public PageResponse<ListedUser> list(CurrentUser viewer, String search, List<String> roleCodes, List<String> statusCodes,
+			PageQuery page) {
 		boolean seesProtected = viewer.can(Permission.USER_MANAGE_PROTECTED) || viewer.can(Permission.ROLE_ASSIGN_PROTECTED);
 		List<String> hiddenRoles = seesProtected ? List.of()
 				: Arrays.stream(Role.values()).filter(Role::isProtected).map(Role::code).toList();
@@ -85,7 +90,16 @@ public class UserService {
 			}
 		}
 
-		ListFilter where = new ListFilter(hiddenRoles, hiddenUserId, part, List.copyOf(filter), withoutRole);
+		Set<String> statuses = new TreeSet<>();
+		for (String value : statusCodes) {
+			String status = value.strip().toUpperCase(Locale.ROOT);
+			if (!STATUSES.contains(status)) {
+				throw ApiException.invalid("status", "must hold ACTIVE, DISABLED, or DELETED");
+			}
+			statuses.add(status);
+		}
+
+		ListFilter where = new ListFilter(hiddenRoles, hiddenUserId, part, List.copyOf(filter), withoutRole, List.copyOf(statuses));
 		return PageResponse.of(repository.list(where, page), page, user -> new Cursor(user.username(), user.id()));
 	}
 
@@ -130,6 +144,27 @@ public class UserService {
 
 	private static List<String> rolesGranting(Permission permission) {
 		return Arrays.stream(Role.values()).filter(role -> role.grants(permission)).map(Role::code).toList();
+	}
+
+	/**
+	 * How many tickets in progress a change of the roles to this list would return to the pool: all of them
+	 * when the user can take tickets now and could not with the list, otherwise none. It reads without a
+	 * lock, so the Change roles dialog can say it before the change; the change decides again under the lock
+	 * of the user row, and answers the number it returned.
+	 */
+	public int ticketsReturnedBy(CurrentUser actor, long targetId, List<String> roles) {
+		var target = repository.findById(targetId).filter(row -> !row.deleted() && !row.system())
+				.orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "There is no such user"));
+		Set<String> wanted = new TreeSet<>();
+		for (String code : roles) {
+			wanted.add(Role.ofCode(code.strip().toUpperCase(Locale.ROOT))
+					.orElseThrow(() -> ApiException.invalid("roles", "must hold only role codes of the system")).code());
+		}
+		Set<String> current = new TreeSet<>(repository.roleCodes(target.id()));
+		if (!UserChangeWriter.takesTickets(current) || UserChangeWriter.takesTickets(wanted)) {
+			return 0;
+		}
+		return repository.countTicketsInProgress(target.id());
 	}
 
 	/**

@@ -36,6 +36,8 @@ export interface RowActions {
 }
 
 export function rowActions(account: Account | null, user: ListedUser): RowActions {
+  // A deleted user is only shown: nothing can be done to the account any more.
+  if (user.status === 'DELETED') return { changeRoles: false, changeStatus: false, delete: false }
   const self = account?.id === user.id
   const protectedTarget = user.roles.some(isProtectedRole)
   const manage = !self && can(account, 'USER_MANAGE') && (!protectedTarget || can(account, 'USER_MANAGE_PROTECTED'))

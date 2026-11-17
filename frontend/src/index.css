@@ -905,3 +905,162 @@ body {
   border-radius: 8px;
   background: #fafafa;
 }
+
+/* Tickets (Figma page "Tickets and Audit", sections A, B, and C) */
+.page-subtitle {
+  margin-top: -8px;
+}
+
+.page-alert {
+  margin-bottom: 16px;
+}
+
+.ticket-row--system > td,
+.record-stack__row.ticket-row--system {
+  background: #e6f4ff;
+}
+
+.ticket-list .ant-table-tbody > tr {
+  cursor: pointer;
+}
+
+.ant-table-tbody > tr.ticket-row--system:hover > td {
+  background: #d6ebff;
+}
+
+.ticket-number {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticket-search {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ticket-search__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+}
+
+.ticket-search__number {
+  flex: 1 1 320px;
+}
+
+.user-picker {
+  min-width: 180px;
+}
+
+.breadcrumb {
+  margin-bottom: 8px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.ticket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.ticket-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+  gap: 16px;
+}
+
+.ticket-detail__title.ant-typography {
+  font-size: 18px;
+  margin-bottom: 4px;
+}
+
+.ticket-detail__heading.ant-typography {
+  font-size: 15px;
+  margin: 16px 0 4px;
+}
+
+.ticket-detail__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ticket-items {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.ticket-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field-counter {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+}
+
+.create-ticket__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chosen-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The audit log page (section D) */
+.audit-menu {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.audit-menu__link {
+  display: block;
+}
+
+.audit-action {
+  min-width: 200px;
+}
+
+.audit-changes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.audit-changes__side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.audit-changes__ip {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 767px) {
+  .ticket-detail,
+  .audit-changes {
+    grid-template-columns: 1fr;
+  }
+}

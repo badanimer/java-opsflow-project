@@ -29,18 +29,18 @@ export const NAVIGATION: readonly NavEntry[] = [
     label: TEXT.nav.tickets,
     path: '/tickets',
     permission: 'TICKET_VIEW',
-    built: false,
+    built: true,
     icon: <ProfileOutlined />,
     children: [
-      { key: 'tickets-pool', label: TEXT.nav.pool, path: '/tickets/pool', permission: 'TICKET_VIEW', built: false },
-      { key: 'tickets-in-progress', label: TEXT.nav.inProgress, path: '/tickets/in-progress', permission: 'TICKET_VIEW', built: false },
-      { key: 'tickets-resolved', label: TEXT.nav.resolved, path: '/tickets/resolved', permission: 'TICKET_VIEW', built: false },
-      { key: 'tickets-archive', label: TEXT.nav.archive, path: '/tickets/archive', permission: 'TICKET_VIEW_ALL', built: false },
-      { key: 'tickets-cancelled', label: TEXT.nav.cancelled, path: '/tickets/cancelled', permission: 'TICKET_VIEW', built: false },
+      { key: 'tickets-pool', label: TEXT.nav.pool, path: '/tickets/pool', permission: 'TICKET_VIEW', built: true },
+      { key: 'tickets-in-progress', label: TEXT.nav.inProgress, path: '/tickets/in-progress', permission: 'TICKET_VIEW', built: true },
+      { key: 'tickets-resolved', label: TEXT.nav.resolved, path: '/tickets/resolved', permission: 'TICKET_VIEW', built: true },
+      { key: 'tickets-archive', label: TEXT.nav.archive, path: '/tickets/archive', permission: 'TICKET_VIEW_ALL', built: true },
+      { key: 'tickets-cancelled', label: TEXT.nav.cancelled, path: '/tickets/cancelled', permission: 'TICKET_VIEW', built: true },
     ],
   },
   { key: 'users', label: TEXT.nav.users, path: '/users', permission: 'USER_VIEW', built: true, icon: <TeamOutlined /> },
-  { key: 'audit', label: TEXT.nav.auditLog, path: '/audit', permission: 'AUDIT_VIEW', built: false, icon: <AuditOutlined /> },
+  { key: 'audit', label: TEXT.nav.auditLog, path: '/audit', permission: 'AUDIT_VIEW', built: true, icon: <AuditOutlined /> },
 ]
 
 /** The entries the account may see: those of its permissions, and of a group only the children it may see. */
@@ -53,10 +53,11 @@ export function visibleEntries(account: Account | null): NavEntry[] {
 /** The key of the entry for a path, to mark it as the current page. */
 export function entryKeyFor(pathname: string): string | undefined {
   for (const entry of NAVIGATION) {
-    for (const candidate of [entry, ...(entry.children ?? [])]) {
+    // The pages of a group come first: a ticket screen is marked, not the group of Tickets.
+    for (const candidate of [...(entry.children ?? []), entry]) {
       // The product page is the root; its logs live under /products.
       const prefix = candidate.path === '/' ? '/products' : candidate.path
-      if (candidate.built && (candidate.path === pathname || pathname.startsWith(prefix + '/'))) {
+      if (candidate.built && !candidate.children && (candidate.path === pathname || pathname.startsWith(prefix + '/'))) {
         return candidate.key
       }
     }

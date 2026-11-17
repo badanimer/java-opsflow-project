@@ -114,13 +114,14 @@ public class TicketController {
 	@GetMapping
 	public PageResponse<TicketRow> list(@RequestParam(required = false) String status, @RequestParam(required = false) String source,
 			@RequestParam(required = false) Long createdBy, @RequestParam(required = false) Long assigneeId,
+			@RequestParam(required = false) Long inventoryId,
 			@RequestParam(required = false) String from, @RequestParam(required = false) String to,
 			@RequestParam(required = false) String ticketNo, @RequestParam(required = false) String orderNo,
 			@RequestParam(required = false) Integer limit, @RequestParam(required = false) String cursor,
 			@RequestParam(required = false) String direction, @RequestParam(required = false) String order,
 			@AuthenticationPrincipal CurrentUser user) {
 		PageQuery page = pages.create(limit, cursor, direction, order, true);
-		PageResponse<Listed> found = tickets.list(user, status, new Search(source, createdBy, assigneeId, from, to, ticketNo, orderNo), page);
+		PageResponse<Listed> found = tickets.list(user, status, new Search(source, createdBy, assigneeId, inventoryId, from, to, ticketNo, orderNo), page);
 		return new PageResponse<>(found.items().stream().map(TicketRow::of).toList(), found.nextCursor(), found.prevCursor());
 	}
 

@@ -27,20 +27,22 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 - Two permissions: `TICKET_ASSIGN_PROTECTED` (administrator) and `TICKET_HANDLE_ANY` (administrator, manager). The limits of a description (4,000) and a resolution (2,000) are in `Limits`.
 - The stock movements now take their time from the clock of the application, as a `SALE` does, which two `LogTest` checks needed when the database clock differed.
 - The audit log page in the backend, with the time of every audit row from the clock of the application.
-- 37 new tests (32 of the tickets, 5 of the audit page). The last full run: 432 passed, 0 failed.
+- 42 new tests (37 of the tickets, 5 of the audit page). The last full run: 432 passed, 0 failed.
 
 ## Changes
 
 | Area | Change |
 | --- | --- |
 | `ticket` | New module: `TicketController`, `TicketService`, `TicketWriter`, `TicketAccess`, `TicketStatus`, `TicketCascades`, `TicketArchiveJob`, `TicketNumbers`, and `TicketRepository` |
-| `user` | `UserChangeWriter.disable` and `softDelete` return the user's tickets in progress to the pool. `UserOptionController` and `UserService.options` for the user picker |
+| `user` | `UserChangeWriter.disable` and `softDelete` return the user's tickets in progress to the pool, and so does `replaceRoles` when the user loses every role that may take tickets (2026-11-17, [database-v1.17.md](database-v1.17.md)); its answer carries the number, and `GET /users/{id}/role-change` says it before. `UserOptionController` and `UserService.options` for the user picker |
 | `warehouse` | `ItemWriter.delete` and `ProductWriter.delist` cancel the live tickets of the item, and write their ids in `cancelledTicketIds` and their numbers in `cancelledTicketNos`, so the audit page names them without a join (the owner's choice after the review of the Figma design) |
 | `log` | The audit log page (T-48): `GET /audit-records` and `GET /audit-order-records` in `LogController`, `LogService`, and `LogRepository`, read through the indexes of Audit log page |
 | `common`, audit time | `AuditLogWriter` writes `created_at` from the clock of the application, as the changes it records do |
 | `common` | `Permission.TICKET_ASSIGN_PROTECTED` and `TICKET_HANDLE_ANY`, granted in `Role`; `ErrorCode.TICKET_CHANGED` and `NOT_ELIGIBLE`; `AuditLogWriter.TARGET_TICKET`; `Limits.TICKET_DESCRIPTION` and `TICKET_RESOLUTION`; `OpsflowProperties.Ticket` |
 | Configuration | `opsflow.ticket.*` in `application.yml`: the number attempts, the two limits of 99, the items of a ticket, the size of a batch archive, and the delay, count, interval, and batch of the archive job |
 | `warehouse`, time of a movement | `WarehouseRepository.insertTransaction` takes the time from the caller, and `ItemWriter` and `StockWriter` pass the clock of the application. It left `created_at` to the column default, so a restock was dated by the clock of the database and a `SALE` by the clock of the application; with the two clocks apart, two `LogTest` checks of their order failed in both full runs of this iteration |
+| Click-through of 2026-11-17 (T-68, T-69, T-70) | `TicketRepository.list` filters by one item; `AuditAction` carries a fixed remark for each action and `AuditLogWriter` writes it when a change gives none; a take writes "Taken from the pool" in the history; `TicketCascades.returnToPool` answers the numbers, which `UserChangeWriter` writes as `returnedTicketNos`; `UserRepository.list` takes the status buttons, lists deleted users on request, and counts the tickets in progress of each row; `LogRepository.auditRecords` filters by the user a row is about. Two tests in `TicketTest` |
+| Test support | `MySqlIntegrationTest` empties the tables with `DELETE` and sets the next ids back to 1, in place of `TRUNCATE`, and then checks that every table holds only the seed rows. The whole suite went from about 740 seconds to about 235, with the same 435 tests passing. Found on 2026-11-17: the earlier check of a clean start looked at the users only, so a table left with rows went unnoticed; a deliberate test that skipped `user_roles` proved the old check blind and the new one loud. The tests of one module are run while a change is made, and the whole suite before every commit (Tests in the backend design) |
 | Tests | `TicketStatusTest`, `TicketIntegrationSupport`, `TicketTest`, and `TicketRaceTest`. `LimitsMatchSchemaTest` checks that the limit of a `TEXT` column fits it. The tests that build `OpsflowProperties` by hand take the new group |
 
 ## Decisions Made
@@ -55,6 +57,8 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | An operator who acts on a ticket they cannot see | `NOT_FOUND`, before any other rule | `NOT_ALLOWED`: it would tell the operator that a ticket with that id exists |
 | The SYSTEM identity and the limits | Exempt from the open limit when it creates a ticket, and never an assignee | Counting it: it would one day stop the program from opening its own tickets |
 | The archive job when both rules apply | The count of 99 first, then the delay, in one run, all rows of the run sharing one `batchId` | Two jobs: the same work twice a minute |
+| A change of roles that takes away the right to take tickets | Returns the tickets in progress to the pool, in the transaction of the change, like a disabling (the owner's choice, 2026-11-17) | Leaving them with a person who can neither resolve nor release them until a manager notices |
+| How the tables are emptied before a test | `DELETE` and the next id set back to 1, then a count of every table | `TRUNCATE`, which rebuilt the 17 tables before each of about 380 integration tests, two thirds of the whole run |
 | The times of the ticket rows | Taken from the clock of the application and written explicitly, also the history and the links | The default of the column: the database clock and the application clock can differ, which the test runs of this iteration showed for the stock movements (see Changes) |
 
 ## Affected Artifacts
@@ -73,6 +77,6 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 
 | Item | Tracked in |
 | --- | --- |
-| The ticket screens, the form, and the cancel message in the frontend | T-40, T-44, T-47, T-37 in [project-todo.md](../project-todo.md) |
-| The audit log page in the frontend | T-48 |
 | Two orders that lock the same items in opposite order (D6) against the real code | T-17 |
+
+The frontend of this iteration, the ticket screens and the audit log page, is built in [frontend-v1.9.md](frontend-v1.9.md).

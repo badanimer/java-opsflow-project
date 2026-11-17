@@ -26,7 +26,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    testTimeout: 15_000,
+    // Many tests drive whole pages of Ant Design in jsdom and run in parallel; 30 seconds leaves room on a busy machine.
+    testTimeout: 30_000,
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,

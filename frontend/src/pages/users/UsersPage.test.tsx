@@ -162,6 +162,20 @@ describe('the states of the list', () => {
   })
 })
 
+describe('the status buttons', () => {
+  it('list the deleted users only when Deleted is chosen, with their tag and no control', async () => {
+    const { server, user } = await openUsers(['ADMIN'], [ALEX, ALICE])
+    server.on('GET /users?status=DELETED', page([{ id: 9, username: 'gina', status: 'DELETED', roles: ['OPERATOR'] }]))
+    await user.click(screen.getByRole('button', { name: 'Deleted' }))
+    expect(await findInList('gina')).toBeInTheDocument()
+    expect(within(row('gina')).getByText('Deleted')).toBeInTheDocument()
+    expect(within(row('gina')).queryAllByRole('button')).toHaveLength(0)
+    server.on('GET /users?status=DELETED&status=DISABLED', page([]))
+    await user.click(screen.getByRole('button', { name: 'Disabled' }))
+    expect(await screen.findByText('No users found')).toBeInTheDocument()
+  })
+})
+
 describe('a small screen', () => {
   it('stacks the users with their controls', async () => {
     setScreenWidth(390)

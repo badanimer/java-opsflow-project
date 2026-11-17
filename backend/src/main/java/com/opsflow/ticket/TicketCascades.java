@@ -34,6 +34,8 @@ public class TicketCascades {
 	public static final String ASSIGNEE_DISABLED = "The assignee's account was disabled";
 	/** The reason of the history row when the assignee's account was deleted. */
 	public static final String ASSIGNEE_DELETED = "The assignee's account was deleted";
+	/** The reason of the history row when the assignee lost every role that may take tickets. */
+	public static final String ASSIGNEE_NO_TAKING_ROLE = "The assignee no longer has a role that may take tickets";
 
 	private final TicketRepository repository;
 	private final TicketWriter writer;
@@ -45,20 +47,23 @@ public class TicketCascades {
 
 	/**
 	 * Returns every {@code IN_PROGRESS} ticket of the user to the pool. Called with the user row locked, when
-	 * the user is disabled or soft-deleted. The {@code OPEN} tickets the user created stay as they are.
+	 * the user is disabled or soft-deleted, or loses every role that may take tickets. The {@code OPEN}
+	 * tickets the user created stay as they are.
 	 *
-	 * @param reason {@link #ASSIGNEE_DISABLED} or {@link #ASSIGNEE_DELETED}
-	 * @return the ids of the tickets returned
+	 * @param reason {@link #ASSIGNEE_DISABLED}, {@link #ASSIGNEE_DELETED}, or {@link #ASSIGNEE_NO_TAKING_ROLE}
+	 * @return the tickets returned
 	 */
 	@Transactional(propagation = Propagation.MANDATORY)
-	public List<Long> returnToPool(long userId, String reason) {
-		List<Long> returned = new ArrayList<>();
+	public Changed returnToPool(long userId, String reason) {
+		List<Long> ids = new ArrayList<>();
+		List<String> numbers = new ArrayList<>();
 		for (Locked ticket : repository.lockInProgressOf(userId)) {
 			if (writer.releaseBySystem(ticket, reason)) {
-				returned.add(ticket.id());
+				ids.add(ticket.id());
+				numbers.add(ticket.ticketNo());
 			}
 		}
-		return returned;
+		return new Changed(List.copyOf(ids), List.copyOf(numbers));
 	}
 
 	/**

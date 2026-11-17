@@ -38,6 +38,8 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-17 | 1.17 | Database | A user who loses every role that may take tickets gives back the tickets in progress, with a warning in Change roles; the Phase 6 changes to the database design recorded | [database-v1.17.md](docs/iterations/database-v1.17.md) |
+| 2026-11-16 | 1.9 | Frontend | Phase 6: the five ticket screens with the search and the batch archive, the ticket detail and its actions, Create ticket, and the audit log page | [frontend-v1.9.md](docs/iterations/frontend-v1.9.md) |
 | 2026-11-16 | 1.11 | Backend | Phase 6: the ticket module with its changes, limits, races, archive job, and the cascades of the user and warehouse modules; the user picker; the audit log page | [backend-v1.11.md](docs/iterations/backend-v1.11.md) |
 | 2026-11-16 | 1.9 | API | Phase 6 designed: the ticket endpoints, the user picker, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, and the limits of a ticket description (4,000) and a resolution (2,000) | [api-v1.9.md](docs/iterations/api-v1.9.md) |
 | 2026-11-16 | 1.8 | Frontend | Phase 5: the order dialog, Adjust quantity, the two logs with the time filter, the picker, and the order number box, the own logs, and Deleted items | [frontend-v1.8.md](docs/iterations/frontend-v1.8.md) |

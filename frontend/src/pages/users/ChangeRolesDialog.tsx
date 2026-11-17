@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Alert, Button, Checkbox, Modal, Typography } from 'antd'
 import { ApiError } from '../../api/client'
-import { replaceRoles, type ListedUser } from '../../api/users'
+import { replaceRoles, roleChangeEffect, type ListedUser } from '../../api/users'
 import { useAuth } from '../../auth/context'
 import { ConfirmDialog } from '../../components/ConfirmDialog'
 import { isProtectedRole, roleLabel, sortRoles } from '../../lib/roles'
@@ -12,8 +12,8 @@ import { assignableRoles, changeFailure, type Outcome } from './userRules'
 
 interface Props {
   user: ListedUser
-  /** The roles were saved. */
-  onSaved: () => void
+  /** The roles were saved; the message says so, with the tickets that went back to the pool. */
+  onSaved: (message: string) => void
   /** A refusal that belongs to the page: the dialog is closed and the page shows the notice. */
   onRefused: (outcome: Outcome) => void
   /** The user turned out to differ from the row: the list is loaded again behind the dialog. */
@@ -22,9 +22,11 @@ interface Props {
 }
 
 /**
- * Change roles: the person picks the whole new set, and Save sends it with the set they saw. A second
- * confirmation comes after Save when the change gives or takes away Administrator or Manager, or leaves
- * no role (Second Confirmation in docs/frontend/page-design.md); any other change is saved at once.
+ * Change roles: the person picks the whole new set, and Save sends it with the set they saw. Every change
+ * gets a second confirmation after Save (the owner's decision, 2026-11-17; Second Confirmation in
+ * docs/frontend/page-design.md): it names each role added and removed, says when the user is left with no
+ * role, and warns when tickets in progress would go back to the pool. Save first asks the server how many
+ * tickets the new roles would return, because only the server knows which roles may take tickets.
  *
  * A disabled user can lose roles but cannot be given one: the roles the user does not hold are offered
  * disabled, with the reason under them.
@@ -38,20 +40,22 @@ export function ChangeRolesDialog({ user, onSaved, onRefused, onStale, onClose }
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [notActive, setNotActive] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [returning, setReturning] = useState(0)
 
   const options = assignableRoles(account)
   const added = selected.filter((code) => !original.includes(code))
   const removed = original.filter((code) => !selected.includes(code))
   const changed = added.length > 0 || removed.length > 0
   const leavesNoRole = selected.length === 0
-  const touchesProtected = [...added, ...removed].some(isProtectedRole)
 
   async function submit() {
     setSaving(true)
     setNotice(null)
     try {
-      await replaceRoles(user.id, sortRoles(selected), original)
-      onSaved()
+      const result = await replaceRoles(user.id, sortRoles(selected), original)
+      const returned = result.ticketsReturned ?? 0
+      onSaved(returned > 0 ? TEXT.users.rolesUpdatedReturned(returned) : TEXT.users.rolesUpdated)
     } catch (error) {
       setSaving(false)
       setStep('edit')
@@ -69,9 +73,20 @@ export function ChangeRolesDialog({ user, onSaved, onRefused, onStale, onClose }
     }
   }
 
-  function save() {
-    if (leavesNoRole || touchesProtected) setStep('confirm')
-    else void submit()
+  async function save() {
+    // The server says how many tickets the new roles would return. Without an answer the change goes on:
+    // the server decides again when it saves, and the message after it gives the number.
+    setChecking(true)
+    let count = 0
+    try {
+      count = (await roleChangeEffect(user.id, sortRoles(selected))).ticketsReturned
+    } catch {
+      count = 0
+    } finally {
+      setChecking(false)
+    }
+    setReturning(count)
+    setStep('confirm')
   }
 
   if (step === 'confirm') {
@@ -91,6 +106,9 @@ export function ChangeRolesDialog({ user, onSaved, onRefused, onStale, onClose }
         onCancel={() => setStep('edit')}
       >
         {leavesNoRole && <Typography.Paragraph className="dialog-text">{TEXT.users.confirmNoRoleDescription(user.username)}</Typography.Paragraph>}
+        {returning > 0 && (
+          <Alert type="warning" showIcon message={TEXT.users.ticketsWillReturn(user.username, returning)} />
+        )}
         {lines.map((line) => (
           <Typography.Paragraph key={line} className="dialog-text" type={line.startsWith('Removes') ? 'danger' : undefined}>
             {line}
@@ -113,8 +131,8 @@ export function ChangeRolesDialog({ user, onSaved, onRefused, onStale, onClose }
         <Button key="cancel" onClick={onClose} disabled={saving}>
           {TEXT.users.cancel}
         </Button>,
-        <Button key="save" type="primary" onClick={save} disabled={!changed} loading={saving}>
-          {saving ? TEXT.users.saving : TEXT.users.save}
+        <Button key="save" type="primary" onClick={() => void save()} disabled={!changed} loading={saving || checking}>
+          {checking ? TEXT.users.checking : saving ? TEXT.users.saving : TEXT.users.save}
         </Button>,
       ]}
     >

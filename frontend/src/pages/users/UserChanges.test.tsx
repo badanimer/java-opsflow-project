@@ -23,7 +23,23 @@ function checkbox(within_: HTMLElement, label: string): HTMLElement {
 }
 
 describe('changing the roles', () => {
-  it('enables Save only when the set changed, and saves an ordinary change at once', async () => {
+  it('warns before a change that sends the tickets in progress of the user back to the pool, and says how many went', async () => {
+    const { server, user } = await openUsers(['ADMIN'], [ALEX, ALICE])
+    server.on('GET /users/3/role-change?roles=VIEWER', { status: 200, body: { ticketsReturned: 2 } })
+    server.on('PUT /users/3/roles', { status: 200, body: { id: 3, username: 'alice', roles: ['VIEWER'], ticketsReturned: 2 } })
+    const roles = await openRolesOf('alice', user)
+    await user.click(checkbox(roles, 'Operator'))
+    await user.click(within(roles).getByRole('button', { name: 'Save' }))
+
+    const confirm = await screen.findByRole('dialog', { name: 'Change the roles of alice?' })
+    expect(within(confirm).getByText('alice has 2 tickets in progress and will no longer be able to take tickets. They will go back to the pool.')).toBeInTheDocument()
+    expect(server.callsTo('PUT /users/3/roles')).toHaveLength(0)
+    server.on('GET /users', page([ALEX, { ...ALICE, roles: ['VIEWER'] }]))
+    await user.click(within(confirm).getByRole('button', { name: 'Change roles' }))
+    expect(await screen.findByText('Roles updated. 2 tickets went back to the pool.')).toBeInTheDocument()
+  })
+
+  it('enables Save only when the set changed, and asks again before an ordinary change too, naming it', async () => {
     const { server, user } = await openUsers(['ADMIN'], [ALEX, ALICE])
     server.on('PUT /users/3/roles', { status: 200, body: { id: 3, username: 'alice', roles: ['OPERATOR'] } })
     const roles = await openRolesOf('alice', user)
@@ -32,6 +48,10 @@ describe('changing the roles', () => {
     await user.click(checkbox(roles, 'Viewer'))
     server.on('GET /users', page([ALEX, { ...ALICE, roles: ['OPERATOR'] }]))
     await user.click(within(roles).getByRole('button', { name: 'Save' }))
+    const confirm = await screen.findByRole('dialog', { name: 'Change the roles of alice?' })
+    expect(within(confirm).getByText('Removes: Viewer')).toBeInTheDocument()
+    expect(server.callsTo('PUT /users/3/roles')).toHaveLength(0)
+    await user.click(within(confirm).getByRole('button', { name: 'Change roles' }))
 
     expect(await screen.findByText('Roles updated.')).toBeInTheDocument()
     expect(server.callsTo('PUT /users/3/roles')[0].body).toEqual({ roles: ['OPERATOR'], expectedRoles: ['OPERATOR', 'VIEWER'] })
@@ -136,6 +156,7 @@ describe('changing the roles', () => {
     await user.click(checkbox(roles, 'Viewer'))
     server.on('GET /users', page([ALEX, { ...ALICE, roles: ['VIEWER'] }]))
     await user.click(within(roles).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Change the roles of alice?' })).getByRole('button', { name: 'Change roles' }))
 
     expect(await screen.findByText('This user has changed. We refreshed the list.')).toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -148,6 +169,7 @@ describe('changing the roles', () => {
     const roles = await openRolesOf('alice', user)
     await user.click(checkbox(roles, 'Viewer'))
     await user.click(within(roles).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Change the roles of alice?' })).getByRole('button', { name: 'Change roles' }))
     expect(await within(dialog('Change roles for alice')).findByText(/report this reference: ddddc8f3b64942ff/)).toBeInTheDocument()
   })
 
@@ -158,11 +180,27 @@ describe('changing the roles', () => {
     await user.click(checkbox(roles, 'Viewer'))
     server.on('GET /auth/me', me(['OPERATOR'], { id: 20 }))
     await user.click(within(roles).getByRole('button', { name: 'Save' }))
+    await user.click(within(await screen.findByRole('dialog', { name: 'Change the roles of alice?' })).getByRole('button', { name: 'Change roles' }))
     expect(await screen.findByText('You do not have permission to open this page.')).toBeInTheDocument()
   })
 })
 
 describe('disabling, enabling, and deleting', () => {
+  it('says before a disabling or a deletion how many tickets in progress go back to the pool, and after it how many went', async () => {
+    const { server, user } = await openUsers(['ADMIN'], [ALEX, { ...ALICE, ticketsInProgress: 2 }])
+    await user.click(within(row('alice')).getByRole('button', { name: 'Delete' }))
+    const remove = await screen.findByRole('dialog', { name: 'Delete alice?' })
+    expect(within(remove).getByText('alice has 2 tickets in progress. They will go back to the pool.')).toBeInTheDocument()
+    await user.click(within(remove).getByRole('button', { name: 'Cancel' }))
+
+    await user.click(within(row('alice')).getByRole('button', { name: 'Disable' }))
+    const confirm = await screen.findByRole('dialog', { name: 'Disable alice?' })
+    expect(within(confirm).getByText('alice has 2 tickets in progress. They will go back to the pool.')).toBeInTheDocument()
+    server.on('POST /users/3/disable', { status: 200, body: { id: 3, username: 'alice', status: 'DISABLED', ticketsReturned: 2 } })
+    await user.click(within(confirm).getByRole('button', { name: 'Disable' }))
+    expect(await screen.findByText('User disabled. 2 tickets went back to the pool.')).toBeInTheDocument()
+  })
+
   it('asks before disabling, and shows the user disabled afterwards', async () => {
     const { server, user } = await openUsers(['ADMIN'], [ALEX, ALICE])
     server.on('POST /users/3/disable', { status: 200, body: { id: 3, username: 'alice', status: 'DISABLED' } })

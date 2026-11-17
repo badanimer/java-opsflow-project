@@ -78,8 +78,8 @@ class TicketRepository {
 	}
 
 	/** The filters of a ticket list, already checked. */
-	record Filter(TicketStatus status, Long ownerId, String source, Long createdBy, Long assigneeId, Range range, String ticketNo,
-			String orderNo) {
+	record Filter(TicketStatus status, Long ownerId, String source, Long createdBy, Long assigneeId, Long inventoryId, Range range,
+			String ticketNo, String orderNo) {
 	}
 
 	private static final String PEOPLE = """
@@ -318,6 +318,11 @@ class TicketRepository {
 		}
 		if (filter.assigneeId() != null) {
 			condition(sql, args, "t.assignee_id = ?", filter.assigneeId());
+		}
+		if (filter.inventoryId() != null) {
+			// The tickets linked to one item, through idx_ticket_inventory_inventory.
+			condition(sql, args, "EXISTS (SELECT 1 FROM ticket_inventory ti WHERE ti.ticket_id = t.id AND ti.inventory_id = ?)",
+					filter.inventoryId());
 		}
 		if (filter.range() != null && filter.range().from() != null) {
 			condition(sql, args, "t.created_at >= ?", filter.range().from());

@@ -146,6 +146,21 @@ class TicketRaceTest extends TicketIntegrationSupport {
 	}
 
 	@Test
+	void aUserLosesTheRoleToTakeTicketsWhileTakingOneAndTheTicketEndsInThePool() {
+		for (int round = 0; round < ROUNDS; round++) {
+			long worker = account("taker" + round, "OPERATOR");
+			long id = other(mary, "Taken while demoted " + round);
+			List<String> results = race(() -> tickets.take(as(worker), id, null),
+					() -> users.replaceRoles(as(adam), worker, List.of("VIEWER"), List.of("OPERATOR"), null));
+
+			assertThat(results.get(1)).isEqualTo("OK");
+			assertThat(results.get(0)).isIn("OK", "FORBIDDEN");
+			assertThat(statusOf(id)).as("round %d", round).isEqualTo("OPEN");
+			assertThat(assigneeOf(id)).isNull();
+		}
+	}
+
+	@Test
 	void aTicketOpenedOnAnItemAsItIsDeletedIsCancelledOrRefused() {
 		for (int round = 0; round < ROUNDS; round++) {
 			long item = item("Doomed " + round, mary);

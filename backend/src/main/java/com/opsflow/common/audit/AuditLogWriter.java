@@ -57,6 +57,7 @@ public class AuditLogWriter {
 	 * @param before the state before the change, or null
 	 * @param after the state after the change with the label of the row, or null
 	 * @param ipAddress the address of the request when the web layer knows it, or null
+	 * @param remark the reason of the change, or null for the fixed remark of the action: the column is never left empty
 	 */
 	public void write(AuditAction action, Long operatorId, String targetType, long targetId, Map<String, ?> before,
 			Map<String, ?> after, String ipAddress, String remark) {
@@ -64,7 +65,7 @@ public class AuditLogWriter {
 			throw new IllegalStateException("An audit row must be written in the transaction of the change it describes");
 		}
 		jdbc.update(INSERT, operatorId, action.category().name(), action.name(), targetType, targetId, toJson(before),
-				toJson(after), ipAddress, remark, UtcTime.toLocalDateTime(clock.instant().truncatedTo(ChronoUnit.MILLIS)));
+				toJson(after), ipAddress, remark == null || remark.isBlank() ? action.fixedRemark() : remark, UtcTime.toLocalDateTime(clock.instant().truncatedTo(ChronoUnit.MILLIS)));
 	}
 
 	private String toJson(Map<String, ?> data) {

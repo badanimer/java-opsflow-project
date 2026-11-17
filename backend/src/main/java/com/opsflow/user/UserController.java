@@ -50,11 +50,16 @@ public class UserController {
 			@NotNull @Size(max = MAX_ROLES) List<@NotBlank @Size(max = Limits.ROLE_CODE) String> expectedRoles) {
 	}
 
-	public record UserRolesResponse(long id, String username, List<String> roles) {
+	/** @param ticketsReturned the tickets in progress that went back to the pool with this change */
+	public record UserRolesResponse(long id, String username, List<String> roles, int ticketsReturned) {
+	}
+
+	/** @param ticketsReturned the tickets in progress that the change would return to the pool */
+	public record RoleChangeResponse(int ticketsReturned) {
 	}
 
 	/** @param status {@code ACTIVE} or {@code DISABLED} */
-	public record UserStatusResponse(long id, String username, String status) {
+	public record UserStatusResponse(long id, String username, String status, int ticketsReturned) {
 	}
 
 	/**
@@ -63,7 +68,7 @@ public class UserController {
 	 * @param status {@code ACTIVE} or {@code DISABLED}
 	 * @param roles the role codes, in the order of the codes; empty for a user who waits for a role
 	 */
-	public record UserListItem(long id, String username, String status, List<String> roles) {
+	public record UserListItem(long id, String username, String status, List<String> roles, int ticketsInProgress) {
 	}
 
 	private final UserService users;
@@ -83,13 +88,14 @@ public class UserController {
 	@RequiresPermission(Permission.USER_VIEW)
 	@GetMapping
 	public PageResponse<UserListItem> list(@RequestParam(required = false) String search,
-			@RequestParam(required = false) List<String> roles, @RequestParam(required = false) Integer limit,
+			@RequestParam(required = false) List<String> roles, @RequestParam(required = false) List<String> status,
+			@RequestParam(required = false) Integer limit,
 			@RequestParam(required = false) String cursor, @RequestParam(required = false) String direction,
 			@RequestParam(required = false) String order, @AuthenticationPrincipal CurrentUser user) {
 		PageQuery page = pages.createInOrder(limit, cursor, direction, order, SortOrder.ASC);
-		PageResponse<ListedUser> found = users.list(user, search, roles == null ? List.of() : roles, page);
+		PageResponse<ListedUser> found = users.list(user, search, roles == null ? List.of() : roles, status == null ? List.of() : status, page);
 		List<UserListItem> items = found.items().stream()
-				.map(row -> new UserListItem(row.id(), row.username(), row.status(), row.roles())).toList();
+				.map(row -> new UserListItem(row.id(), row.username(), row.status(), row.roles(), row.ticketsInProgress())).toList();
 		return new PageResponse<>(items, found.nextCursor(), found.prevCursor());
 	}
 
@@ -102,21 +108,32 @@ public class UserController {
 	public UserRolesResponse replaceRoles(@PathVariable long id, @Valid @RequestBody ReplaceRolesRequest body,
 			@AuthenticationPrincipal CurrentUser user, HttpServletRequest request) {
 		UserRoles result = users.replaceRoles(user, id, body.roles(), body.expectedRoles(), request.getRemoteAddr());
-		return new UserRolesResponse(result.id(), result.username(), result.roles());
+		return new UserRolesResponse(result.id(), result.username(), result.roles(), result.ticketsReturned());
+	}
+
+	/**
+	 * What a change of the roles to this list would do to the tickets of the user, for the Change roles
+	 * dialog. It changes nothing.
+	 */
+	@RequiresPermission(Permission.ROLE_ASSIGN)
+	@GetMapping("/{id}/role-change")
+	public RoleChangeResponse roleChange(@PathVariable long id, @RequestParam(required = false) List<String> roles,
+			@AuthenticationPrincipal CurrentUser user) {
+		return new RoleChangeResponse(users.ticketsReturnedBy(user, id, roles == null ? List.of() : roles));
 	}
 
 	@RequiresPermission(Permission.USER_MANAGE)
 	@PostMapping("/{id}/disable")
 	public UserStatusResponse disable(@PathVariable long id, @AuthenticationPrincipal CurrentUser user, HttpServletRequest request) {
 		UserStatus result = users.disable(user, id, request.getRemoteAddr());
-		return new UserStatusResponse(result.id(), result.username(), result.status());
+		return new UserStatusResponse(result.id(), result.username(), result.status(), result.ticketsReturned());
 	}
 
 	@RequiresPermission(Permission.USER_MANAGE)
 	@PostMapping("/{id}/enable")
 	public UserStatusResponse enable(@PathVariable long id, @AuthenticationPrincipal CurrentUser user, HttpServletRequest request) {
 		UserStatus result = users.enable(user, id, request.getRemoteAddr());
-		return new UserStatusResponse(result.id(), result.username(), result.status());
+		return new UserStatusResponse(result.id(), result.username(), result.status(), result.ticketsReturned());
 	}
 
 	/** A soft deletion: the account is marked as removed, and its row stays. */

@@ -32,6 +32,8 @@ The authoritative description is [OpsFlow API](../api/api-design.md). This file 
 | General Rules | Limits: the two `TEXT` fields and their limits |
 | Result codes | `TICKET_CHANGED` (409) and `NOT_ELIGIBLE` (409). `NOT_ALLOWED` (403) is the refusal of a rule of the ticket when the permission is held |
 | Logs | The audit log page: `GET /audit-records`, one of six areas of `operation_logs` with the action, the time filter, and a user or System, and `GET /audit-order-records`, the Orders area from `order_attempts` with the result and the user |
+| Users | `PUT /users/{id}/roles` answers `ticketsReturned`, and `GET /users/{id}/role-change` says how many tickets a new list of roles would return, for the warning of the Change roles dialog (2026-11-17, [database-v1.17.md](database-v1.17.md)) |
+| Click-through of 2026-11-17 (T-68, T-69, T-70; [database-v1.17.md](database-v1.17.md)) | `GET /tickets` takes `inventoryId`; `GET /users` takes `status` (with `DELETED`) and answers `ticketsInProgress`; `POST /users/{id}/disable` answers `ticketsReturned`; `GET /audit-records` takes `aboutUserId` in the areas `ACCOUNT` and `ROLE`; `remark` is never empty, and a row names the tickets a change returned in `returnedTicketNos` |
 | Tickets | New section: the endpoints, the ticket, who sees which ticket, the list order, the search, the user picker, the fields of a new ticket, and the refusals of each change |
 | Database design | Two notes: the limits of the `TEXT` columns in Field Specifications, and `FORBIDDEN` in place of `NOT_ALLOWED` for a creator whose roles do not allow tickets, in Creating a ticket on items |
 | Backend | `Limits.TICKET_DESCRIPTION` and `Limits.TICKET_RESOLUTION`, and the check of a `TEXT` column in `LimitsMatchSchemaTest` |
@@ -57,6 +59,7 @@ The authoritative description is [OpsFlow API](../api/api-design.md). This file 
 | A batch archive | 1 to 100 ids in one request, each in its own transaction, with the archived and the skipped in the answer | All `RESOLVED` tickets by one call: the person should see what is archived |
 | The Orders area of the audit page | An endpoint of its own, `GET /audit-order-records`, with the rows of the order records | One endpoint for the seven areas: the rows of the attempts have other fields, and a typed page would read two shapes from one list |
 | System on the audit page | `system=true`, which finds the rows with no operator; with a user it is refused | A user id of the SYSTEM identity: the rows of the system have no operator at all |
+| The warning before a change of roles | A read of its own, `GET /users/{id}/role-change`, that the dialog asks when Save is pressed | A table of which role may take tickets in the frontend: only the server knows which role grants which permission |
 | The item list of the form | `GET /items`, which every role that may create a ticket can read | A new endpoint for the same rows |
 | The cancel message of a deleted or delisted item | `cancelCause` with the kind and the name of the item, built by the server | The page parsing `PRODUCT_DELISTED:5` and reading the product |
 
@@ -74,9 +77,8 @@ The authoritative description is [OpsFlow API](../api/api-design.md). This file 
 
 ## Open Items
 
-| Item | Tracked in |
-| --- | --- |
-| The ticket screens and the form in the frontend | T-40, T-44, T-47 in [project-todo.md](../project-todo.md) |
-| The audit log page in the frontend | T-48 |
+None.
 
 The backend of this design, the permissions of T-67 included, is built in [backend-v1.11.md](backend-v1.11.md).
+
+The frontend of this iteration, the ticket screens and the audit log page, is built in [frontend-v1.9.md](frontend-v1.9.md).

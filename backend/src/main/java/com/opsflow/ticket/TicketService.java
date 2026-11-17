@@ -68,10 +68,12 @@ public class TicketService {
 	}
 
 	/** The search of a ticket screen, as it was sent. */
-	public record Search(String source, Long createdBy, Long assigneeId, String from, String to, String ticketNo, String orderNo) {
+	public record Search(String source, Long createdBy, Long assigneeId, Long inventoryId, String from, String to, String ticketNo,
+			String orderNo) {
 
 		boolean any() {
-			return source != null || createdBy != null || assigneeId != null || from != null || to != null || ticketNo != null
+			return source != null || createdBy != null || assigneeId != null || inventoryId != null || from != null || to != null
+					|| ticketNo != null
 					|| orderNo != null;
 		}
 	}
@@ -253,7 +255,8 @@ public class TicketService {
 			}
 		}
 		String orderNo = orderNo(search.orderNo());
-		boolean filtered = search.source() != null || search.createdBy() != null || search.assigneeId() != null || search.from() != null
+		boolean filtered = search.source() != null || search.createdBy() != null || search.assigneeId() != null
+				|| search.inventoryId() != null || search.from() != null
 				|| search.to() != null;
 		if (ticketNo != null && (filtered || orderNo != null)) {
 			throw ApiException.invalid("ticketNo", "is used alone, with no other filter");
@@ -270,7 +273,7 @@ public class TicketService {
 		}
 		Range range = days.parse(search.from(), search.to());
 		Filter filter = new Filter(screen, all ? null : user.id(), source, optionalId("createdBy", search.createdBy()),
-				optionalId("assigneeId", search.assigneeId()), range, ticketNo, orderNo);
+				optionalId("assigneeId", search.assigneeId()), itemId(search.inventoryId()), range, ticketNo, orderNo);
 		return PageResponse.of(repository.list(filter, page), page,
 				row -> new Cursor(TicketRepository.cursorKeyOf(row.source(), sortTime(screen, row)), row.id()));
 	}
@@ -341,6 +344,13 @@ public class TicketService {
 	private static long userId(String field, Long id) {
 		if (id == null || id < 1) {
 			throw ApiException.invalid(field, "must be the id of a user");
+		}
+		return id;
+	}
+
+	private static Long itemId(Long id) {
+		if (id != null && id < 1) {
+			throw ApiException.invalid("inventoryId", "must be the id of an item");
 		}
 		return id;
 	}

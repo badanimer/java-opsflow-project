@@ -48,16 +48,20 @@ describe('the navigation', () => {
     expect(ALL.filter((label) => within(nav).queryByText(label) !== null)).toEqual(['Products', 'Users'])
   })
 
-  it('shows the pages that are not built yet as disabled entries, and opens the built ones', async () => {
+  it('offers every page of the map, the ticket screens and the audit log included, and opens them', async () => {
     storeToken()
-    new FakeServer().on('GET /auth/me', me(['ADMIN'])).on('GET /users', { status: 200, body: { items: [], nextCursor: null, prevCursor: null } })
+    new FakeServer()
+      .on('GET /auth/me', me(['ADMIN']))
+      .on('GET /tickets?status=OPEN', { status: 200, body: { items: [], nextCursor: null, prevCursor: null } })
     const user = openApp('/')
     const nav = await screen.findByRole('menu', { name: 'Main navigation' })
-    expect(within(nav).getByText('Stock').closest('li')).not.toHaveAttribute('aria-disabled', 'true')
-    expect(within(nav).getByText('Pool').closest('li')).toHaveAttribute('aria-disabled', 'true')
-    expect(within(nav).getByText('Audit log').closest('li')).toHaveAttribute('aria-disabled', 'true')
-    await user.click(within(nav).getByText('Users'))
-    expect(await screen.findByRole('heading', { name: 'Users' })).toBeInTheDocument()
+    for (const name of ['Stock', 'Pool', 'Archive', 'Users', 'Audit log']) {
+      expect(within(nav).getByText(name).closest('li')).not.toHaveAttribute('aria-disabled', 'true')
+    }
+    await user.click(within(nav).getByText('Pool'))
+    expect(await screen.findByRole('heading', { name: 'Pool' })).toBeInTheDocument()
+    await user.click(within(nav).getByText('Audit log'))
+    expect(await screen.findByRole('heading', { name: 'Audit log' })).toBeInTheDocument()
   })
 
   it('opens the product page as the home page', async () => {

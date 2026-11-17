@@ -3,8 +3,9 @@ import type { UserStatus } from '../../api/users'
 import { isProtectedRole, roleLabel, sortRoles } from '../../lib/roles'
 import { TEXT } from '../../text'
 
-/** Active or Disabled. The word is always there, so the colour is never the only sign. */
+/** Active, Disabled, or Deleted. The word is always there, so the colour is never the only sign. */
 export function StatusTag({ status }: { status: UserStatus }) {
+  if (status === 'DELETED') return <Tag>{TEXT.users.deleted}</Tag>
   return status === 'ACTIVE' ? <Tag color="success">{TEXT.users.active}</Tag> : <Tag color="error">{TEXT.users.disabled}</Tag>
 }
 

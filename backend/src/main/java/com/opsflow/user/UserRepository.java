@@ -37,9 +37,11 @@ class UserRepository {
 	/**
 	 * A row of the user page.
 	 *
+	 * @param status {@code ACTIVE}, {@code DISABLED}, or {@code DELETED} for a soft-deleted user
 	 * @param roles the role codes, in the order of the codes; empty for a user who waits for a role
+	 * @param ticketsInProgress the tickets assigned to the user that are in progress now
 	 */
-	record ListedUser(long id, String username, String status, List<String> roles) {
+	record ListedUser(long id, String username, String status, List<String> roles, int ticketsInProgress) {
 	}
 
 	/**
@@ -51,9 +53,11 @@ class UserRepository {
 	 * @param usernamePart a part of the username, matched without regard to case, or null for any
 	 * @param roleFilter the role codes of the role buttons; a user who holds any of them is listed
 	 * @param withoutRole whether the button No role is chosen: a user who holds no role is listed too
+	 * @param statuses the status buttons, of {@code ACTIVE}, {@code DISABLED}, and {@code DELETED}; empty lists the
+	 *     users who are not deleted, and a deleted user is listed only with {@code DELETED}
 	 */
 	record ListFilter(List<String> hiddenRoles, Long hiddenUserId, String usernamePart, List<String> roleFilter,
-			boolean withoutRole) {
+			boolean withoutRole, List<String> statuses) {
 
 		/** Whether a role button is chosen. With none the list is not narrowed by role. */
 		boolean byRole() {
@@ -89,14 +93,22 @@ class UserRepository {
 	 */
 	List<ListedUser> list(ListFilter filter, PageQuery page) {
 		StringBuilder sql = new StringBuilder("""
-				SELECT u.id, u.username, u.status,
+				SELECT u.id, u.username, IF(u.deleted, 'DELETED', u.status) AS status,
 				       (SELECT GROUP_CONCAT(r.code ORDER BY r.code SEPARATOR ',')
 				        FROM user_roles ur JOIN roles r ON r.id = ur.role_id
-				        WHERE ur.user_id = u.id) AS role_codes
+				        WHERE ur.user_id = u.id) AS role_codes,
+				       (SELECT COUNT(*) FROM tickets t WHERE t.assignee_id = u.id AND t.status = 'IN_PROGRESS') AS tickets_in_progress
 				FROM users u
-				WHERE u.deleted = FALSE AND u.is_system = FALSE
+				WHERE u.is_system = FALSE
 				""");
 		List<Object> args = new ArrayList<>();
+		if (filter.statuses().isEmpty()) {
+			sql.append(" AND u.deleted = FALSE");
+		}
+		else {
+			sql.append(" AND IF(u.deleted, 'DELETED', u.status) IN (").append(placeholders(filter.statuses().size())).append(")");
+			args.addAll(filter.statuses());
+		}
 		if (!filter.hiddenRoles().isEmpty()) {
 			sql.append(" AND NOT EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code IN (")
 					.append(placeholders(filter.hiddenRoles().size())).append("))");
@@ -138,7 +150,7 @@ class UserRepository {
 		return jdbc.query(sql.toString(), (rs, row) -> {
 			String codes = rs.getString("role_codes");
 			return new ListedUser(rs.getLong("id"), rs.getString("username"), rs.getString("status"),
-					codes == null ? List.of() : List.of(codes.split(",")));
+					codes == null ? List.of() : List.of(codes.split(",")), rs.getInt("tickets_in_progress"));
 		}, args.toArray());
 	}
 
@@ -199,6 +211,19 @@ class UserRepository {
 			pattern.append(c);
 		}
 		return pattern.toString();
+	}
+
+	/** A user by id, with a plain read: the preview of a change reads, and the change itself locks. */
+	Optional<UserRow> findById(long id) {
+		return jdbc.query("SELECT id, username, status, deleted, is_system FROM users WHERE id = ?",
+				(rs, row) -> new UserRow(rs.getLong("id"), rs.getString("username"), "ACTIVE".equals(rs.getString("status")),
+						rs.getBoolean("deleted"), rs.getBoolean("is_system")),
+				id).stream().findFirst();
+	}
+
+	/** The tickets assigned to the user that are in progress now, with a plain read, for the preview of a change of roles. */
+	int countTicketsInProgress(long userId) {
+		return jdbc.queryForObject("SELECT COUNT(*) FROM tickets WHERE assignee_id = ? AND status = 'IN_PROGRESS'", Integer.class, userId);
 	}
 
 	/** The codes of the roles the user holds, in the order of the codes. Call it with the user row locked. */

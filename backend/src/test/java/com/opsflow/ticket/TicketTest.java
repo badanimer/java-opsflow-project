@@ -178,7 +178,7 @@ class TicketTest extends TicketIntegrationSupport {
 		postAs("olive", "/tickets/" + id + "/take", null).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("IN_PROGRESS"))
 				.andExpect(jsonPath("$.assignee.username").value("olive")).andExpect(jsonPath("$.history[0].to.username").value("olive"));
 		assertThat(history(id)).hasSize(1);
-		assertThat(history(id).get(0)).containsEntry("to_user_id", olive).containsEntry("changed_by", olive).containsEntry("reason", null);
+		assertThat(history(id).get(0)).containsEntry("to_user_id", olive).containsEntry("changed_by", olive).containsEntry("reason", "Taken from the pool");
 		assertThat(history(id).get(0).get("from_user_id")).isNull();
 		assertThat(logs(id).get(1).get("remark")).isEqualTo("taken");
 
@@ -461,6 +461,49 @@ class TicketTest extends TicketIntegrationSupport {
 	}
 
 	@Test
+	void aUserWhoLosesEveryRoleThatMayTakeTicketsGivesBackTheTicketsInProgress() throws Exception {
+		long held = other(mary, "Held by olive");
+		long second = other(mary, "Also held by olive");
+		long done = other(mary, "Resolved by olive");
+		tickets.take(as(olive), held, null);
+		tickets.take(as(olive), second, null);
+		tickets.take(as(olive), done, null);
+		tickets.resolve(as(olive), done, "done", null);
+
+		getAs("adam", "/users/" + olive + "/role-change?roles=VIEWER").andExpect(status().isOk())
+				.andExpect(jsonPath("$.ticketsReturned").value(2));
+		getAs("adam", "/users/" + olive + "/role-change?roles=OPERATOR,VIEWER").andExpect(jsonPath("$.ticketsReturned").value(0));
+		assertThat(statusOf(held)).as("the preview changes nothing").isEqualTo("IN_PROGRESS");
+
+		mvc.perform(MockMvcRequestBuilders.put("/api/v1/users/" + olive + "/roles").header("Authorization", "Bearer " + token("adam"))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"roles\":[\"VIEWER\"],\"expectedRoles\":[\"OPERATOR\"]}"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.ticketsReturned").value(2));
+
+		for (long id : List.of(held, second)) {
+			assertThat(statusOf(id)).isEqualTo("OPEN");
+			assertThat(assigneeOf(id)).isNull();
+			assertThat(history(id).get(1)).containsEntry("from_user_id", olive).containsEntry("changed_by", systemIdentity())
+					.containsEntry("reason", "The assignee no longer has a role that may take tickets");
+			assertThat(logs(id).get(2)).containsEntry("action", "TICKET_RELEASED").containsEntry("operator_id", null);
+		}
+		assertThat(statusOf(done)).isEqualTo("RESOLVED");
+	}
+
+	@Test
+	void aUserWhoKeepsARoleThatMayTakeTicketsKeepsThem() throws Exception {
+		long held = other(olive, "Held by mary");
+		tickets.take(as(mary), held, null);
+
+		mvc.perform(MockMvcRequestBuilders.put("/api/v1/users/" + mary + "/roles").header("Authorization", "Bearer " + token("adam"))
+				.contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{\"roles\":[\"OPERATOR\"],\"expectedRoles\":[\"MANAGER\"]}"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.ticketsReturned").value(0));
+		assertThat(assigneeOf(held)).isEqualTo(mary);
+		getAs("adam", "/users/999999/role-change?roles=VIEWER").andExpect(status().isNotFound());
+		getAs("adam", "/users/" + olive + "/role-change?roles=NOBODY").andExpect(status().isBadRequest());
+		getAs("olive", "/users/" + mary + "/role-change?roles=VIEWER").andExpect(status().isForbidden());
+	}
+
+	@Test
 	void deletingAnItemCancelsItsLiveTicketsAndThePageNamesTheItem() throws Exception {
 		long paper = item("A4 paper", mary);
 		long open = onItems(olive, paper);
@@ -505,6 +548,53 @@ class TicketTest extends TicketIntegrationSupport {
 		// A ticket opened after the delisting stays.
 		long later = onItems(olive, paper);
 		assertThat(statusOf(later)).isEqualTo("OPEN");
+	}
+
+	// One item, and no row without a reason
+
+	@Test
+	void theTicketsOfOneItemAreFoundAndNoRowIsLeftWithoutAReason() throws Exception {
+		long paper = item("A4 paper", mary);
+		long pens = item("Pens", mary);
+		long onPaper = onItems(olive, paper);
+		onItems(olive, pens);
+
+		getAs("mary", "/tickets?status=OPEN&inventoryId=" + paper).andExpect(jsonPath("$.items[*].id").value(contains((int) onPaper)));
+		getAs("mary", "/tickets?status=OPEN&inventoryId=" + paper + "&source=MANUAL").andExpect(jsonPath("$.items.length()").value(1));
+		getAs("mary", "/tickets?status=OPEN&inventoryId=" + paper + "&ticketNo=" + numberOf(onPaper)).andExpect(status().isBadRequest());
+		getAs("olive", "/tickets?status=OPEN&inventoryId=" + paper).andExpect(status().isForbidden());
+
+		tickets.take(as(otto), onPaper, null);
+		tickets.resolve(as(otto), onPaper, "counted", null);
+		assertThat(history(onPaper).get(0)).containsEntry("reason", "Taken from the pool");
+		assertThat(logs(onPaper).get(0)).containsEntry("remark", "Opened on the ticket page");
+		assertThat(count("SELECT COUNT(*) FROM operation_logs WHERE remark IS NULL OR TRIM(remark) = ''")).as("no log row without a reason").isZero();
+		assertThat(count("SELECT COUNT(*) FROM ticket_assignment_history WHERE reason IS NULL OR TRIM(reason) = ''")).isZero();
+	}
+
+	@Test
+	void theUserPageShowsDeletedUsersOnRequestAndTheAccountRowsNameTheTicketsReturned() throws Exception {
+		long held = other(mary, "Held by olive");
+		tickets.take(as(olive), held, null);
+
+		getAs("adam", "/users?search=olive").andExpect(jsonPath("$.items[0].ticketsInProgress").value(1))
+				.andExpect(jsonPath("$.items[0].status").value("ACTIVE"));
+		postAs("adam", "/users/" + olive + "/disable", null).andExpect(status().isOk()).andExpect(jsonPath("$.ticketsReturned").value(1));
+		assertThat(root().queryForObject("SELECT CAST(after_data AS CHAR) FROM operation_logs WHERE action = 'USER_STATUS_CHANGED' AND target_id = ?",
+				String.class, olive)).contains("\"returnedTicketNos\": [\"" + numberOf(held) + "\"]");
+
+		getAs("adam", "/audit-records?area=ACCOUNT&aboutUserId=" + olive).andExpect(jsonPath("$.items.length()").value(1))
+				.andExpect(jsonPath("$.items[0].remark").value("Disabled on the user page"));
+		getAs("adam", "/audit-records?area=ACCOUNT&aboutUserId=" + otto).andExpect(jsonPath("$.items.length()").value(0));
+		getAs("adam", "/audit-records?area=TICKET&aboutUserId=" + olive).andExpect(status().isBadRequest());
+
+		mvc.perform(MockMvcRequestBuilders.delete("/api/v1/users/" + otto).header("Authorization", "Bearer " + token("adam")))
+				.andExpect(status().isNoContent());
+		getAs("adam", "/users").andExpect(jsonPath("$.items[*].username").value(org.hamcrest.Matchers.not(org.hamcrest.Matchers.hasItem("otto"))));
+		getAs("adam", "/users?status=DELETED").andExpect(jsonPath("$.items[*].username").value(contains("otto")))
+				.andExpect(jsonPath("$.items[0].status").value("DELETED"));
+		getAs("adam", "/users?status=DISABLED,DELETED").andExpect(jsonPath("$.items[*].username").value(contains("olive", "otto")));
+		getAs("adam", "/users?status=GONE").andExpect(status().isBadRequest());
 	}
 
 	// The user picker

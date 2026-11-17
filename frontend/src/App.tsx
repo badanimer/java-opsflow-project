@@ -1,7 +1,8 @@
-import { Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthProvider'
 import { GuestOnly, RequireNoRole, RequirePermission, RequireRole } from './auth/guards'
 import { AppLayout } from './components/AppLayout'
+import { AuditAreaPage, AuditMenuPage } from './pages/audit/AuditPages'
 import { ForgotPasswordPage } from './pages/account/ForgotPasswordPage'
 import { LoginPage } from './pages/account/LoginPage'
 import { PendingPage } from './pages/account/PendingPage'
@@ -12,6 +13,9 @@ import { ProductsPage } from './pages/products/ProductsPage'
 import { SignUpPage } from './pages/account/SignUpPage'
 import { NotFoundPage } from './pages/StatusPages'
 import { StockPage } from './pages/stock/StockPage'
+import { CreateTicketPage } from './pages/tickets/CreateTicketPage'
+import { TicketDetailPage } from './pages/tickets/TicketDetailPage'
+import { TicketListPage } from './pages/tickets/TicketListPage'
 import { UsersPage } from './pages/users/UsersPage'
 
 /**
@@ -38,7 +42,17 @@ export function App() {
           <Route path="stock/records/deleted" element={<RequirePermission permission="DELETED_ITEMS_VIEW"><DeletedItemsPage /></RequirePermission>} />
           <Route path="stock/records/deleted/:sku" element={<RequirePermission permission="DELETED_ITEMS_VIEW"><OwnLogPage key="deleted" kind="deleted" /></RequirePermission>} />
           <Route path="stock/:id/records" element={<RequirePermission permission="STOCK_VIEW"><OwnLogPage key="item" kind="item" /></RequirePermission>} />
+          <Route path="tickets" element={<Navigate to="/tickets/pool" replace />} />
+          <Route path="tickets/pool" element={<RequirePermission permission="TICKET_VIEW"><TicketListPage key="OPEN" status="OPEN" /></RequirePermission>} />
+          <Route path="tickets/in-progress" element={<RequirePermission permission="TICKET_VIEW"><TicketListPage key="IN_PROGRESS" status="IN_PROGRESS" /></RequirePermission>} />
+          <Route path="tickets/resolved" element={<RequirePermission permission="TICKET_VIEW"><TicketListPage key="RESOLVED" status="RESOLVED" /></RequirePermission>} />
+          <Route path="tickets/archive" element={<RequirePermission permission="TICKET_VIEW_ALL"><TicketListPage key="CLOSED" status="CLOSED" /></RequirePermission>} />
+          <Route path="tickets/cancelled" element={<RequirePermission permission="TICKET_VIEW"><TicketListPage key="CANCELLED" status="CANCELLED" /></RequirePermission>} />
+          <Route path="tickets/new" element={<RequirePermission permission="TICKET_CREATE"><CreateTicketPage /></RequirePermission>} />
+          <Route path="tickets/:id" element={<RequirePermission permission="TICKET_VIEW"><TicketDetailPage /></RequirePermission>} />
           <Route path="users" element={<RequirePermission permission="USER_VIEW"><UsersPage /></RequirePermission>} />
+          <Route path="audit" element={<RequirePermission permission="AUDIT_VIEW"><AuditMenuPage /></RequirePermission>} />
+          <Route path="audit/:area" element={<RequirePermission permission="AUDIT_VIEW"><AuditAreaPage /></RequirePermission>} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
