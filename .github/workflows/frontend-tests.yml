@@ -10,7 +10,9 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The tests drive whole pages of Ant Design in jsdom; on the two cores of a hosted runner they take
+    # more than 15 minutes since Phase 6 (290 tests), where a developer machine needs about 5.
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: frontend
