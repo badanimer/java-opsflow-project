@@ -20,6 +20,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.data.redis.core.RedisCallback;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.rabbitmq.RabbitMQContainer;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
@@ -46,7 +50,8 @@ import com.opsflow.common.mail.OutgoingMail;
  *
  * The clock of the application is a {@link MutableClock}: it shows the real time until a test sets it,
  * and it is set back before each test. The mail server is a {@link Mailbox}, which keeps the mails and
- * is emptied before each test. The scheduled jobs are off.
+ * is emptied before each test. The scheduled jobs are off. Redis runs in a container of its own and is
+ * emptied before each test too.
  */
 @SpringBootTest
 @Import({ MutableClock.Config.class, Mailbox.Config.class })
@@ -62,6 +67,12 @@ public abstract class MySqlIntegrationTest {
 	// One container for the whole test run. It is never closed here: Testcontainers removes it when the JVM exits.
 	@SuppressWarnings("resource")
 	private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4").withDatabaseName(DATABASE);
+	/** The Redis of the login counts of each address, also one for the whole run, emptied before each test. */
+	@SuppressWarnings("resource")
+	private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:8.0").withExposedPorts(6379);
+	/** The RabbitMQ of the mail queue, one for the whole run: every mail goes through it to the {@link Mailbox}. */
+	@SuppressWarnings("resource")
+	private static final RabbitMQContainer RABBITMQ = new RabbitMQContainer("rabbitmq:4.1");
 	private static final String MIGRATOR_PASSWORD = UUID.randomUUID().toString();
 	private static final String APP_PASSWORD = UUID.randomUUID().toString();
 	private static final String TOKEN_SIGNING_KEY = randomKey();
@@ -70,6 +81,8 @@ public abstract class MySqlIntegrationTest {
 	private static final JdbcTemplate ROOT;
 
 	static {
+		REDIS.start();
+		RABBITMQ.start();
 		MYSQL.start();
 		ROOT = new JdbcTemplate(new DriverManagerDataSource(jdbcUrl(), "root", MYSQL.getPassword()));
 		createAccounts();
@@ -94,7 +107,17 @@ public abstract class MySqlIntegrationTest {
 		registry.add("opsflow.jobs.enabled", () -> "false");
 		// The item images of the tests go to a folder of their own, never into the working folder.
 		registry.add("opsflow.warehouse.image-dir", () -> IMAGE_DIR.toString());
+		registry.add("spring.data.redis.host", REDIS::getHost);
+		registry.add("spring.data.redis.port", () -> REDIS.getMappedPort(6379));
+		registry.add("spring.rabbitmq.host", RABBITMQ::getHost);
+		registry.add("spring.rabbitmq.port", RABBITMQ::getAmqpPort);
+		registry.add("spring.rabbitmq.username", RABBITMQ::getAdminUsername);
+		registry.add("spring.rabbitmq.password", RABBITMQ::getAdminPassword);
 	}
+
+	/** The Redis of the application, for setting up and checking the login counts of an address. */
+	@Autowired
+	protected StringRedisTemplate redis;
 
 	/** The application account, with the limited rights of production. */
 	@Autowired
@@ -108,11 +131,11 @@ public abstract class MySqlIntegrationTest {
 	private Mailer mailer;
 
 	@Autowired
-	private Mailbox mailbox;
+	protected Mailbox mailbox;
 
 	/**
 	 * The mails the application has sent in this test, in order. The application sends in the background,
-	 * so this waits until the mailer has nothing left to send.
+	 * through the mail queue, so this waits until every mail handed over has left the queue.
 	 */
 	protected List<OutgoingMail> sentMail() {
 		if (!mailer.flush(Duration.ofSeconds(10))) {
@@ -134,6 +157,10 @@ public abstract class MySqlIntegrationTest {
 		emptyAllTables();
 		seed();
 		requireOnlyTheSeedRows();
+		redis.execute((RedisCallback<Object>) connection -> {
+			connection.serverCommands().flushDb();
+			return null;
+		});
 	}
 
 	/** The rows the seed migration puts back: the four roles and the SYSTEM identity. */

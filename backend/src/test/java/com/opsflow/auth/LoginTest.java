@@ -85,15 +85,18 @@ class LoginTest extends AuthIntegrationSupport {
 	}
 
 	@Test
-	void theFifthFailureLocksTheAccountForAMinuteAndALockedAccountIsRefusedWithoutACheck() throws Exception {
+	void theFifthFailureLocksTheAddressOutForAMinuteAndALockedAddressIsRefusedWithoutACheck() throws Exception {
 		clock.set(MIDDAY);
 		long alice = account("alice");
 
 		for (int i = 0; i < 5; i++) {
 			login("alice", WRONG).andExpect(status().isUnauthorized());
 		}
+		assertThat(addressFailures(alice, HOME)).isEqualTo(5);
+		assertThat(addressLockedUntil(alice, HOME)).isEqualTo(MIDDAY.plus(Duration.ofMinutes(1)));
+		// The failures of the day count in the user row too, and lock the account itself only at the ceiling.
 		assertThat(failedLoginCount(alice)).isEqualTo(5);
-		assertThat(lockedUntil(alice)).isEqualTo(MIDDAY.plus(Duration.ofMinutes(1)));
+		assertThat(lockedUntil(alice)).isNull();
 
 		// Locked: even the right password is refused, the answer says until when, and nothing is counted.
 		login("alice", PASSWORD)
@@ -101,27 +104,48 @@ class LoginTest extends AuthIntegrationSupport {
 				.andExpect(jsonPath("$.code").value("LOGIN_LOCKED"))
 				.andExpect(jsonPath("$.lockedUntil").value("2026-11-13T01:01:00Z"));
 		login("alice", WRONG).andExpect(status().isTooManyRequests());
+		assertThat(addressFailures(alice, HOME)).isEqualTo(5);
 		assertThat(failedLoginCount(alice)).isEqualTo(5);
 
-		// The lock is logged once, with nobody as the operator, because nobody is logged in.
+		// The lock is logged once, with nobody as the operator, because nobody is logged in, and names the address.
 		Map<String, Object> log = root().queryForMap(
-				"SELECT operator_id, category, target_type, CAST(after_data AS CHAR) AS after_data FROM operation_logs WHERE action = 'LOGIN_LOCKED' AND target_id = ?",
+				"SELECT operator_id, category, target_type, ip_address, remark, CAST(after_data AS CHAR) AS after_data FROM operation_logs WHERE action = 'LOGIN_LOCKED' AND target_id = ?",
 				alice);
 		assertThat(log.get("operator_id")).isNull();
 		assertThat(log.get("category")).isEqualTo("ACCOUNT");
 		assertThat(log.get("target_type")).isEqualTo("USER");
+		assertThat(log.get("ip_address")).isEqualTo(HOME);
+		assertThat(log.get("remark")).isEqualTo(LoginRecorder.ADDRESS_LOCKED);
 		assertThat((String) log.get("after_data")).contains("\"failedAttempts\": 5", "\"username\": \"alice\"",
-				"\"lockedUntil\": \"2026-11-13T01:01:00Z\"");
+				"\"lockedUntil\": \"2026-11-13T01:01:00Z\"", "\"lockedAddress\": \"127.0.0.1\"");
 
-		// When the minute is over, the right password works and clears the count and the lock.
+		// When the minute is over, the right password works and clears the count of this address.
 		clock.advance(Duration.ofSeconds(61));
 		login("alice", PASSWORD).andExpect(status().isOk());
-		assertThat(failedLoginCount(alice)).isZero();
+		assertThat(addressFailures(alice, HOME)).isZero();
+		assertThat(addressLockedUntil(alice, HOME)).isNull();
+	}
+
+	/** The point of counting by address: a stranger who types wrong passwords locks out only themselves. */
+	@Test
+	void aStrangerWhoLocksTheirOwnAddressDoesNotLockTheOwnerOut() throws Exception {
+		clock.set(MIDDAY);
+		long alice = account("alice");
+
+		for (int i = 0; i < 20; i++) {
+			loginFrom("203.0.113.66", "alice", WRONG);
+			clock.advance(Duration.ofMinutes(16));
+		}
+		loginFrom("203.0.113.66", "alice", PASSWORD).andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+
+		loginFrom("10.0.0.7", "alice", PASSWORD).andExpect(status().isOk());
+		assertThat(addressLockedUntil(alice, "10.0.0.7")).isNull();
 		assertThat(lockedUntil(alice)).isNull();
 	}
 
 	@Test
-	void theLockGrowsAtTenFifteenAndTwentyFailures() throws Exception {
+	void theLockOfAnAddressGrowsAtTenFifteenAndTwentyFailures() throws Exception {
 		clock.set(MIDDAY);
 		long alice = account("alice");
 		Instant nextMidnight = ZonedDateTime.of(2026, 11, 14, 0, 0, 0, 0, SYDNEY).toInstant();
@@ -129,6 +153,7 @@ class LoginTest extends AuthIntegrationSupport {
 		for (int failure = 1; failure <= 20; failure++) {
 			Instant now = clock.instant();
 			login("alice", WRONG).andExpect(status().isUnauthorized());
+			assertThat(addressFailures(alice, HOME)).isEqualTo(failure);
 			assertThat(failedLoginCount(alice)).isEqualTo(failure);
 
 			Instant expected = switch (failure) {
@@ -138,7 +163,9 @@ class LoginTest extends AuthIntegrationSupport {
 				case 20 -> nextMidnight;
 				default -> null;
 			};
-			assertThat(lockedUntil(alice)).as("after failure %s", failure).isEqualTo(expected);
+			if (expected != null) {
+				assertThat(addressLockedUntil(alice, HOME)).as("after failure %s", failure).isEqualTo(expected);
+			}
 			if (expected != null && failure < 20) {
 				clock.set(expected.plusSeconds(1));
 			}
@@ -150,11 +177,12 @@ class LoginTest extends AuthIntegrationSupport {
 		login("alice", PASSWORD).andExpect(status().isTooManyRequests());
 		clock.set(nextMidnight.plusSeconds(1));
 		login("alice", WRONG).andExpect(status().isUnauthorized());
+		assertThat(addressFailures(alice, HOME)).isEqualTo(1);
 		assertThat(failedLoginCount(alice)).isEqualTo(1);
 	}
 
 	@Test
-	void theCountStartsAgainAtMidnightInSydney() throws Exception {
+	void theCountsStartAgainAtMidnightInSydney() throws Exception {
 		Instant midnight = ZonedDateTime.of(2026, 11, 14, 0, 0, 0, 0, SYDNEY).toInstant();
 		long alice = account("alice");
 
@@ -168,19 +196,71 @@ class LoginTest extends AuthIntegrationSupport {
 		clock.set(midnight.plus(Duration.ofMinutes(10)));
 		login("alice", WRONG).andExpect(status().isUnauthorized());
 		assertThat(failedLoginCount(alice)).isEqualTo(1);
-		assertThat(lockedUntil(alice)).isNull();
+		assertThat(addressFailures(alice, HOME)).isEqualTo(1);
+		assertThat(addressLockedUntil(alice, HOME)).isNull();
 	}
 
 	@Test
-	void theRightPasswordClearsTheCount() throws Exception {
+	void theRightPasswordClearsTheCountOfItsAddressButNotTheFailuresOfTheDay() throws Exception {
 		long alice = account("alice");
-		login("alice", WRONG).andExpect(status().isUnauthorized());
-		login("alice", WRONG).andExpect(status().isUnauthorized());
-		assertThat(failedLoginCount(alice)).isEqualTo(2);
+		for (int i = 0; i < 4; i++) {
+			login("alice", WRONG).andExpect(status().isUnauthorized());
+		}
 
 		login("alice", PASSWORD).andExpect(status().isOk());
 
-		assertThat(failedLoginCount(alice)).isZero();
+		assertThat(addressFailures(alice, HOME)).isZero();
+		// One more wrong password is the first of this address again, so it locks nothing.
+		login("alice", WRONG).andExpect(status().isUnauthorized());
+		assertThat(addressLockedUntil(alice, HOME)).isNull();
+		assertThat(failedLoginCount(alice)).isEqualTo(5);
+	}
+
+	/** Guessing from many addresses: the failures of the day from every address lock the account itself. */
+	@Test
+	void theFailuresOfTheDayFromEveryAddressLockTheAccountUntilMidnightAtTheCeiling() throws Exception {
+		clock.set(MIDDAY);
+		long alice = account("alice");
+		Instant nextMidnight = ZonedDateTime.of(2026, 11, 14, 0, 0, 0, 0, SYDNEY).toInstant();
+		root().update("UPDATE users SET failed_login_count = 99, last_failed_login_at = ? WHERE id = ?",
+				com.opsflow.common.time.UtcTime.toLocalDateTime(MIDDAY.minusSeconds(60)), alice);
+
+		loginFrom("198.51.100.4", "alice", WRONG).andExpect(status().isUnauthorized());
+
+		assertThat(failedLoginCount(alice)).isEqualTo(100);
+		assertThat(lockedUntil(alice)).isEqualTo(nextMidnight);
+		Map<String, Object> log = root().queryForMap(
+				"SELECT remark, CAST(after_data AS CHAR) AS after_data FROM operation_logs WHERE action = 'LOGIN_LOCKED' AND target_id = ?", alice);
+		assertThat(log.get("remark")).isEqualTo(LoginRecorder.ACCOUNT_LOCKED);
+		assertThat((String) log.get("after_data")).contains("\"failedAttempts\": 100").doesNotContain("lockedAddress");
+
+		// Every address is refused now, the owner's too, until midnight or a password reset.
+		loginFrom("10.0.0.7", "alice", PASSWORD).andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("LOGIN_LOCKED"));
+		clock.set(nextMidnight.plusSeconds(1));
+		loginFrom("10.0.0.7", "alice", PASSWORD).andExpect(status().isOk());
+	}
+
+	/** Trying many usernames from one address: the address is refused for the rest of the window. */
+	@Test
+	void anAddressWithTooManyFailuresOnAnyUsernameIsRefusedUntilTheWindowEnds() throws Exception {
+		clock.set(MIDDAY);
+		account("alice");
+		String address = "192.0.2.9";
+		for (int i = 0; i < 49; i++) {
+			loginFrom(address, "nobody" + i, WRONG).andExpect(status().isUnauthorized());
+		}
+		loginFrom(address, "alice", WRONG).andExpect(status().isUnauthorized());
+
+		// The fiftieth failure of the window: the address is refused before anything else, whatever it sends.
+		loginFrom(address, "alice", PASSWORD).andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("TOO_MANY_REQUESTS"));
+		loginFrom(address, "nobody", WRONG).andExpect(status().isTooManyRequests());
+		loginFrom("10.0.0.7", "alice", PASSWORD).andExpect(status().isOk());
+
+		// The window is 15 minutes long; the next one starts clean.
+		clock.advance(Duration.ofMinutes(15));
+		loginFrom(address, "alice", PASSWORD).andExpect(status().isOk());
 	}
 
 	@Test

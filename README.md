@@ -38,6 +38,10 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-18 | 1.12 | Backend | Redis and RabbitMQ brought in (Q-07): the login counts of each client address in Redis, and the mail through a durable RabbitMQ queue with three tries and dead letters; both optional at run time | [backend-v1.12.md](docs/iterations/backend-v1.12.md) |
+| 2026-11-18 | 1.18 | Database | The login lockout counts by client address: the steps lock one address out of one account, the account itself is locked at 100 failures a day, and one address is refused after 50 failures in 15 minutes | [database-v1.18.md](docs/iterations/database-v1.18.md) |
+| 2026-11-18 | 1.10 | API | `LOGIN_LOCKED` and `TOO_MANY_REQUESTS` cover the locks and the limit of a client address at login | [api-v1.10.md](docs/iterations/api-v1.10.md) |
+| 2026-11-18 | 1.10 | Frontend | The login page and the audit rows follow the lockout by client address | [frontend-v1.10.md](docs/iterations/frontend-v1.10.md) |
 | 2026-11-17 | 1.17 | Database | A user who loses every role that may take tickets gives back the tickets in progress, with a warning in Change roles; the Phase 6 changes to the database design recorded | [database-v1.17.md](docs/iterations/database-v1.17.md) |
 | 2026-11-16 | 1.9 | Frontend | Phase 6: the five ticket screens with the search and the batch archive, the ticket detail and its actions, Create ticket, and the audit log page | [frontend-v1.9.md](docs/iterations/frontend-v1.9.md) |
 | 2026-11-16 | 1.11 | Backend | Phase 6: the ticket module with its changes, limits, races, archive job, and the cascades of the user and warehouse modules; the user picker; the audit log page | [backend-v1.11.md](docs/iterations/backend-v1.11.md) |

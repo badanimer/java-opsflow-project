@@ -55,19 +55,24 @@ class PasswordResetTest extends AuthIntegrationSupport {
 	}
 
 	@Test
-	void aResetClearsTheLockOfFailedLogins() throws Exception {
+	void aResetClearsTheLocksOfFailedLoginsAtEveryAddress() throws Exception {
 		clock.set(NOW);
 		long alice = account("alice");
-		for (int i = 0; i < 5; i++) {
-			login("alice", WRONG).andExpect(status().isUnauthorized());
+		for (String address : new String[] { HOME, "10.0.0.7" }) {
+			for (int i = 0; i < 5; i++) {
+				loginFrom(address, "alice", WRONG).andExpect(status().isUnauthorized());
+			}
+			loginFrom(address, "alice", PASSWORD).andExpect(status().isTooManyRequests());
 		}
-		login("alice", PASSWORD).andExpect(status().isTooManyRequests());
 
 		resetPasswordWith(EMAIL, codeFor(EMAIL, "RESET_PASSWORD"), NEW_PASSWORD).andExpect(status().isNoContent());
 
 		assertThat(failedLoginCount(alice)).isZero();
 		assertThat(lockedUntil(alice)).isNull();
+		assertThat(addressLockedUntil(alice, HOME)).isNull();
+		assertThat(addressFailures(alice, "10.0.0.7")).isZero();
 		login("alice", NEW_PASSWORD).andExpect(status().isOk());
+		loginFrom("10.0.0.7", "alice", NEW_PASSWORD).andExpect(status().isOk());
 	}
 
 	/** The code is right, so the person may be told. The code is not used up. */

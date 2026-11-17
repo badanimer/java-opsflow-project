@@ -146,9 +146,32 @@ abstract class AuthIntegrationSupport extends MySqlIntegrationTest {
 				action, userId);
 	}
 
+	/** The address of a login that names none: the address MockMvc gives a request. */
+	static final String HOME = "127.0.0.1";
+
 	ResultActions login(String username, String password) throws Exception {
+		return loginFrom(HOME, username, password);
+	}
+
+	/** Logs in as the client at this address. */
+	ResultActions loginFrom(String ipAddress, String username, String password) throws Exception {
 		String body = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
-		return mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body));
+		return mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON).content(body).with(request -> {
+			request.setRemoteAddr(ipAddress);
+			return request;
+		}));
+	}
+
+	/** Until when this address is locked out of the account, as Redis holds it; null when it is not. */
+	Instant addressLockedUntil(long userId, String ipAddress) {
+		String value = redis.opsForValue().get(LoginLimits.lockKey(userId, ipAddress));
+		return value == null ? null : Instant.ofEpochMilli(Long.parseLong(value));
+	}
+
+	/** The failures of the account from this address today, as Redis counts them. */
+	int addressFailures(long userId, String ipAddress) {
+		Object count = redis.opsForHash().get(LoginLimits.countKey(userId, ipAddress), "count");
+		return count == null ? 0 : Integer.parseInt((String) count);
 	}
 
 	/** Logs in and returns the token. */

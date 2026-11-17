@@ -88,18 +88,42 @@ public class LoginRecorder {
 		return new Outcome(Kind.SUCCESS, null, issueTime(account, now), sessionId);
 	}
 
+	/**
+	 * Counts the failure of the day from every address, and locks the account itself until midnight when the
+	 * count reaches the ceiling. The lock of one address, kept in Redis, is the step of {@link LoginService}.
+	 */
 	private void recordFailure(Account account, Instant now, String ipAddress) {
-		int failures = lockPolicy.failuresInARow(account.failedLoginCount(), account.lastFailedLoginAt(), now) + 1;
-		Instant lockedUntil = lockPolicy.lockAfter(failures, now).orElse(null);
+		int failures = lockPolicy.failuresToday(account.failedLoginCount(), account.lastFailedLoginAt(), now) + 1;
+		Instant lockedUntil = lockPolicy.accountLockAfter(failures, now).orElse(null);
 		repository.recordFailure(account.id(), failures, now, lockedUntil);
 		if (lockedUntil != null) {
-			Map<String, Object> after = new LinkedHashMap<>();
-			after.put("failedAttempts", failures);
-			after.put("lockedUntil", lockedUntil.toString());
-			after.put("username", account.username());
-			// Nobody is logged in, so the row has no operator.
-			audit.write(AuditAction.LOGIN_LOCKED, null, AuditLogWriter.TARGET_USER, account.id(), null, after, ipAddress, null);
+			writeLock(account.id(), account.username(), failures, lockedUntil, null, ipAddress, ACCOUNT_LOCKED);
 		}
+	}
+
+	/**
+	 * Logs that one address was locked out of an account, after the failure was counted in Redis. It has a
+	 * transaction of its own, because the failure itself committed before Redis counted it.
+	 */
+	@Transactional
+	public void recordAddressLock(long userId, String username, int failures, Instant lockedUntil, String ipAddress) {
+		writeLock(userId, username, failures, lockedUntil, ipAddress, ipAddress, ADDRESS_LOCKED);
+	}
+
+	static final String ACCOUNT_LOCKED = "Locked for every address after the failed logins of the day";
+	static final String ADDRESS_LOCKED = "Locked for one address after failed logins from it";
+
+	private void writeLock(long userId, String username, int failures, Instant lockedUntil, String lockedAddress, String ipAddress,
+			String remark) {
+		Map<String, Object> after = new LinkedHashMap<>();
+		after.put("failedAttempts", failures);
+		after.put("lockedUntil", lockedUntil.toString());
+		if (lockedAddress != null) {
+			after.put("lockedAddress", lockedAddress);
+		}
+		after.put("username", username);
+		// Nobody is logged in, so the row has no operator.
+		audit.write(AuditAction.LOGIN_LOCKED, null, AuditLogWriter.TARGET_USER, userId, null, after, ipAddress, remark);
 	}
 
 	/**

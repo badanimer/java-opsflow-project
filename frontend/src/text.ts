@@ -683,6 +683,7 @@ export const TEXT = {
       failedAttempts: 'Failed attempts',
       lockedUntil: 'Locked until',
       lockCleared: 'Lock cleared',
+      lockedAddress: 'Locked for address',
       passwordChangedAt: 'Password changed',
     } as Record<string, string>,
     yes: 'Yes',

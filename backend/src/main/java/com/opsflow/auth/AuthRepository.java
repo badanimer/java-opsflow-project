@@ -66,10 +66,13 @@ class AuthRepository {
 				failedLoginCount, UtcTime.toLocalDateTime(at), UtcTime.toLocalDateTime(lockedUntil), id);
 	}
 
-	/** Called with the row locked. The new session id ends every earlier login of the account. */
+	/**
+	 * Called with the row locked. The new session id ends every earlier login of the account. The count of the
+	 * failures of the day stays: it is the ceiling against guessing from many addresses, and only a password
+	 * reset clears it.
+	 */
 	void recordSuccess(long id, Instant at, String sessionId) {
-		jdbc.update("UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ?, session_id = ? WHERE id = ?",
-				UtcTime.toLocalDateTime(at), sessionId, id);
+		jdbc.update("UPDATE users SET last_login_at = ?, session_id = ? WHERE id = ?", UtcTime.toLocalDateTime(at), sessionId, id);
 	}
 
 	/** The id of the newest login of the account, read without a lock: null when it has none. */

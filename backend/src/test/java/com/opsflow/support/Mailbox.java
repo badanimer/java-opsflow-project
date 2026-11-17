@@ -30,10 +30,19 @@ public final class Mailbox implements MailTransport {
 	}
 
 	private final List<OutgoingMail> mails = new CopyOnWriteArrayList<>();
+	private volatile boolean refusing;
 
 	@Override
 	public void send(OutgoingMail mail) {
+		if (refusing) {
+			throw new IllegalStateException("550 the test mail server refuses every mail");
+		}
 		mails.add(mail);
+	}
+
+	/** From now on the mail server refuses every mail, as a server that is down would, until the next test. */
+	public void refuseEveryMail() {
+		refusing = true;
 	}
 
 	List<OutgoingMail> mails() {
@@ -42,6 +51,7 @@ public final class Mailbox implements MailTransport {
 
 	void clear() {
 		mails.clear();
+		refusing = false;
 	}
 
 }

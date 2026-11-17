@@ -14,6 +14,25 @@ spring:
   flyway:
     user: ${OPSFLOW_MIGRATION_USERNAME}
     password: ${OPSFLOW_MIGRATION_PASSWORD}
+  # Redis keeps the login counts of each client address (see Login security in the database design). The
+  # timeouts are short: when Redis does not answer, the login goes on without those limits.
+  data:
+    redis:
+      host: ${OPSFLOW_REDIS_HOST:127.0.0.1}
+      port: ${OPSFLOW_REDIS_PORT:6379}
+      password: ${OPSFLOW_REDIS_PASSWORD:}
+      timeout: 500ms
+      connect-timeout: 500ms
+  # RabbitMQ holds the mails until they are sent (see Mail in the backend design). The broker confirms each
+  # mail it takes. Without the variables, the default local account of RabbitMQ is used, which RabbitMQ lets
+  # in from this machine only.
+  rabbitmq:
+    host: ${OPSFLOW_RABBITMQ_HOST:127.0.0.1}
+    port: ${OPSFLOW_RABBITMQ_PORT:5672}
+    username: ${OPSFLOW_RABBITMQ_USERNAME:guest}
+    password: ${OPSFLOW_RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: simple
+    connection-timeout: 2s
 
 # Every log line of a request carries the id of the request, set by RequestIdFilter.
 logging:
@@ -30,12 +49,15 @@ opsflow:
     product-page-size: 16 # the product page when it asks for no size; the person chooses 8, 16, or 24
     product-page-max: 24  # the most cards a page of the product page may ask for
   login:
-    lock-steps:           # failures in a row: how long the account is locked
+    lock-steps:           # failures of one account from one client address: how long that address is locked out of it
       5: 1m
       10: 5m
       15: 15m
-    lock-until-midnight-at: 20   # failures in a row that lock the account until midnight
-    reset-zone: Australia/Sydney # the midnight at which the failure count starts again
+    lock-until-midnight-at: 20     # failures of one account from one address that lock that address out until midnight
+    reset-zone: Australia/Sydney   # the midnight at which the failure counts start again
+    account-failures-per-day: 100  # failures of one account from every address in a day that lock it until midnight
+    address-failures: 50           # failures of one client address, on any username, in one window
+    address-window: 15m            # the window of address-failures
   email-code:
     ttl: 10m                       # a code is valid this long
     max-wrong-entries: 5           # wrong entries after which a code is dead
@@ -78,6 +100,7 @@ opsflow:
     username: ${OPSFLOW_MAIL_USERNAME:}
     password: ${OPSFLOW_MAIL_PASSWORD:}
     from: ${OPSFLOW_MAIL_FROM:}    # the sender address; the username when empty
+    queue-ttl: 10m                 # a mail expires in the mail queue after this, like the code it holds
   token:
     ttl: 12h              # a login token lasts this long; there is no refresh token
   # The key that signs the login tokens: Base64 of at least 32 random bytes. It is a secret, so it

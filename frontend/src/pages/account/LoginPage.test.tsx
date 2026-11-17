@@ -42,6 +42,7 @@ describe('the login page', () => {
   it.each([
     ['a wrong username or password', problem(401, 'UNAUTHENTICATED'), TEXT.wrongCredentials],
     ['a locked account', problem(429, 'LOGIN_LOCKED', { lockedUntil: '2026-11-13T03:32:00Z' }), TEXT.locked],
+    ['an address with too many failures', problem(429, 'TOO_MANY_REQUESTS'), TEXT.tooManyRequests],
     ['a disabled account', problem(403, 'ACCOUNT_DISABLED'), TEXT.disabled],
     ['a fault of the server', problem(500, 'INTERNAL_ERROR'), TEXT.somethingWrong('ddddc8f3b64942ff')],
     ['a busy server', problem(503, 'BUSY'), TEXT.somethingWrong('ddddc8f3b64942ff')],

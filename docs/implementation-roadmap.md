@@ -22,9 +22,9 @@ It does not replace the to-do list. The tasks, their rules, and their details st
 | 3 | Done in the backend: roles and permissions. The console command that creates an administrator, the permission check of the endpoints, the test of the package dependencies, the four changes one user makes to another, and the user page. The frontend of the phase is built and checked by the owner | |
 | 4 | Done: warehouse items, their pictures, and products, with the product page and the first part of the stock page, checked by the owner | |
 | 5 | Done: orders, the three stock changes, the two logs with the time filter, the picker, and Deleted items, in the backend and the frontend, checked by the owner | |
-| 6 | Tickets | T-14, T-40, T-33, T-35, T-44, T-47, T-48, T-50 |
-| 7 | Frontend. Started beside the backend, with the account pages | Q-34, T-27, T-30, T-37 |
-| 8 | Hardening and the rest | T-17, T-34, Q-07, T-08, Q-32, Q-28 |
+| 6 | Done: tickets, their screens and search, the cascades of the user and warehouse modules, and the audit log page, in the backend and the frontend, checked by the owner | |
+| 7 | Frontend. Started beside the backend, with the account pages; every page is built. Left: the one open detail of the page design | Q-34, T-27 |
+| 8 | Hardening and the rest. Started 2026-11-18: Redis and RabbitMQ are in (Q-07) | T-17, T-34, Q-32, Q-28 |
 
 ## Every Phase
 
@@ -153,7 +153,7 @@ It is built beside the backend and grows one module at a time as each backend pa
 | --- | --- |
 | Q-34 | The visual design: every page is drawn and built; one open detail is left in the [page design](frontend/page-design.md#open-details) |
 | T-27 | Hide the controls the user cannot use |
-| T-30 | The plus and minus for operators, and Save enabled only when the quantity and the reason are filled in |
+| T-30 | Done ([frontend-v1.8.md](iterations/frontend-v1.8.md)): the plus and minus for operators, and Save enabled only when the quantity and the reason are filled in |
 | T-37 | Done ([frontend-v1.9.md](iterations/frontend-v1.9.md)): the ticket list order, system tickets first in either direction |
 
 **Decisions needed:** the review of each drawn page before it is built. The account pages are reviewed and built.
@@ -165,7 +165,7 @@ It is built beside the backend and grows one module at a time as each backend pa
 | Task | What |
 | --- | --- |
 | T-17, T-34 | Repeat the concurrency checks for tickets, roles, and authentication against the real code, and check that the test log matches the code |
-| Q-07, T-08 | Redis for idempotency and rate limiting, and RabbitMQ for asynchronous work, if they are brought in. T-08 follows with the RabbitMQ variables |
+| Q-07, T-08 | Done ([backend-v1.12.md](iterations/backend-v1.12.md)): Redis for the login counts of each client address, and RabbitMQ for the mail queue, with their variables. Idempotency stays in MySQL |
 | Q-32 | The deployment plan, with the counters, the health check, and the question of more than one instance. The tests already run in continuous integration |
 | Q-28 | How the creator and the assignee are told that a ticket was cancelled |
 | | The README and the documentation brought up to the finished system |

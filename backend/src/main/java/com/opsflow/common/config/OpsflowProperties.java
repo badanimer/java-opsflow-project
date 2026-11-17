@@ -101,8 +101,9 @@ public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Pag
 	 * The mail server. Without a host or without a password no mail is sent.
 	 *
 	 * @param from the sender address; the username when empty
+	 * @param queueTtl how long a mail waits in the mail queue before it expires there; a code it holds is of no use later
 	 */
-	public record Mail(String host, @Min(1) int port, String username, String password, String from) {
+	public record Mail(String host, @Min(1) int port, String username, String password, String from, @NotNull Duration queueTtl) {
 
 		public boolean configured() {
 			return host != null && !host.isBlank() && password != null && !password.isBlank();
@@ -124,14 +125,21 @@ public record OpsflowProperties(@NotNull @Valid Retry retry, @NotNull @Valid Pag
 	}
 
 	/**
-	 * The lockout after wrong passwords (T-28).
+	 * The lockout after wrong passwords (T-28, Q-07).
 	 *
-	 * @param lockSteps the number of failures in a row that locks the account, and for how long
-	 * @param lockUntilMidnightAt the number of failures in a row from which the account is locked until midnight
-	 * @param resetZone the time zone of the midnight at which the count of failures starts again
+	 * @param lockSteps the failures of one account from one client address in a day that lock that address out
+	 *     of the account, and for how long
+	 * @param lockUntilMidnightAt the failures of one account from one address from which that address is locked
+	 *     out until midnight
+	 * @param resetZone the time zone of the midnight at which the counts of failures start again
+	 * @param accountFailuresPerDay the failures of one account from every address in a day that lock the account
+	 *     itself until midnight
+	 * @param addressFailures the failures of one client address, on any username, in one window, after which the
+	 *     address is refused until the window ends
+	 * @param addressWindow the window of {@code addressFailures}
 	 */
 	public record Login(@NotEmpty Map<@Min(1) Integer, @NotNull Duration> lockSteps, @Min(1) int lockUntilMidnightAt,
-			@NotNull ZoneId resetZone) {
+			@NotNull ZoneId resetZone, @Min(1) int accountFailuresPerDay, @Min(1) int addressFailures, @NotNull Duration addressWindow) {
 	}
 
 	/** @param ttl how long a login token is valid after it was issued */

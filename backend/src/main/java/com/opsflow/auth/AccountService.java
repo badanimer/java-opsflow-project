@@ -32,10 +32,12 @@ public class AccountService {
 	private final AuthRepository repository;
 	private final TransactionRetry retry;
 	private final TokenService tokens;
+	private final LoginLimits limits;
 
 	AccountService(EmailCodeService codes, PasswordHasher hasher, AccountWriter writer, AuthRepository repository,
-			TransactionRetry retry, TokenService tokens) {
+			TransactionRetry retry, TokenService tokens, LoginLimits limits) {
 		this.codes = codes;
+		this.limits = limits;
 		this.hasher = hasher;
 		this.writer = writer;
 		this.repository = repository;
@@ -71,6 +73,8 @@ public class AccountService {
 		if (!done) {
 			throw EmailCodeService.invalidCode();
 		}
+		// The owner proved the address, so every address locked out of the account may try again.
+		limits.clearAccount(account.id());
 	}
 
 }

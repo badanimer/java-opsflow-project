@@ -131,9 +131,12 @@ class LoginRaceTest extends AuthIntegrationSupport {
 		assertThat(lastLoginAt(alice)).isNull();
 	}
 
-	/** Five threads, released together, each with a wrong password: every one counts, and the fifth locks. */
+	/**
+	 * Five threads, released together, each with a wrong password from the same address: every one counts, in
+	 * the user row and in Redis, and exactly one of them is the fifth, which locks the address and logs it.
+	 */
 	@Test
-	void wrongPasswordsAtTheSameMomentAreAllCountedAndLockTheAccountOnce() {
+	void wrongPasswordsAtTheSameMomentAreAllCountedAndLockTheAddressOnce() {
 		clock.set(NOW);
 		long alice = account("alice");
 
@@ -142,7 +145,31 @@ class LoginRaceTest extends AuthIntegrationSupport {
 
 		assertThat(outcomes).allSatisfy(outcome -> assertThat(outcome.value()).as("outcome %s", outcome).isEqualTo(401));
 		assertThat(failedLoginCount(alice)).isEqualTo(5);
-		assertThat(lockedUntil(alice)).isEqualTo(NOW.plus(Duration.ofMinutes(1)));
+		assertThat(addressFailures(alice, HOME)).isEqualTo(5);
+		assertThat(addressLockedUntil(alice, HOME)).isEqualTo(NOW.plus(Duration.ofMinutes(1)));
+		assertThat(lockRows(alice)).isEqualTo(1);
+	}
+
+	/**
+	 * Two failures at the ceiling of the day at once, from two addresses: the user row is locked by each in
+	 * turn. The first makes the count 100 and locks the account; the second then finds the lock, before or
+	 * under the row lock, and is refused without being counted. One lock, one log row.
+	 */
+	@Test
+	void twoFailuresAtTheCeilingAtOnceLockTheAccountOnce() {
+		clock.set(NOW);
+		long alice = account("alice");
+		root().update("UPDATE users SET failed_login_count = 99, last_failed_login_at = ? WHERE id = ?",
+				java.time.LocalDateTime.of(2026, 11, 13, 0, 59), alice);
+		String[] addresses = { "198.51.100.1", "198.51.100.2" };
+		java.util.concurrent.atomic.AtomicInteger next = new java.util.concurrent.atomic.AtomicInteger();
+
+		List<RaceRunner.Outcome<Integer>> outcomes = RaceRunner.run(2,
+				() -> loginFrom(addresses[next.getAndIncrement()], "alice", WRONG).andReturn().getResponse().getStatus());
+
+		assertThat(outcomes).extracting(RaceRunner.Outcome::value).containsExactlyInAnyOrder(401, 429);
+		assertThat(failedLoginCount(alice)).isEqualTo(100);
+		assertThat(lockedUntil(alice)).isNotNull();
 		assertThat(lockRows(alice)).isEqualTo(1);
 	}
 

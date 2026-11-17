@@ -164,15 +164,7 @@ Restart-Service Redis
 & "C:\Users\Admin\AppData\Local\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork_Microsoft.Winget.Source_8wekyb3d8bbwe\Redis-8.10.1-Windows-x64-msys2\redis-cli.exe" -h 127.0.0.1 -p 6379 PING
 ```
 
-Reference Spring Boot configuration:
-```yaml
-spring:
-  data:
-    redis:
-      host: 127.0.0.1
-      port: 6379
-      database: 0
-```
+The backend uses Redis since 2026-11-18 for the login counts of each client address (see [Login security](docs/database/database-design.md#login-security-and-account-recovery)). It reads `OPSFLOW_REDIS_HOST`, `OPSFLOW_REDIS_PORT`, and `OPSFLOW_REDIS_PASSWORD` (section 3), and needs none of them on this machine. When Redis is stopped, logins still work, without the limits of each address.
 
 ### 2.5 RabbitMQ 4.3.5
 
@@ -198,16 +190,7 @@ rabbitmqctl status
 rabbitmqctl list_queues
 ```
 
-Reference Spring Boot configuration:
-```yaml
-spring:
-  rabbitmq:
-    host: 127.0.0.1
-    port: 5672
-    username: ${RABBITMQ_USERNAME:guest}
-    password: ${RABBITMQ_PASSWORD}
-    virtual-host: /
-```
+The backend uses RabbitMQ since 2026-11-18 for the mail queue `opsflow.mail` and its dead letters `opsflow.mail.dead` (see [Mail](docs/backend/backend-design.md#mail)). It reads `OPSFLOW_RABBITMQ_HOST`, `OPSFLOW_RABBITMQ_PORT`, `OPSFLOW_RABBITMQ_USERNAME`, and `OPSFLOW_RABBITMQ_PASSWORD` (section 3). On this machine none is needed: without them the backend uses the default local account. `rabbitmqctl list_queues` shows the two queues after the first start. When RabbitMQ is stopped, mail is still sent, at once and without the queue.
 
 ⚠️ **A pitfall during installation**: the Erlang installed first through winget was 29.0.6, which is incompatible with RabbitMQ 4.3.x. RabbitMQ 4.3.x officially supports Erlang 27.x, partly supports 28.x, and does not support 29.x. At startup it failed with `incompatible_feature_flags` and `horus extraction_denied` errors. After uninstalling Erlang 29 and installing Erlang 27.3.4.17, it worked. **Before upgrading Erlang in the future, check the [RabbitMQ compatibility table](https://www.rabbitmq.com/docs/which-erlang).**
 
@@ -217,7 +200,7 @@ spring:
 - On 2026-11-04 the WSL default version was 2, a `docker-desktop` distribution existed, and after starting Docker Desktop, `docker run --rm hello-world` ran correctly (Docker engine 29.7.2).
 - Docker Desktop does not start with Windows. Start it before running the integration tests, which use Testcontainers to create a temporary MySQL 8.4 (see [OpsFlow Backend](docs/backend/backend-design.md#tests)).
 - The WSL2 virtual machine takes memory. To limit it, create `%UserProfile%\.wslconfig` with a `[wsl2]` section and a `memory=` line.
-- MySQL, Redis, and RabbitMQ stay as native Windows services (decided on 2026-11-04). Docker is used only for the temporary MySQL of the tests.
+- MySQL, Redis, and RabbitMQ stay as native Windows services for development (decided on 2026-11-04). Docker is used for the temporary MySQL, Redis, and RabbitMQ of the tests.
 
 ---
 
@@ -254,8 +237,10 @@ Real credentials live in environment variables and never in the repository. The 
 | `OPSFLOW_MAIL_USERNAME` | The address of the Gmail account made for OpsFlow | With the host |
 | `OPSFLOW_MAIL_PASSWORD` | The app password of that account, not the password of the Google account | With the host |
 | `OPSFLOW_MAIL_FROM` | The sender address, when it differs from the username | No |
-| `RABBITMQ_USERNAME` | RabbitMQ user | No, defaults to `guest` |
-| `RABBITMQ_PASSWORD` | RabbitMQ password | Yes |
+| `OPSFLOW_REDIS_HOST`, `OPSFLOW_REDIS_PORT` | The Redis server | No, default `127.0.0.1` and 6379. Not set on this machine |
+| `OPSFLOW_REDIS_PASSWORD` | The Redis password | No, the local Redis has none. Not set on this machine |
+| `OPSFLOW_RABBITMQ_HOST`, `OPSFLOW_RABBITMQ_PORT` | The RabbitMQ broker | No, default `127.0.0.1` and 5672. Not set on this machine |
+| `OPSFLOW_RABBITMQ_USERNAME`, `OPSFLOW_RABBITMQ_PASSWORD` | The RabbitMQ account | No. Without them the default local account is used, which RabbitMQ accepts from this machine only. Set both for a broker on another machine. Not set on this machine |
 
 The MySQL `root` password is deliberately not in this list.
 
@@ -326,5 +311,5 @@ All three services should show `Running` / `Automatic`, which means they start o
 
 - [ ] Create the business database manually: `CREATE DATABASE opsflow ...` (see 2.3)
 - [ ] Generate the Spring Boot project skeleton with [Spring Initializr](https://start.spring.io) or an IDE
-- [ ] When the backend is created, read the MySQL and RabbitMQ credentials from the environment variables in section 3, as in the section 2 examples, and keep `application-local.yml` out of git
+- [x] Read the MySQL, Redis, and RabbitMQ credentials from the environment variables in section 3, and keep `application-local.yml` out of git (RabbitMQ and Redis since 2026-11-18)
 - [x] Frontend: React with TypeScript, created with Vite (`npm create vite@latest`), and Ant Design for the components. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files)
