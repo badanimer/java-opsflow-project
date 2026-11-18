@@ -11,6 +11,9 @@ export interface LogState extends TimeFilterValue {
   id?: number
   /** The label of the chosen product or item, so that the picker can show it after a reload. */
   label?: string
+  /** The person who ordered, on the order records, with their username for the picker after a reload. */
+  userId?: number
+  userName?: string
   orderNo?: string
   tab?: string
 }
@@ -19,12 +22,15 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/
 
 export function readLogState(params: URLSearchParams): LogState {
   const id = Number(params.get('id'))
+  const userId = Number(params.get('userId'))
   const from = params.get('from') ?? undefined
   const to = params.get('to') ?? undefined
   const quick = params.get('quick') as QuickRange | null
   return {
     id: Number.isInteger(id) && id > 0 ? id : undefined,
     label: params.get('label') ?? undefined,
+    userId: Number.isInteger(userId) && userId > 0 ? userId : undefined,
+    userName: params.get('userName') ?? undefined,
     from: from && DAY.test(from) ? from : undefined,
     to: to && DAY.test(to) ? to : undefined,
     quick: quick && QUICK_RANGES.includes(quick) ? quick : undefined,
@@ -42,6 +48,8 @@ export function writeLogState(state: LogState): URLSearchParams {
   if (state.orderNo) params.set('orderNo', state.orderNo)
   if (state.id !== undefined) params.set('id', String(state.id))
   if (state.label) params.set('label', state.label)
+  if (state.userId !== undefined) params.set('userId', String(state.userId))
+  if (state.userName) params.set('userName', state.userName)
   if (state.from) params.set('from', state.from)
   if (state.to) params.set('to', state.to)
   if (state.quick) params.set('quick', state.quick)
@@ -52,10 +60,10 @@ export function writeLogState(state: LogState): URLSearchParams {
 /** The filters sent to the API: the order number alone, or the rest. */
 export function filtersOf(state: LogState, fixedId?: number): RecordFilters {
   if (state.orderNo) return { order: 'desc', orderNo: state.orderNo }
-  return { id: fixedId ?? state.id, from: state.from, to: state.to, order: state.order }
+  return { id: fixedId ?? state.id, userId: state.userId, from: state.from, to: state.to, order: state.order }
 }
 
 /** Whether anything narrows the list, so that an empty list means "nothing found". */
 export function isFiltered(state: LogState, withId: boolean): boolean {
-  return Boolean(state.orderNo || state.from || state.to || (withId && state.id !== undefined))
+  return Boolean(state.orderNo || state.from || state.to || state.userId !== undefined || (withId && state.id !== undefined))
 }

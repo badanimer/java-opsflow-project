@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.function.Function;
 
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,6 +13,7 @@ import com.opsflow.common.paging.PageQuery;
 import com.opsflow.common.paging.PageQueryFactory;
 import com.opsflow.common.paging.PageResponse;
 import com.opsflow.common.paging.SortOrder;
+import com.opsflow.common.security.CurrentUser;
 import com.opsflow.common.security.Permission;
 import com.opsflow.common.security.RequiresPermission;
 import com.opsflow.log.LogRepository.AuditRecord;
@@ -111,15 +113,17 @@ public class LogController {
 				r.inventoryId(), r.action(), r.name(), r.price().toPlainString(), r.by()));
 	}
 
+	/** Everyone's attempts with {@link Permission#ORDER_VIEW_ALL}, which may filter them by who ordered; otherwise the caller's own. */
 	@RequiresPermission(Permission.PRODUCT_VIEW)
 	@GetMapping("/order-records")
 	public PageResponse<OrderRecordResponse> orderRecords(@RequestParam(required = false) Long productId,
-			@RequestParam(required = false) String orderNo, @RequestParam(required = false) String from,
-			@RequestParam(required = false) String to, @RequestParam(required = false) Integer limit,
-			@RequestParam(required = false) String cursor, @RequestParam(required = false) String direction,
-			@RequestParam(required = false) String order) {
+			@RequestParam(required = false) Long userId, @RequestParam(required = false) String orderNo,
+			@RequestParam(required = false) String from, @RequestParam(required = false) String to,
+			@RequestParam(required = false) Integer limit, @RequestParam(required = false) String cursor,
+			@RequestParam(required = false) String direction, @RequestParam(required = false) String order,
+			@AuthenticationPrincipal CurrentUser user) {
 		PageQuery page = pages.create(limit, cursor, direction, order, true);
-		return map(logs.orderRecords(productId, orderNo, from, to, page), r -> new OrderRecordResponse(r.id(), r.at(), r.productId(),
+		return map(logs.orderRecords(user, productId, userId, orderNo, from, to, page), r -> new OrderRecordResponse(r.id(), r.at(), r.productId(),
 				r.productName(), r.orderNo(), r.orderedBy(), r.quantity(), r.result(), r.stockDeducted()));
 	}
 

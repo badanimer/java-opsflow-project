@@ -50,6 +50,11 @@ public enum Permission {
 
 	/** Place an order from the product page. */
 	ORDER_PLACE,
+	/**
+	 * Read everyone's order records and filter them by who ordered. Without it the order records show only
+	 * the user's own attempts, as the ticket screens do without {@link #TICKET_VIEW_ALL}.
+	 */
+	ORDER_VIEW_ALL,
 
 	// Tickets
 

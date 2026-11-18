@@ -1,10 +1,13 @@
 import { Link, useSearchParams } from 'react-router-dom'
+import { useAuth } from '../../auth/context'
+import { can } from '../../auth/permissions'
 import { itemRecords, listingRecords, orderRecords, stockMovements, type RecordFilters, type RecordLoader } from '../../api/logs'
 import { OrderNumberSearch } from '../../components/OrderNumberSearch'
 import { PageHeader } from '../../components/PageHeader'
 import { RecordPicker } from '../../components/RecordPicker'
 import { RecordTable, type RecordColumn } from '../../components/RecordTable'
 import { TimeFilter } from '../../components/TimeFilter'
+import { UserPicker } from '../../components/UserPicker'
 import { useRecords } from '../../hooks/useRecords'
 import { TEXT } from '../../text'
 import { ITEM_COLUMNS, LISTING_COLUMNS, MOVEMENT_COLUMNS, ORDER_COLUMNS } from './recordColumns'
@@ -39,9 +42,15 @@ const KINDS: Record<LogKind, KindSetup> = {
  * narrows them to one product or item and the time filter to days; the order records and the stock
  * movements also find one whole order number, which disables the other filters while it is applied. The
  * filters are kept in the address, so a reload or Back shows the same records.
+ *
+ * The order records are everyone's with `ORDER_VIEW_ALL`, which also gives the Ordered by filter; without
+ * it the server sends only the person's own, and the page says so (Q-34).
  */
 export function LogListPage({ kind }: { kind: LogKind }) {
   const setup = KINDS[kind]
+  const { account } = useAuth()
+  const orders = kind === 'orders'
+  const seesAll = can(account, 'ORDER_VIEW_ALL')
   const [params, setParams] = useSearchParams()
   const state = readLogState(params)
   const filters: RecordFilters = filtersOf(state)
@@ -64,8 +73,22 @@ export function LogListPage({ kind }: { kind: LogKind }) {
             value={state.id !== undefined ? { id: state.id, label: state.label ?? String(state.id) } : null}
             onChange={(picked) => update({ ...state, id: picked?.id, label: picked?.label })}
           />
+          {orders && seesAll && (
+            <label className="time-filter__field">
+              <span>{TEXT.logs.orderedBy}</span>
+              <UserPicker
+                use="filter"
+                label={TEXT.logs.orderedBy}
+                placeholder={TEXT.logs.everyone}
+                disabled={byNumber}
+                value={state.userId !== undefined ? { id: state.userId, username: state.userName ?? String(state.userId) } : null}
+                onChange={(picked) => update({ ...state, userId: picked?.id ?? undefined, userName: picked?.username })}
+              />
+            </label>
+          )}
           <TimeFilter value={state} disabled={byNumber} onChange={(time) => update({ ...state, ...time })} />
         </div>
+        {orders && !seesAll && <p className="log-filters__note">{TEXT.logs.ownOrdersOnly}</p>}
         {setup.orderNumber && (
           <OrderNumberSearch key={state.orderNo ?? ''} applied={state.orderNo} onApply={(orderNo) => update({ ...state, orderNo })} />
         )}

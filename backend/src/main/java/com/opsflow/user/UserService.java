@@ -108,7 +108,7 @@ public class UserService {
 	 * only, never the SYSTEM identity.
 	 *
 	 * @param use {@code filter}: every user, for the search filters of the tickets and the audit page, open
-	 *     to {@code TICKET_SEARCH} or {@code AUDIT_VIEW}; {@code assignee}: the eligible assignees the caller
+	 *     to {@code TICKET_SEARCH}, {@code AUDIT_VIEW}, or {@code ORDER_VIEW_ALL}; {@code assignee}: the eligible assignees the caller
 	 *     may give a ticket to, open to {@code TICKET_ASSIGN}
 	 */
 	public PageResponse<UserOption> options(CurrentUser caller, String use, String search, PageQuery page) {
@@ -124,7 +124,7 @@ public class UserService {
 		List<String> excluded;
 		switch (kind) {
 			case "filter" -> {
-				if (!caller.can(Permission.TICKET_SEARCH) && !caller.can(Permission.AUDIT_VIEW)) {
+				if (!caller.can(Permission.TICKET_SEARCH) && !caller.can(Permission.AUDIT_VIEW) && !caller.can(Permission.ORDER_VIEW_ALL)) {
 					throw new ApiException(ErrorCode.FORBIDDEN, "Your roles do not allow choosing users for a filter");
 				}
 				eligible = null;

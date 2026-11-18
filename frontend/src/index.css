@@ -820,6 +820,11 @@ body {
   align-items: flex-start;
 }
 
+.log-filters__note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
 .time-filter__field {
   display: flex;
   flex-direction: column;

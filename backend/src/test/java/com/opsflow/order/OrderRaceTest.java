@@ -19,6 +19,8 @@ import com.opsflow.warehouse.ItemService;
 import com.opsflow.warehouse.ProductService;
 import com.opsflow.warehouse.StockService;
 
+import io.micrometer.core.instrument.MeterRegistry;
+
 /**
  * The races of orders and stock in Concurrency and duplicate protection and Concurrency by Module
  * (docs/database/database-design.md), repeated against the Java code that the verification script checks
@@ -39,6 +41,9 @@ class OrderRaceTest extends OrderIntegrationSupport {
 
 	@Autowired
 	StockService stock;
+
+	@Autowired
+	MeterRegistry meters;
 
 	long mary;
 	long olive;
@@ -213,6 +218,37 @@ class OrderRaceTest extends OrderIntegrationSupport {
 				assertThat(available(item)).isEqualTo(7);
 			}
 		}
+	}
+
+	/**
+	 * D6 against the real code (T-17): two orders of the same three products, listed in opposite orders, at
+	 * the same moment, 12 rounds. The products are listed so that their ids run against the ids of their items,
+	 * so the lock order must come from the code and not from the order of the lines. Every order completes and
+	 * no transaction is tried again, so no deadlock happened.
+	 */
+	@Test
+	void twoOrdersOfTheSameItemsInOppositeOrderNeverDeadlock() throws Exception {
+		long a = item("mary", "Item A", 100);
+		long b = item("mary", "Item B", 100);
+		long c = item("mary", "Item C", 100);
+		long pc = product("mary", c, "Item C", "1.00");
+		long pb = product("mary", b, "Item B", "1.00");
+		long pa = product("mary", a, "Item A", "1.00");
+		List<LineRequest> forward = List.of(new LineRequest(pa, 1, "Item A", "1.00"), new LineRequest(pb, 1, "Item B", "1.00"),
+				new LineRequest(pc, 1, "Item C", "1.00"));
+		List<LineRequest> backward = List.of(forward.get(2), forward.get(1), forward.get(0));
+		double retriesBefore = meters.counter("opsflow.retry.retries").count();
+
+		for (int round = 0; round < 12; round++) {
+			List<String> results = race(() -> orders.place(actor(olive), null, forward, null), () -> orders.place(actor(mary), null, backward, null));
+			assertThat(results).as("round %d", round).containsExactly("OK", "OK");
+		}
+
+		assertThat(meters.counter("opsflow.retry.retries").count()).as("no transaction was tried again").isEqualTo(retriesBefore);
+		assertThat(available(a)).isEqualTo(76);
+		assertThat(available(b)).isEqualTo(76);
+		assertThat(available(c)).isEqualTo(76);
+		assertThat(count("SELECT COUNT(*) FROM orders")).isEqualTo(24);
 	}
 
 }

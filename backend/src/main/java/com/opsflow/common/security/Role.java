@@ -5,6 +5,7 @@ import static com.opsflow.common.security.Permission.DELETED_ITEMS_VIEW;
 import static com.opsflow.common.security.Permission.ITEM_DELETE;
 import static com.opsflow.common.security.Permission.ITEM_MANAGE;
 import static com.opsflow.common.security.Permission.ORDER_PLACE;
+import static com.opsflow.common.security.Permission.ORDER_VIEW_ALL;
 import static com.opsflow.common.security.Permission.PRODUCT_DELIST;
 import static com.opsflow.common.security.Permission.PRODUCT_LIST;
 import static com.opsflow.common.security.Permission.PRODUCT_VIEW;
@@ -51,7 +52,7 @@ public enum Role {
 	ADMIN(
 			PRODUCT_VIEW, PRODUCT_LIST, PRODUCT_DELIST,
 			ITEM_MANAGE, ITEM_DELETE, STOCK_VIEW, DELETED_ITEMS_VIEW, STOCK_IN, STOCK_WRITE_OFF, STOCK_CORRECT,
-			ORDER_PLACE,
+			ORDER_PLACE, ORDER_VIEW_ALL,
 			TICKET_VIEW, TICKET_VIEW_ALL, TICKET_SEARCH, TICKET_CREATE, TICKET_TAKE, TICKET_ASSIGN, TICKET_ASSIGN_PROTECTED, TICKET_HANDLE_ANY, TICKET_RELEASE,
 			TICKET_RESOLVE, TICKET_CANCEL, TICKET_ARCHIVE,
 			AUDIT_VIEW,
@@ -60,7 +61,7 @@ public enum Role {
 	MANAGER(
 			PRODUCT_VIEW, PRODUCT_LIST, PRODUCT_DELIST,
 			ITEM_MANAGE, ITEM_DELETE, STOCK_VIEW, DELETED_ITEMS_VIEW, STOCK_IN, STOCK_WRITE_OFF, STOCK_CORRECT,
-			ORDER_PLACE,
+			ORDER_PLACE, ORDER_VIEW_ALL,
 			TICKET_VIEW, TICKET_VIEW_ALL, TICKET_SEARCH, TICKET_CREATE, TICKET_TAKE, TICKET_ASSIGN, TICKET_HANDLE_ANY, TICKET_RELEASE,
 			TICKET_RESOLVE, TICKET_CANCEL, TICKET_ARCHIVE,
 			AUDIT_VIEW,
@@ -75,6 +76,7 @@ public enum Role {
 	VIEWER(
 			PRODUCT_VIEW,
 			STOCK_VIEW, DELETED_ITEMS_VIEW,
+			ORDER_VIEW_ALL,
 			TICKET_VIEW, TICKET_VIEW_ALL, TICKET_SEARCH);
 
 	private final Set<Permission> permissions;

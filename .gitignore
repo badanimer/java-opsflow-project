@@ -27,6 +27,8 @@ replay_pid*
 .env
 .env.*
 !.env.example
+# Backups of the deployment hold the data of real users
+deploy/backup/
 application-local.yml
 application-local.yaml
 application-local.properties

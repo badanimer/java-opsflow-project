@@ -70,3 +70,11 @@ This file keeps rough ideas for features that can be added after OpsFlow is comp
 - **Why it might help:** the first version limits code requests per client address (10 in an hour) and for the whole system (200 in a day). That bounds the damage, but a script can still use up the limit of the day, and then nobody gets a code until the next day. A human check stops scripts before they are counted.
 - **Roles:** everyone who signs up or recovers a password, before they are logged in.
 - **Where it came from:** approved by the owner on 2026-11-13, as the third of four answers to Q-07 for code requests; the other three (the limit per client address, the limit of the whole system, and no mail for an address that cannot use the code) are built. It needs a site key in the frontend, a secret key in the environment, and a call to the provider that must stay outside every transaction. It becomes worth building when OpsFlow is open to people outside the company.
+
+### More than one instance, and a server on the internet
+
+- **What:** a new module for running OpsFlow beyond one machine. Two parts that can come separately: more than one instance of the backend behind nginx, and a server on the internet with a domain, HTTPS, and backups made by a schedule and kept somewhere else.
+- **Why it might help:** more instances carry more users and keep the system up when one stops; a server on the internet lets people use it from anywhere. Today one instance on one machine is enough for the people who use it.
+- **What it needs:** for more instances, a lock so that a scheduled job runs on one instance at a time, and the "signed in elsewhere" event sent between the instances through Redis, because the page that must be told may be connected to another instance (the login counts are already in Redis). For a server, a rented machine, a domain, a certificate, a firewall with only the web ports open, and a backup copied off the machine every day.
+- **Roles:** none; it changes where and how the program runs, not what a role may do.
+- **Where it came from:** the open part of Q-32, moved here by the owner on 2026-11-18 after the local Docker Compose was built ([backend-v1.13.md](iterations/backend-v1.13.md)).

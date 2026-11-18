@@ -72,11 +72,13 @@ export interface ProductOption {
 }
 
 /**
- * The filters of a list of records. `id` is the chosen product or item. `orderNo` is used alone: when it
- * is set, the other filters are not sent.
+ * The filters of a list of records. `id` is the chosen product or item. `userId` is the person who ordered,
+ * for the order records only, and only with `ORDER_VIEW_ALL`. `orderNo` is used alone: when it is set, the
+ * other filters are not sent.
  */
 export interface RecordFilters {
   id?: number
+  userId?: number
   from?: string
   to?: string
   order: 'desc' | 'asc'
@@ -91,6 +93,7 @@ function recordQuery(path: string, idName: string, filters: RecordFilters, page:
     params.append('orderNo', filters.orderNo)
   } else {
     if (filters.id !== undefined) params.append(idName, String(filters.id))
+    if (filters.userId !== undefined) params.append('userId', String(filters.userId))
     if (filters.from) params.append('from', filters.from)
     if (filters.to) params.append('to', filters.to)
     if (filters.order === 'asc') params.append('order', 'asc')

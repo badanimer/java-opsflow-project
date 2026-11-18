@@ -18,6 +18,7 @@ export type Permission =
   | 'STOCK_WRITE_OFF'
   | 'STOCK_CORRECT'
   | 'ORDER_PLACE'
+  | 'ORDER_VIEW_ALL'
   | 'TICKET_VIEW'
   | 'TICKET_VIEW_ALL'
   | 'TICKET_SEARCH'

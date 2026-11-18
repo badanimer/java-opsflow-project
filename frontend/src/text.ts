@@ -238,6 +238,8 @@ export const TEXT = {
     listingRecordsHint: 'See when products were listed or delisted.',
     orderRecords: 'Order records',
     orderRecordsHint: 'See orders and refused attempts.',
+    everyone: 'Everyone',
+    ownOrdersOnly: 'You see only the orders you placed.',
     itemRecords: 'Item records',
     itemRecordsHint: 'See when warehouse items were added or deleted.',
     stockMovements: 'Stock movements',

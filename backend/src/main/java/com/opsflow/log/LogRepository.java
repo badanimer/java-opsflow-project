@@ -85,13 +85,20 @@ class LogRepository {
 				rs.getString("username")), q.args());
 	}
 
-	/** @param orderNo one whole order number, or null; it is used alone */
-	List<OrderRecord> orderRecords(Long productId, String orderNo, Range range, PageQuery page) {
+	/**
+	 * Read through {@code idx_order_attempts_product_created}, {@code idx_order_attempts_user_created}, or
+	 * {@code idx_order_attempts_created}.
+	 *
+	 * @param userId the user who ordered, or null for anyone
+	 * @param orderNo one whole order number, or null; it is used alone, except for the caller's own records
+	 */
+	List<OrderRecord> orderRecords(Long productId, Long userId, String orderNo, Range range, PageQuery page) {
 		Query q = new Query("""
 				SELECT a.id, a.created_at, a.product_id, a.product_name, a.order_no, u.username, a.quantity, a.result, a.stock_deducted
 				FROM order_attempts a JOIN users u ON u.id = a.user_id
 				WHERE 1 = 1""");
 		q.equal("a.product_id", productId);
+		q.equal("a.user_id", userId);
 		q.equal("a.order_no", orderNo);
 		q.during("a.created_at", range);
 		RowMapper<OrderRecord> mapper = (rs, row) -> new OrderRecord(rs.getLong("id"), time(rs.getObject("created_at", LocalDateTime.class)),

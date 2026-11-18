@@ -95,6 +95,33 @@ class LogTest extends MySqlIntegrationTest {
 	}
 
 	@Test
+	void anOperatorReadsOnlyTheirOwnOrderRecordsAndTheOtherRolesFilterByWhoOrdered() throws Exception {
+		String marys = post("mary", "/orders", order(paperProduct, 1, "A4 paper", "12.50")).andExpect(status().isCreated()).andReturn()
+				.getResponse().getContentAsString();
+		String maryNo = JsonPath.read(marys, "$.orderNo");
+		long olive = root().queryForObject("SELECT id FROM users WHERE username = 'olive'", Long.class);
+		long mary = root().queryForObject("SELECT id FROM users WHERE username = 'mary'", Long.class);
+
+		// The operator sees their own two attempts and not the manager's, even by its number.
+		read("olive", "/order-records").andExpect(jsonPath("$.items.length()").value(2))
+				.andExpect(jsonPath("$.items[*].orderedBy").value(org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is("olive"))));
+		read("olive", "/order-records?productId=" + paperProduct).andExpect(jsonPath("$.items.length()").value(2));
+		read("olive", "/order-records?orderNo=" + maryNo).andExpect(jsonPath("$.items.length()").value(0));
+		read("olive", "/order-records?orderNo=" + placedNo).andExpect(jsonPath("$.items.length()").value(1));
+		read("olive", "/order-records?userId=" + olive).andExpect(status().isForbidden());
+
+		// A viewer and a manager see everyone, and may narrow the records to one person.
+		read("vera", "/order-records").andExpect(jsonPath("$.items.length()").value(3));
+		read("vera", "/order-records?userId=" + mary).andExpect(jsonPath("$.items.length()").value(1))
+				.andExpect(jsonPath("$.items[0].orderNo").value(maryNo));
+		read("mary", "/order-records?userId=" + olive + "&productId=" + paperProduct).andExpect(jsonPath("$.items.length()").value(2));
+		read("vera", "/order-records?userId=" + olive + "&orderNo=" + placedNo).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors[0].field").value("orderNo"));
+		read("vera", "/order-records?userId=0").andExpect(status().isBadRequest());
+		read("vera", "/user-options?use=filter").andExpect(status().isOk());
+	}
+
+	@Test
 	void theItemRecordsShowAdditionsAndDeletionsWithTheStockAtThatMoment() throws Exception {
 		read("vera", "/item-records").andExpect(jsonPath("$.items[*].action").value(org.hamcrest.Matchers.contains("DELETED", "CREATED", "CREATED")))
 				.andExpect(jsonPath("$.items[0].quantity").value(9)).andExpect(jsonPath("$.items[0].name").value("Pens"))

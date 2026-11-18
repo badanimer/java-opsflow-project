@@ -151,7 +151,7 @@ It is built beside the backend and grows one module at a time as each backend pa
 
 | Task | What |
 | --- | --- |
-| Q-34 | The visual design: every page is drawn and built; one open detail is left in the [page design](frontend/page-design.md#open-details) |
+| Q-34 | Done ([frontend-v1.12.md](iterations/frontend-v1.12.md)): every page is drawn and built, and the last open detail is decided: an operator sees only their own order records, and the other roles filter them by who ordered |
 | T-27 | Hide the controls the user cannot use |
 | T-30 | Done ([frontend-v1.8.md](iterations/frontend-v1.8.md)): the plus and minus for operators, and Save enabled only when the quantity and the reason are filled in |
 | T-37 | Done ([frontend-v1.9.md](iterations/frontend-v1.9.md)): the ticket list order, system tickets first in either direction |
@@ -164,9 +164,9 @@ It is built beside the backend and grows one module at a time as each backend pa
 
 | Task | What |
 | --- | --- |
-| T-17, T-34 | Repeat the concurrency checks for tickets, roles, and authentication against the real code, and check that the test log matches the code |
+| T-17, T-34 | Done ([backend-v1.14.md](iterations/backend-v1.14.md)): every check of the script and every race of Concurrency by Module has a test against the real code, and the test log matches the code. T-34 stays as the rule for each new write path |
 | Q-07, T-08 | Done ([backend-v1.12.md](iterations/backend-v1.12.md)): Redis for the login counts of each client address, and RabbitMQ for the mail queue, with their variables. Idempotency stays in MySQL |
-| Q-32 | Done for one machine ([backend-v1.13.md](iterations/backend-v1.13.md)): Docker Compose with nginx, the health check, and the counters. Left for when it is wanted: more than one instance, and a server on the internet |
+| Q-32 | Done for one machine ([backend-v1.13.md](iterations/backend-v1.13.md)): Docker Compose with nginx, the health check, and the counters; the backup and the way of working in [backend-v1.14.md](iterations/backend-v1.14.md). More than one instance and a server on the internet are a module for later, in [future-ideas.md](future-ideas.md) |
 | Q-28 | How the creator and the assignee are told that a ticket was cancelled |
 | | The README and the documentation brought up to the finished system |
 

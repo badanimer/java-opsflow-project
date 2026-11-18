@@ -9,9 +9,12 @@ import org.springframework.stereotype.Service;
 import com.opsflow.common.audit.AuditAction;
 import com.opsflow.common.audit.AuditCategory;
 import com.opsflow.common.error.ApiException;
+import com.opsflow.common.error.ErrorCode;
 import com.opsflow.common.paging.Cursor;
 import com.opsflow.common.paging.PageQuery;
 import com.opsflow.common.paging.PageResponse;
+import com.opsflow.common.security.CurrentUser;
+import com.opsflow.common.security.Permission;
 import com.opsflow.common.time.DayRanges;
 import com.opsflow.common.time.DayRanges.Range;
 import com.opsflow.common.validation.Limits;
@@ -52,10 +55,24 @@ public class LogService {
 				r -> new Cursor(LogRepository.timeKey(r.at()), r.id()));
 	}
 
-	public PageResponse<OrderRecord> orderRecords(Long productId, String orderNo, String from, String to, PageQuery page) {
+	/**
+	 * The order records. With {@link Permission#ORDER_VIEW_ALL} they are everyone's, and {@code userId} narrows
+	 * them to one person; without it they are the caller's own, and {@code userId} is refused, as on the ticket
+	 * screens (Q-34).
+	 */
+	public PageResponse<OrderRecord> orderRecords(CurrentUser user, Long productId, Long userId, String orderNo, String from, String to,
+			PageQuery page) {
+		boolean all = user.can(Permission.ORDER_VIEW_ALL);
+		if (userId != null && !all) {
+			throw new ApiException(ErrorCode.FORBIDDEN, "Your roles show only your own order records");
+		}
+		Long orderedBy = all ? id("userId", userId) : Long.valueOf(user.id());
 		String number = orderNo(orderNo, productId, from, to);
+		if (number != null && userId != null) {
+			throw ApiException.invalid("orderNo", "is used alone, with no other filter");
+		}
 		Range range = days.parse(from, to);
-		return PageResponse.of(repository.orderRecords(id("productId", productId), number, range, page), page,
+		return PageResponse.of(repository.orderRecords(id("productId", productId), orderedBy, number, range, page), page,
 				r -> new Cursor(LogRepository.timeKey(r.at()), r.id()));
 	}
 

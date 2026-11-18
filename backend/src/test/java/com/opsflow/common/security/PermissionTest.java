@@ -33,7 +33,7 @@ class PermissionTest {
 		assertThat(Role.ADMIN.permissions()).containsAll(Role.MANAGER.permissions());
 		// VIEWER is read-only.
 		assertThat(Role.VIEWER.permissions()).containsExactlyInAnyOrder(
-				Permission.PRODUCT_VIEW, Permission.STOCK_VIEW, Permission.DELETED_ITEMS_VIEW,
+				Permission.PRODUCT_VIEW, Permission.STOCK_VIEW, Permission.DELETED_ITEMS_VIEW, Permission.ORDER_VIEW_ALL,
 				Permission.TICKET_VIEW, Permission.TICKET_VIEW_ALL, Permission.TICKET_SEARCH);
 		// OPERATOR does not change master data, or see audit logs or the user page.
 		assertThat(Role.OPERATOR.permissions()).doesNotContain(
@@ -41,6 +41,8 @@ class PermissionTest {
 				Permission.AUDIT_VIEW, Permission.USER_VIEW, Permission.USER_MANAGE, Permission.ROLE_ASSIGN);
 		// The roles are not a ladder: a viewer sees everyone's tickets, and an operator only their own.
 		assertThat(Role.OPERATOR.grants(Permission.TICKET_VIEW_ALL)).isFalse();
+		// The same for orders: a viewer reads everyone's order records, an operator only their own.
+		assertThat(Role.OPERATOR.grants(Permission.ORDER_VIEW_ALL)).isFalse();
 		assertThat(Role.VIEWER.grants(Permission.ORDER_PLACE)).isFalse();
 	}
 

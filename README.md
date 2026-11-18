@@ -87,6 +87,10 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-18 | 1.14 | Backend | The order records of one's own (Q-34) with `ORDER_VIEW_ALL`; the last races against the real code (T-17, T-34), so every check and race has a test; the way of working between development and the deployment, and its backup and restore | [backend-v1.14.md](docs/iterations/backend-v1.14.md) |
+| 2026-11-18 | 1.12 | Frontend | An operator sees only the orders they placed, and the other roles get an Ordered by filter on the order records | [frontend-v1.12.md](docs/iterations/frontend-v1.12.md) |
+| 2026-11-18 | 1.11 | API | `GET /order-records` returns the caller's own attempts without `ORDER_VIEW_ALL`, and takes `userId` with it | [api-v1.11.md](docs/iterations/api-v1.11.md) |
+| 2026-11-18 | 1.19 | Database | Who sees which order records: an operator their own, the other roles everyone's with a person filter; the stock movements stay whole | [database-v1.19.md](docs/iterations/database-v1.19.md) |
 | 2026-11-18 | 1.13 | Backend | The local deployment with Docker Compose (Q-32): MySQL, the migrations, the rights of the application account, Redis, RabbitMQ, the backend, and nginx; the client address from nginx only; Actuator with the health check and the counters of retries and `BUSY` answers | [backend-v1.13.md](docs/iterations/backend-v1.13.md) |
 | 2026-11-18 | 1.11 | Frontend | The frontend image of the deployment: the pages served by nginx, which passes `/api` to the backend | [frontend-v1.11.md](docs/iterations/frontend-v1.11.md) |
 | 2026-11-18 | 1.12 | Backend | Redis and RabbitMQ brought in (Q-07): the login counts of each client address in Redis, and the mail through a durable RabbitMQ queue with three tries and dead letters; both optional at run time | [backend-v1.12.md](docs/iterations/backend-v1.12.md) |
@@ -145,6 +149,6 @@ Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iter
 
 ## Status
 
-Phases 1 to 6 of the [implementation roadmap](docs/implementation-roadmap.md) are built and were clicked through by the owner against the running system. Phase 8 is under way: Redis, RabbitMQ, and the Docker Compose deployment are in. What is still open, such as how people are told that the system cancelled their ticket, is in [project-todo.md](docs/project-todo.md).
+Phases 1 to 6 of the [implementation roadmap](docs/implementation-roadmap.md) are built and were clicked through by the owner against the running system. Phase 8 is under way: Redis, RabbitMQ, and the Docker Compose deployment are in, with its backup, and every race of the design has a test against the real code. What is still open, such as how people are told that the system cancelled their ticket, is in [project-todo.md](docs/project-todo.md); ideas for after the program is complete, such as more than one instance and a server on the internet, are in [future-ideas.md](docs/future-ideas.md).
 
 `README.md` and `docs/` define the current project scope and implementation decisions.

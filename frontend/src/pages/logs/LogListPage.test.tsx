@@ -105,6 +105,29 @@ describe('the listing records', () => {
   })
 })
 
+describe('who ordered', () => {
+  it('narrows the order records to one person for a role that sees everyone', async () => {
+    const { server, user } = await openList('/products/records/orders', {
+      'GET /order-records': page([ORDERED]),
+      'GET /user-options?use=filter': page([{ id: 31, username: 'olive' }, { id: 32, username: 'oscar' }]),
+      'GET /order-records?userId=32': page([]),
+    })
+    await within(await screen.findByRole('region', { name: 'Order records' })).findByText('olive')
+    expect(screen.queryByText('You see only the orders you placed.')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('combobox', { name: 'Ordered by' }))
+    await user.click(await screen.findByTitle('oscar'))
+    await waitFor(() => expect(server.callsTo('GET /order-records?userId=32')).toHaveLength(1))
+    expect(await screen.findByText('No records found')).toBeInTheDocument()
+  })
+
+  it('is not offered to an operator, who is told the list holds only their own orders', async () => {
+    await openList('/products/records/orders', { 'GET /order-records': page([ORDERED]) }, ['OPERATOR'])
+    await within(await screen.findByRole('region', { name: 'Order records' })).findByText('olive')
+    expect(screen.getByText('You see only the orders you placed.')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Ordered by' })).not.toBeInTheDocument()
+  })
+})
+
 describe('the order number', () => {
   it('refuses a number that is not whole, and finds one typed in any case alone', async () => {
     const { server, user } = await openList('/products/records/orders', { 'GET /order-records': page([ORDERED]) })
