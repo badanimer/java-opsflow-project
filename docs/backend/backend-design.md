@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-19 | 1.15 | The five long-running services of the deployment restart with Docker, so starting Docker Desktop brings OpsFlow back after the machine restarts. The documentation prepared for a public repository: a new README, the Project Log in `docs/iterations/README.md`, the environment document moved to `docs/environment-setup.md` and made general, and an MIT license | [backend-v1.15.md](../iterations/backend-v1.15.md) |
 | 2026-11-18 | 1.14 | Who sees which order records (Q-34): the permission `ORDER_VIEW_ALL` (administrator, manager, viewer) and the person filter of `/order-records`, with the caller's own records for everyone else. The last races of Concurrency by Module against the real code (T-17, T-34): two orders of the same items in opposite order, a reassignment against a resolution and a cancellation, the archive job against a manager, a disabling against the person's own release and resolution, and a ticket opened as its product is delisted. The way of working between development and the deployment, and the backup and restore of the deployment, checked by running them. 7 tests | [backend-v1.14.md](../iterations/backend-v1.14.md) |
 | 2026-11-18 | 1.13 | The local deployment (Q-32): Docker Compose with MySQL, the migrations, the rights of the application account, Redis, RabbitMQ, the backend, and nginx, with secrets made at random; the image of the backend; the client address from nginx only; Actuator on a management port of its own with the counters of retries and `BUSY` answers; and 4 tests | [backend-v1.13.md](../iterations/backend-v1.13.md) |
 | 2026-11-18 | 1.12 | Redis and RabbitMQ are brought in (Q-07). `LoginLimits` keeps the login counts of each client address in Redis, so the steps of the lockout lock one address out of one account, and an address is refused after 50 failures in 15 minutes; the user row keeps the ceiling of 100 failures a day. `Mailer` puts each mail in a durable RabbitMQ queue, a listener sends it with three tries and keeps a refused mail as a dead letter, and without the broker the mail is sent at once. The variables `OPSFLOW_REDIS_*` and `OPSFLOW_RABBITMQ_*`, the parameters of the new counts and of the queue, Redis and RabbitMQ containers in the tests, and 11 tests | [backend-v1.12.md](../iterations/backend-v1.12.md) |
@@ -168,7 +169,7 @@ Tests have three layers:
 | Controller | Paths, status codes, and the error body against the API document, with the services replaced | `MockMvc` |
 | Integration | The real SQL, locks, transactions, and retries, including the races of [Concurrency by Module](../database/database-design.md#concurrency-by-module) (T-17) | Testcontainers with a MySQL 8.4 container, a Redis 8.0 container, and a RabbitMQ 4.1 container, started by the test run and removed after it |
 
-Integration tests do not use an in-memory database, because its locking differs from MySQL's. The container gets the schema from the Flyway migrations, run as the migration account, and then the privileges of [`restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql), so the tests connect with the same limited rights as the application. A concurrency test lets several threads commit, so it cannot roll back at the end: every test starts from empty tables instead. Docker Desktop must be running (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#26-docker-desktop)).
+Integration tests do not use an in-memory database, because its locking differs from MySQL's. The container gets the schema from the Flyway migrations, run as the migration account, and then the privileges of [`restrict-app-privileges.sql`](../../db/admin/restrict-app-privileges.sql), so the tests connect with the same limited rights as the application. A concurrency test lets several threads commit, so it cannot roll back at the end: every test starts from empty tables instead. Docker Desktop must be running (see [environment-setup.md](../environment-setup.md#docker-desktop)).
 
 The test code is in `backend/src/test/java/com/opsflow/support`:
 
@@ -362,7 +363,7 @@ How it works:
 - **Administrator protection.** When the target holds `ADMIN`, a replacement of roles, a disabling, and a deletion of an active account lock the `ADMIN` row in `roles` before they change anything and count the usable administrators afterwards. Today the count cannot be zero, because only an administrator who is not the target can take `ADMIN` away; the check is the second line of defence of the design and stays for a later role that may assign protected roles.
 - **Every refusal is thrown**, so the transaction rolls back and neither a role nor a log row is written. The result of each refusal is in the table under Steps of a change to a user.
 - **Lock order**: `users` (ascending id), then `roles`. Two changes that name each other's actor lock the same rows in the same order, so they wait and do not deadlock.
-- The application account needs `DELETE` on `user_roles` for a revocation. The privilege script grants it (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)).
+- The application account needs `DELETE` on `user_roles` for a revocation. The privilege script grants it (see [environment-setup.md](../environment-setup.md)).
 
 ## Warehouse Items and Products
 
@@ -535,7 +536,7 @@ The application sends one kind of mail so far: the email code of sign-up and pas
 
 ## Configuration
 
-The application connects to MySQL as `opsflow_app`, and Flyway connects as `opsflow_migrator` (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)). These values come from environment variables and have no default, so a missing one stops the application from starting instead of falling back to a value in the repository:
+The application connects to MySQL as `opsflow_app`, and Flyway connects as `opsflow_migrator` (see [environment-setup.md](../environment-setup.md)). These values come from environment variables and have no default, so a missing one stops the application from starting instead of falling back to a value in the repository:
 
 | Variable | Used for |
 | --- | --- |
@@ -554,7 +555,7 @@ The mail variables are optional, so the application starts without them and send
 | `OPSFLOW_MAIL_PASSWORD` | The password for SMTP. For Gmail it is an app password, not the password of the Google account. A secret |
 | `OPSFLOW_MAIL_FROM` | The sender address, when it differs from the username. Gmail always sends as the account |
 
-The Redis and RabbitMQ variables are optional too. Without them the application uses the local services of [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md), and when a service cannot be reached it goes on without it (see Stack):
+The Redis and RabbitMQ variables are optional too. Without them the application uses the local services of [environment-setup.md](../environment-setup.md), and when a service cannot be reached it goes on without it (see Stack):
 
 | Variable | Used for |
 | --- | --- |
@@ -652,6 +653,7 @@ docker compose run --rm backend create-admin    # once: the first administrator,
 - **The client address.** nginx sets `X-Forwarded-For` to the address of the connection and never passes on one the client sent. The backend runs with `SERVER_FORWARD_HEADERS_STRATEGY=native`, so Tomcat takes the address from that header, and only when the request comes from a private address, such as the nginx container. On 2026-11-18 a login sent through nginx with a forged `X-Forwarded-For: 1.2.3.4` was counted for `172.18.0.1`, the address of the machine, and not for the forged one or for nginx. The development backend does not trust the header: nothing stands in front of it.
 - **Health and counters.** Actuator answers on the management port 8081, which is not published and which nginx does not reach: `docker compose exec backend curl -s localhost:8081/actuator/health`. The security rules let a request through without a token on that port only; on the port of the API the same paths are refused. `opsflow.retry.retries` counts the transactions tried again after a lock conflict, and `opsflow.retry.busy` the `BUSY` answers.
 - **One instance.** The scheduled jobs and the event streams of one signed-in device are kept by one instance. A second one needs a lock for the jobs and the logins sent between the instances through Redis; that waits until it is wanted.
+- **After the machine restarts.** `mysql`, `redis`, `rabbitmq`, `backend`, and `web` have `restart: unless-stopped`, so they start again when Docker Desktop starts, and `http://localhost:8000` answers about half a minute later. Docker Desktop is not set to start with Windows: OpsFlow runs when the owner starts Docker Desktop (the owner's choice, 2026-11-19). A service stopped with `docker compose stop` or `down` stays stopped until `docker compose up -d`. `migrate` and `privileges` run only with `up`, which is when a new migration can arrive.
 - **Starting over.** `docker compose down` stops the system and keeps the data; `docker compose down -v` deletes the volumes too, and then `.env` can be made again.
 
 ### Development and the deployment
@@ -660,7 +662,7 @@ The two run side by side and share only the source in the repository. Each has i
 
 | | Development | Deployment |
 | --- | --- | --- |
-| What runs | The backend from `mvn spring-boot:run` and the dev server of Vite, against the MySQL, Redis, and RabbitMQ of the machine (see [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md)) | Every part in a container, from `deploy/compose.yaml` |
+| What runs | The backend from `mvn spring-boot:run` and the dev server of Vite, against the MySQL, Redis, and RabbitMQ of the machine (see [environment-setup.md](../environment-setup.md)) | Every part in a container, from `deploy/compose.yaml` |
 | Address | `http://localhost:5173` | `http://localhost:8000` |
 | A change shows | At once: the backend restarts, the page reloads | After `docker compose up -d --build`, which builds the two images again from the source and replaces their containers |
 | Used for | Every change, with the tests | Checking the whole system before a merge, and after a change to a migration, the configuration, a service, `compose.yaml`, or a Dockerfile |

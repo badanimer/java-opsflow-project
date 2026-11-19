@@ -1,21 +1,52 @@
 # OpsFlow
 
-OpsFlow is a Java full-stack application for order, inventory, and operations-ticket management. It models a back-office system where several people change the same stock, orders, and tickets at the same moment, and it is built so that none of those changes can break another: every write path has a stated lock order, a race test, and an audit row.
+[![Backend tests](https://github.com/badanimer/java-opsflow-project/actions/workflows/backend-tests.yml/badge.svg)](https://github.com/badanimer/java-opsflow-project/actions/workflows/backend-tests.yml)
+[![Frontend tests](https://github.com/badanimer/java-opsflow-project/actions/workflows/frontend-tests.yml/badge.svg)](https://github.com/badanimer/java-opsflow-project/actions/workflows/frontend-tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-The repository contains the Spring Boot backend, the React frontend, the database migrations, the local deployment, and the design documents behind all of them.
+OpsFlow is a full-stack back-office system for orders, inventory, and operations tickets, built with Spring Boot, MySQL, and React. Several people change the same stock, orders, and tickets at the same moment, and the system is built so that none of those changes can break another: every write path has a stated lock order, a race test against a real MySQL, and an audit row.
+
+The repository holds the backend, the frontend, the database migrations, a one-command Docker Compose deployment, and the design documents behind all of them.
+
+## Highlights
+
+- **Concurrency by design.** Pessimistic row locks taken in one fixed order across all modules, with a retry on a deadlock. Each race in the design has a test that releases several threads at the same moment against MySQL in a container: two orders for the last item, a reassignment against a resolution, a delisting against an order, and more.
+- **Least privilege in the database.** The application account has rights per table. History tables such as stock movements, order lines, and audit logs accept `INSERT` only, so the database itself refuses to rewrite them.
+- **Safe orders.** An order takes the stock in one transaction, an idempotency key makes a repeated click place one order, and every attempt, a refused one included, gets a number a person can quote in a ticket.
+- **Security.** BCrypt and a signed JWT, one signed-in device per account (a newer login ends the older one at once, through a server-sent event), and a login lockout counted per client address in Redis, so an attacker cannot lock the real owner out.
+- **Permissions checked by the build.** Every endpoint declares its permission; an endpoint with no declaration fails a test. Roles map to permissions in one enum, and the frontend shows a control by permission, never by role.
+- **Architecture rules as tests.** A test reads the compiled classes and fails when a module uses another module's repository, when a controller reads the database, or when shared code depends on a module.
+- **Reliable mail.** Mail goes through a durable RabbitMQ queue with three tries and dead letters, and never inside a database transaction.
+- **Keyset paging** on every list, times stored in UTC, and request ids on every response and log line.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser[Browser] -->|:8000| web[nginx<br/>React pages]
+    web -->|/api| backend[Spring Boot<br/>backend]
+    backend --> mysql[(MySQL 8.4)]
+    backend --> redis[(Redis<br/>login counts)]
+    backend --> rabbit[[RabbitMQ<br/>mail queue]]
+    rabbit --> backend
+    backend -->|SMTP| mail[Mail server]
+    migrate[Flyway migrations] --> mysql
+```
+
+The backend is organized by feature: `auth`, `user`, `warehouse`, `order`, `ticket`, and `log`, with shared code in `common`. It uses plain JDBC through `JdbcTemplate`, so every SQL statement and every lock is visible in the code. Redis and RabbitMQ hold nothing that cannot be lost: when one is down, logins and mail go on without it.
 
 ## What It Does
 
 | Area | What a person can do |
 | --- | --- |
-| Accounts | Sign up with an email code, log in, recover a password by email. One signed-in device per account: a newer login signs the older one out at once. Wrong passwords lock out the address they came from, not the owner |
+| Accounts | Sign up with an email code, log in, recover a password by email. One signed-in device per account. Wrong passwords lock out the address they came from, not the owner |
 | Users and roles | Four fixed roles (administrator, manager, operator, viewer), combined per user. Administrators and managers change roles, disable, enable, and delete accounts, within their authority, always with a second confirmation |
 | Warehouse and products | Add warehouse items with a generated SKU and a picture, put them on sale with a price, delist them, and delete them. Stock in, write off, and correct a count, each with a reason |
-| Orders | Order from the product page. The stock is taken in one transaction, a repeated click places one order, and every attempt, a refused one included, gets an order number a person can put in a ticket |
+| Orders | Order from the product page. The stock is taken in one transaction, and a repeated click places one order |
 | Tickets | Open a ticket on an order or on warehouse items. Take it from the pool, assign, reassign, release, resolve, cancel, and archive it, with limits per person and a history of every hand-over. The system opens, cancels, returns, and archives tickets on its own when the data they depend on changes |
-| Logs and audit | A product log and a warehouse log for every role, with a time filter and a search by order number, and an audit log page for administrators and managers, in seven areas |
+| Logs and audit | A product log and a warehouse log, with a time filter and a search by order number, and an audit log page for administrators and managers, in seven areas |
 
-What each role may do is the [Permission Matrix](docs/database/database-design.md#permission-matrix). The pages are drawn in [Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) and described in the [page design](docs/frontend/page-design.md).
+What each role may do is the [Permission Matrix](docs/database/database-design.md#permission-matrix). Every page was drawn in [Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) before it was built, and is described in the [page design](docs/frontend/page-design.md).
 
 ## Tech Stack
 
@@ -23,132 +54,63 @@ What each role may do is the [Permission Matrix](docs/database/database-design.m
 | --- | --- |
 | Backend | Java 17, Spring Boot 4, Spring Security with BCrypt and a signed JWT, plain JDBC through `JdbcTemplate`, Flyway |
 | Database | MySQL 8.4, with per-table rights for the application account |
-| Redis | The login counts of each client address |
-| RabbitMQ | The mail queue, with retries and dead letters |
+| Cache and queue | Redis for the login counts of each client address; RabbitMQ for the mail queue, with retries and dead letters |
 | Frontend | React 18, TypeScript, Vite, Ant Design |
-| Tests | JUnit 5 and Testcontainers (MySQL, Redis, and RabbitMQ in containers), Vitest with Testing Library; both run in GitHub Actions on every push |
+| Tests | JUnit 5 and Testcontainers (MySQL, Redis, and RabbitMQ in containers); Vitest with Testing Library |
+| CI | GitHub Actions runs both test suites, the lint, and the build on every push |
 | Deployment | Docker Compose with nginx in front, and Spring Boot Actuator for the health check and the counters |
-
-Some choices behind it, each explained in the design documents: pessimistic row locks in one fixed lock order, with a retry on a deadlock ([Concurrency by Module](docs/database/database-design.md#concurrency-by-module)); paging by key, never by offset; every time stored in UTC and shown in Sydney time; the permissions named in code and mapped to roles in one place; and no slow work, such as a password hash or a mail, inside a transaction.
 
 ## Running It
 
-The whole system runs on one machine with Docker Compose. Docker Desktop must be running.
+The whole system runs on one machine with Docker Compose. It needs Docker and PowerShell (Windows, or `pwsh` on macOS and Linux).
 
 ```
 cd deploy
-.\new-env.ps1                                     # once: random passwords and a signing key in .env
+./new-env.ps1                                     # once: random passwords and a signing key in .env
 docker compose up -d --build                      # MySQL, migrations, Redis, RabbitMQ, backend, nginx
 docker compose run --rm backend create-admin      # once: the first administrator, at a hidden prompt
 ```
 
-Then open `http://localhost:8000`, log in as that administrator, and give roles to the people who sign up. Mail is sent when the `OPSFLOW_MAIL_*` variables are set in the shell; without them, sign-up and password recovery cannot finish. The details are in [Deployment](docs/backend/backend-design.md#deployment).
+Then open `http://localhost:8000`, log in as that administrator, and give roles to the people who sign up. Sign-up and password recovery send an email code, so they need the `OPSFLOW_MAIL_*` variables set in the shell. The details are in [Deployment](docs/backend/backend-design.md#deployment).
 
-For development, the backend and the frontend run on their own against local services: see [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md), [Running](docs/backend/backend-design.md#running) for the backend, and [Running the Frontend Locally](docs/frontend/page-design.md#running-the-frontend-locally).
+For development, the backend and the frontend run on their own against local services: see [environment-setup.md](docs/environment-setup.md).
 
 ## Tests
 
-- Backend: from `backend/`, `mvnw test`, with Docker running. About 450 tests, most of them against a real MySQL, among them race tests that release several threads at the same moment. Every test is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports.
-- Frontend: from `frontend/`, `npm test`, `npm run lint`, and `npm run build`. About 290 tests that drive whole pages against a fake server.
-- Database: [`db/verification/run-db-verification.ps1`](db/verification/run-db-verification.ps1) checks the schema, the rights, and the order and stock races in a temporary database, by hand.
-
-## Design Documents
-
-The current project design is documented here:
-
-- [Database Structure And Business Flow](docs/database/database-design.md)
-- [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) - a concise overview for the README and project introduction.
-- [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) - table fields, keys, and implementation-oriented relationships.
-- [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) - the English order, inventory, audit, and exception-ticket flow.
-- [UI design in Figma](https://www.figma.com/design/68brMszRAYI4d261GKL1GU) - every page, drawn before it was built. See [page-design.md](docs/frontend/page-design.md#frontend-stack-and-design-files).
-
-The simplified ERD is intended for quick communication. The physical ERD and database document are the references for implementation.
+| Suite | Command | What it covers |
+| --- | --- | --- |
+| Backend | `mvnw test` in `backend/`, with Docker running | 459 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
+| Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 294 tests that drive whole pages for each role against a fake server |
+| Database | [`run-db-verification.ps1`](db/verification/run-db-verification.ps1), by hand | 162 checks of the schema, the rights, and the order and stock races, in a temporary database |
 
 ## Documentation Structure
 
-- [`docs/database`](docs/database/) contains the current database design baseline and will later hold schema decisions and migration notes.
-- [`docs/backend`](docs/backend/) contains the current description of the backend: the stack, the layout of the project, the configuration, and how it is run. The code is in [`backend`](backend/).
-- [`docs/api`](docs/api/) contains the conventions of the HTTP API: the paths, the data formats, the error response, the result codes, and the paging.
-- [`docs/frontend`](docs/frontend/) contains the page design and local frontend instructions. The code is in [`frontend`](frontend/).
-- [`backend/src/main/resources/db/migration`](backend/src/main/resources/db/migration/) contains the executable database migrations, applied in version order. See [Initial Migration](docs/database/database-design.md#initial-migration).
-- [`deploy`](deploy/) contains the local deployment with Docker Compose. See [Deployment](docs/backend/backend-design.md#deployment).
-- [`db/admin`](db/admin/) contains database administration scripts that are not migrations, such as the per-table privileges for the application account.
-- [`db/verification`](db/verification/) contains the script that verifies the schema, the privileges, and the order and inventory concurrency rules in a temporary database. See [Concurrency and privilege verification](docs/database/database-design.md#concurrency-and-privilege-verification). The test log [`concurrency-tests.md`](db/verification/concurrency-tests.md) lists every test by block, with what it shows and what is not tested yet.
-- [`docs/iterations`](docs/iterations/) contains one summary file per design iteration, indexed in the Project Log below.
-- [`docs/project-todo.md`](docs/project-todo.md) lists the confirmed tasks and the undecided questions that are still open.
-- [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md) puts the open tasks in the order in which they can be built, in phases, with what each phase is done when.
-- [`docs/future-ideas.md`](docs/future-ideas.md) keeps rough ideas for features that can be added after the program is complete. An idea goes in only after the owner approves it.
-- [`docs/documentation-sync-rules.md`](docs/documentation-sync-rules.md) defines which documents must be updated together and how iterations are recorded. Read it before changing any design document or diagram.
-- [`ENVIRONMENT_SETUP.md`](ENVIRONMENT_SETUP.md) records the local development environment setup.
+```
+backend/          Spring Boot application, its tests, and its Flyway migrations
+frontend/         React application and its tests
+deploy/           Docker Compose deployment
+db/admin/         Per-table rights of the application account
+db/verification/  Database verification script and the test log
+docs/             Design documents
+```
 
-## Project Log
+- [`docs/database`](docs/database/): the [database design](docs/database/database-design.md), with the tables, the order and stock flows, the lock order of every write path, and the Permission Matrix. Diagrams: [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1), [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1), and [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn).
+- [`docs/backend`](docs/backend/): the [backend design](docs/backend/backend-design.md): the stack, the layout, the configuration, the tests, and the deployment.
+- [`docs/api`](docs/api/): the [API conventions](docs/api/api-design.md): the paths, the formats, the error response, the result codes, and the paging.
+- [`docs/frontend`](docs/frontend/): the [page design](docs/frontend/page-design.md) and how to run the frontend.
+- [`docs/iterations`](docs/iterations/): one file per design iteration, with what changed, why, and which decisions were made, indexed in the [Project Log](docs/iterations/README.md).
+- [`docs/environment-setup.md`](docs/environment-setup.md): the development environment.
+- [`docs/project-todo.md`](docs/project-todo.md), [`docs/implementation-roadmap.md`](docs/implementation-roadmap.md), and [`docs/future-ideas.md`](docs/future-ideas.md): the open work, the order in which it was built, and ideas for later.
+- [`docs/documentation-sync-rules.md`](docs/documentation-sync-rules.md): which documents change together and how an iteration is recorded.
 
-Iteration notes live in [`docs/iterations`](docs/iterations/), one file per iteration. Entries are listed newest first. The process for recording iterations and keeping documents in sync is defined in [documentation-sync-rules.md](docs/documentation-sync-rules.md).
+## How It Was Built
 
-| Date | Version | Area | Summary | Details |
-| --- | --- | --- | --- | --- |
-| 2026-11-18 | 1.14 | Backend | The order records of one's own (Q-34) with `ORDER_VIEW_ALL`; the last races against the real code (T-17, T-34), so every check and race has a test; the way of working between development and the deployment, and its backup and restore | [backend-v1.14.md](docs/iterations/backend-v1.14.md) |
-| 2026-11-18 | 1.12 | Frontend | An operator sees only the orders they placed, and the other roles get an Ordered by filter on the order records | [frontend-v1.12.md](docs/iterations/frontend-v1.12.md) |
-| 2026-11-18 | 1.11 | API | `GET /order-records` returns the caller's own attempts without `ORDER_VIEW_ALL`, and takes `userId` with it | [api-v1.11.md](docs/iterations/api-v1.11.md) |
-| 2026-11-18 | 1.19 | Database | Who sees which order records: an operator their own, the other roles everyone's with a person filter; the stock movements stay whole | [database-v1.19.md](docs/iterations/database-v1.19.md) |
-| 2026-11-18 | 1.13 | Backend | The local deployment with Docker Compose (Q-32): MySQL, the migrations, the rights of the application account, Redis, RabbitMQ, the backend, and nginx; the client address from nginx only; Actuator with the health check and the counters of retries and `BUSY` answers | [backend-v1.13.md](docs/iterations/backend-v1.13.md) |
-| 2026-11-18 | 1.11 | Frontend | The frontend image of the deployment: the pages served by nginx, which passes `/api` to the backend | [frontend-v1.11.md](docs/iterations/frontend-v1.11.md) |
-| 2026-11-18 | 1.12 | Backend | Redis and RabbitMQ brought in (Q-07): the login counts of each client address in Redis, and the mail through a durable RabbitMQ queue with three tries and dead letters; both optional at run time | [backend-v1.12.md](docs/iterations/backend-v1.12.md) |
-| 2026-11-18 | 1.18 | Database | The login lockout counts by client address: the steps lock one address out of one account, the account itself is locked at 100 failures a day, and one address is refused after 50 failures in 15 minutes | [database-v1.18.md](docs/iterations/database-v1.18.md) |
-| 2026-11-18 | 1.10 | API | `LOGIN_LOCKED` and `TOO_MANY_REQUESTS` cover the locks and the limit of a client address at login | [api-v1.10.md](docs/iterations/api-v1.10.md) |
-| 2026-11-18 | 1.10 | Frontend | The login page and the audit rows follow the lockout by client address | [frontend-v1.10.md](docs/iterations/frontend-v1.10.md) |
-| 2026-11-17 | 1.17 | Database | A user who loses every role that may take tickets gives back the tickets in progress, with a warning in Change roles; the Phase 6 changes to the database design recorded | [database-v1.17.md](docs/iterations/database-v1.17.md) |
-| 2026-11-16 | 1.9 | Frontend | Phase 6: the five ticket screens with the search and the batch archive, the ticket detail and its actions, Create ticket, and the audit log page | [frontend-v1.9.md](docs/iterations/frontend-v1.9.md) |
-| 2026-11-16 | 1.11 | Backend | Phase 6: the ticket module with its changes, limits, races, archive job, and the cascades of the user and warehouse modules; the user picker; the audit log page | [backend-v1.11.md](docs/iterations/backend-v1.11.md) |
-| 2026-11-16 | 1.9 | API | Phase 6 designed: the ticket endpoints, the user picker, the codes `TICKET_CHANGED` and `NOT_ELIGIBLE`, and the limits of a ticket description (4,000) and a resolution (2,000) | [api-v1.9.md](docs/iterations/api-v1.9.md) |
-| 2026-11-16 | 1.8 | Frontend | Phase 5: the order dialog, Adjust quantity, the two logs with the time filter, the picker, and the order number box, the own logs, and Deleted items | [frontend-v1.8.md](docs/iterations/frontend-v1.8.md) |
-| 2026-11-16 | 1.10 | Backend | Phase 5 in the backend: the `order` module (an order in one transaction, its idempotency key, its number, and the record of every attempt), the three manual stock changes, and the `log` module (the two logs, the Deleted items module, the product picker, and the time filter), with 48 tests | [backend-v1.10.md](docs/iterations/backend-v1.10.md) |
-| 2026-11-16 | 1.8 | API | `POST /orders`, the three stock changes, the code `STOCK_CHANGED`, and the six lists of the logs with the time filter | [api-v1.8.md](docs/iterations/api-v1.8.md) |
-| 2026-11-16 | 1.16 | Database | The refusals of orders and stock changes named by their codes, the quantity of an order checked before its transaction, the times of an order taken after its locks, the limit of 20 lines, and the search by one order number with `ORD-` in upper case | [database-v1.16.md](docs/iterations/database-v1.16.md) |
-| 2026-11-16 | 1.7 | Frontend | The frontend code sorted into components, hooks, and plain functions; the account pages in their own folder | [frontend-v1.7.md](docs/iterations/frontend-v1.7.md) |
-| 2026-11-15 | 1.7 | API | Phase 4: the endpoints of warehouse items, item images, and products, and six result codes | [api-v1.7.md](docs/iterations/api-v1.7.md) |
-| 2026-11-15 | 1.9 | Backend | Phase 4: the `warehouse` module with its five write paths and their locks, the image store, and the shared quantity rule, with 37 tests | [backend-v1.9.md](docs/iterations/backend-v1.9.md) |
-| 2026-11-15 | 1.6 | Frontend | Phase 4: the product page with List item and Delist, and the first part of the stock page with adding, editing, and deleting an item and its picture; prices in Australian dollars | [frontend-v1.6.md](docs/iterations/frontend-v1.6.md) |
-| 2026-11-15 | 1.15 | Database | The application account loses `INSERT` on `roles`, which the fixed roles never need | [database-v1.15.md](docs/iterations/database-v1.15.md) |
-| 2026-11-15 | 1.14 | Database | One signed-in device per account: `users.session_id`, written by each login and carried by its token, so the newest login ends the earlier ones; a delisting takes its time after the lock | [database-v1.14.md](docs/iterations/database-v1.14.md) |
-| 2026-11-15 | 1.8 | Backend | One signed-in device: the token check refuses an earlier login with `SESSION_REPLACED`, and an event stream tells its open page at once | [backend-v1.8.md](docs/iterations/backend-v1.8.md) |
-| 2026-11-15 | 1.6 | API | The code `SESSION_REPLACED` and the event stream `GET /auth/session-events` | [api-v1.6.md](docs/iterations/api-v1.6.md) |
-| 2026-11-15 | 1.5 | Frontend | The frame of the application with a navigation shown by permission, Not allowed and Page not found, and the user page with its four changes, drawn in Figma and built; a second confirmation before an action that is hard to take back; quick ranges in the time filter; the system font; one signed-in device: a page whose account signed in elsewhere shows a dialog and the login page says why | [frontend-v1.5.md](docs/iterations/frontend-v1.5.md) |
-| 2026-11-15 | 1.13 | Database | The user page and the four changes to a user are built; the search of the user page is a part of the username without regard to case; the application account has `DELETE` on `user_roles` and keeps `UPDATE` on `roles` for the row lock, the refusals of a change to a user have result codes, the SYSTEM identity is refused after the locks, and returning the tickets of a disabled or deleted user to the pool waits for the ticket module | [database-v1.13.md](docs/iterations/database-v1.13.md) |
-| 2026-11-15 | 1.5 | API | The first endpoints of the user module: the user page `GET /users`, the first list, and `PUT /users/{id}/roles`, `POST /users/{id}/disable`, `POST /users/{id}/enable`, and `DELETE /users/{id}`, and the codes `USER_CHANGED`, `USER_NOT_ACTIVE`, and `LAST_ADMIN` | [api-v1.5.md](docs/iterations/api-v1.5.md) |
-| 2026-11-15 | 1.7 | Backend | The rules between the packages are checked by a test that reads the compiled classes: `common` depends on no module, a controller does not read the database itself, and a module does not use the repository of another module. The `user` module with the user page, the first list, paged by key, and the four changes one user makes to another (replacing the roles, disabling, enabling, and soft-deleting), each in one transaction that locks the actor and the target and reads the authority again, with race tests. 301 tests | [backend-v1.7.md](docs/iterations/backend-v1.7.md) |
-| 2026-11-15 | 1.4 | API | `GET /auth/me` also returns the permissions of the user, so that the frontend shows a control by its permission and a new role needs no change there | [api-v1.4.md](docs/iterations/api-v1.4.md) |
-| 2026-11-15 | 1.6 | Backend | Built the permission check of the endpoints: a controller method declares who may call it with `@Public`, `@AnyAccount`, or `@RequiresPermission`, a method that declares nothing is refused for everyone, a user with no role gets `ACCOUNT_NO_ROLE`, the enum `Role` is the one place that says which role grants which permission, so that a new role changes no endpoint, and a test fails the build for an endpoint with no declaration. 244 tests | [backend-v1.6.md](docs/iterations/backend-v1.6.md) |
-| 2026-11-14 | 1.12 | Database | Reviewed the Permission Matrix before the permission module is built: the four roles are fixed and no role is created, updated, or deleted while the program runs; a user may hold several roles and the permissions add up; nobody changes their own account; setting the quantity directly is renamed Correction and opened to `OPERATOR`; and a user picker returns only ids and usernames. No table changed | [database-v1.12.md](docs/iterations/database-v1.12.md) |
-| 2026-11-14 | 1.4 | Frontend | After the review of the Permission Matrix: the correction on the stock page for operators too, the user picker on the ticket screens, and the user page without controls on one's own account | [frontend-v1.4.md](docs/iterations/frontend-v1.4.md) |
-| 2026-11-14 | 1.3 | Frontend | Implemented the React project and four account pages, with route guards, session handling, and frontend tests | [frontend-v1.3.md](docs/iterations/frontend-v1.3.md) |
-| 2026-11-13 | 1.2 | Frontend | Chose the frontend stack (React, TypeScript, Vite, Ant Design), an English interface, and `localStorage` for the token, and drew the first draft of the four account pages in Figma: Login, Sign-up, Forgot password, and Pending, with their states | [frontend-v1.2.md](docs/iterations/frontend-v1.2.md) |
-| 2026-11-13 | 1.5 | Backend | Built login: the `auth` module with BCrypt, a signed token, the check of the account on every request, the login lockout, and security that refuses any request that no rule allows; the seed migration with the four roles and the SYSTEM identity; and the one table of audit actions. 49 new tests, among them the race of a login with a password reset. Extended the same day with sign-up and password recovery: email codes stored as a keyed hash, `EMAIL_TAKEN` at sign-up for an address that has an account and the same answer at recovery whether or not an address is registered, a sign-up that logs the new user in, limits on code requests per client address and for the whole system, a mail component that sends by SMTP in the background and never inside a transaction, the first scheduled job (the cleanup), and the migration `V3`. 78 more tests. Then the console command that creates an administrator, the first task of Phase 3, with 10 tests: 222 in all | [backend-v1.5.md](docs/iterations/backend-v1.5.md) |
-| 2026-11-12 | 1.1 | Frontend | A disabled account is told so on the login page and never reaches the pending page, a user disabled while logged in is sent back to the login page, and the pending page is only for a user with no role. Extended on 2026-11-13 with what the sign-up page and Forgot password show for each answer about an email code | [frontend-v1.1.md](docs/iterations/frontend-v1.1.md) |
-| 2026-11-12 | 1.3 | API | Fixed the answers for a disabled, soft-deleted, or just-reset account: `ACCOUNT_DISABLED` at login with no token and on the next request after the account is disabled, and the general `401` for a soft-deleted account and for a login whose password was replaced while it was checked. Added the first endpoints, `POST /auth/login` and `GET /auth/me`. Extended on 2026-11-13 with `POST /auth/email-codes`, `POST /auth/sign-up`, and `POST /auth/password-reset`, and the codes `CODE_INVALID`, `USERNAME_TAKEN`, and `EMAIL_TAKEN` | [api-v1.3.md](docs/iterations/api-v1.3.md) |
-| 2026-11-12 | 1.11 | Database | Defined the login steps before authentication is built: the password is checked outside the transaction, and the short transaction locks the user row and confirms that the checked hash is still current before it records the result, so a login cannot succeed with a password that a reset has just replaced; and defined how a disabled account is handled at login and afterwards. Added the seed migration `V2` (the four roles and the SYSTEM identity). No table changed. Extended on 2026-11-13 with the rules of sign-up and password recovery: the limits on requests for an email code, counted in the new table `email_code_request_counts` (migration `V3`, the 17th table), a code stored as a keyed hash, the same answer to a recovery request whether or not a mail is sent, the username rule, and Gmail SMTP as the mail service (Q-12) | [database-v1.11.md](docs/iterations/database-v1.11.md) |
-| 2026-11-12 | 1.2 | API | Every response carries a request id in the header `X-Request-Id`, and every error body carries it as `requestId`, so that an error a user reports can be found in the log | [api-v1.2.md](docs/iterations/api-v1.2.md) |
-| 2026-11-12 | 1.4 | Backend | Gave every request an id that is printed on each of its log lines, set up GitHub Actions to run the tests on every push, and wrote down three rules for the modules that follow: no slow work inside a transaction, the rules for scheduled jobs, and the rules that a test must check | [backend-v1.4.md](docs/iterations/backend-v1.4.md) |
-| 2026-11-09 | 1.1 | API | Settled three points while writing the conventions into code: the format of the idempotency key, the paging parameters that are refused, and two result codes for a wrong method and a wrong media type | [api-v1.1.md](docs/iterations/api-v1.1.md) |
-| 2026-11-09 | 1.3 | Backend | Built the shared foundations in the `common` package: the error handler, key-based paging, the retry component for deadlocks, UTC time helpers, the base path, the length limits, and the operating parameters in configuration, with 73 new tests | [backend-v1.3.md](docs/iterations/backend-v1.3.md) |
-| 2026-11-05 | 1.2 | Backend | Logged the tests of the Java application in the existing test log, in a section of their own that maps each script check to the Java test that repeats it | [backend-v1.2.md](docs/iterations/backend-v1.2.md) |
-| 2026-11-04 | 1.1 | Backend | Chose `JdbcTemplate` as the persistence layer, `@Transactional` for transactions, a layout by feature, three layers of tests with Testcontainers for the integration tests, and BCrypt with a signed JWT for authentication. Found that Docker works on this machine and corrected the environment notes | [backend-v1.1.md](docs/iterations/backend-v1.1.md) |
-| 2026-11-04 | 1.0 | API | The first API conventions: a versioned base path, JSON and UTC formats, Problem Details errors with a `code`, one table of result codes and statuses, and key-based paging | [api-v1.0.md](docs/iterations/api-v1.0.md) |
-| 2026-11-03 | 1.0 | Backend | The Spring Boot skeleton: a Maven project in `backend/`, Flyway and the MySQL driver, configuration from environment variables with the UTC parameters, and the migrations moved into the project | [backend-v1.0.md](docs/iterations/backend-v1.0.md) |
-| 2026-11-03 | 1.10 | Database | Shortened the keeping of email codes: a code is deleted as soon as it expires (10 minutes after it was made), by a job that runs once a minute, instead of 24 hours after it expires. No table changed | [database-v1.10.md](docs/iterations/database-v1.10.md) |
-| 2026-10-26 | 1.0 | Frontend | First page design: the page map, what each role sees, and a first description of every page, including the stock page with its log, the ticket screens, the user page, and the audit log page. The owner's rough ideas were turned into rules for lists, search, and paging that the database answers | [frontend-v1.0.md](docs/iterations/frontend-v1.0.md) |
-| 2026-10-27 | 1.9 | Database | Decided the open database questions: an item with no stock cannot be listed (`NO_STOCK`); a deleted item still refuses manual stock changes, with the reason stated; every record is kept for ever except expired email codes, which a job deletes 24 hours after they expire (the application account gets `DELETE` on `email_verification_codes` only); and defined the log formats that were missing: stock logs, order records (`order_attempts` is the record), user and account logs (sign-up, status, soft delete, password reset, login lock), and the ticket number and batch id on archived tickets; added `order_attempts.product_name`, the name of the product at the time of an attempt; and made a deleted item unavailable in the pickers, gave deleted items their own module in the warehouse log, defined the labels every audit row carries, added the search by order number, and redesigned the audit page as a menu of seven areas, with a `category` on every audit row | [database-v1.9.md](docs/iterations/database-v1.9.md) |
-| 2026-10-26 | 1.8 | Database | Cleaned the order part of every statement left from the old order lifecycle (an order is complete and final); defined the ticket screens and what each role sees on them; fixed the username and the email after sign-up and reserved two columns for a later change flow; defined item images; and stated that the open tickets of a disabled creator stay in the pool; then, from the page design, removed ticket comments, dropped the order list index, added `order_attempts` (every attempt to place an order is recorded, with its order number, whether or not it succeeds; the schema has 16 tables), split the log of an item into a warehouse log and a product log, made the first administrator a console command on the server (no forced password change), and defined ticket search, the user and audit pages, paging, and the order number on the ticket form | [database-v1.8.md](docs/iterations/database-v1.8.md) |
-| 2026-10-24 | 1.7 | Database | Put the warehouse first: `inventory` became the warehouse item and `products` an item put on sale, created at its first listing. Added `product_listing_events` and the rules for listing, delisting (which cancels the tickets of the product), the product page, and ordering from it; order creation now locks the product rows and checks the name and price the user saw; added the search and list indexes and the product concurrency rules; added `inventory_item_events` and the rules for adding a warehouse item (generated SKU, unique name, optional starting quantity) and deleting it softly, a single rule that every quantity must be valid, opening a ticket on chosen items, and an order that completes the moment it is placed (no reservation, confirmation, timeout, or exception path) that is final, with a wrong order corrected through a ticket | [database-v1.7.md](docs/iterations/database-v1.7.md) |
-| 2026-10-23 | 1.6 | Database | Replaced the ticket priority with `tickets.source` and a built-in SYSTEM identity (`users.is_system`) that opens and archives for the program; made `OPEN` a pool and taking a ticket start it at once; added releasing a ticket, returning the tickets of a disabled or deleted assignee, two limits of 99 per person, archiving after 7 days or when 99 are waiting, and a separate cancelled area; required an order on an `ORDER_EXCEPTION` ticket and had the program fill in the order and the problem on automatic tickets; wrote inventory links only at creation; defined the ticket log formats and three ticket indexes, ordered every ticket list with system tickets first, fixed a ticket's fields after creation, made the exception path stop the order and open the ticket together, and added the indexes for the ticket lists and the order and log lists | [database-v1.6.md](docs/iterations/database-v1.6.md) |
-| 2026-10-22 | 1.5 | Database | Added the `WRITE_OFF` stock type and defined manual stock changes: a required reason and operator on every manual change, and direct quantity setting for `MANAGER` and `ADMIN` only; added the table `ticket_inventory` so one ticket can cover a batch of products, wrote down when a ticket should be opened, defined the ticket status flow (no reopening, `CLOSED` as the archive, a new `CANCELLED` status) and follow-up tickets, added the Concurrency by Module section, and defined who may take and reassign a ticket | [database-v1.5.md](docs/iterations/database-v1.5.md) |
-| 2026-10-21 | 1.4 | Database | Defined a usable account, refused role grants to accounts that are not usable, made permission checks ignore them, defined role management (create, update, delete, replace a user's roles) and its audit logs, made a user with no role a valid state, fixed the rule that at least one usable `ADMIN` must always exist, defined how the first administrator is created, and added `users.must_change_password` | [database-v1.4.md](docs/iterations/database-v1.4.md) |
-| 2026-10-21 | 1.3 | Database | Required the service layer to refuse role grants to soft-deleted users, and required role grants and revocations to be logged | [database-v1.3.md](docs/iterations/database-v1.3.md) |
-| 2026-10-14 | 1.2 | Database | Unified stock concurrency on pessimistic row locking, clarified expired confirmation, froze order items, made composite keys explicit, added the initial migration, and verified concurrency and privileges | [database-v1.2.md](docs/iterations/database-v1.2.md) |
-| 2026-10-14 | 1.1 | Database | Added stock reservation, redefined order statuses, and aligned the physical ERD with the design document | [database-v1.1.md](docs/iterations/database-v1.1.md) |
+The design came first: each module's tables, flows, lock order, and permissions were written down and reviewed before its code, and each change was recorded as an iteration. The code was written with an AI coding assistant (Claude Code), working under the rules in [`CLAUDE.md`](CLAUDE.md) and [`documentation-sync-rules.md`](docs/documentation-sync-rules.md). The design decisions were the author's, and each phase was clicked through by the author against the running system before it was merged.
 
 ## Status
 
-Phases 1 to 6 of the [implementation roadmap](docs/implementation-roadmap.md) are built and were clicked through by the owner against the running system. Phase 8 is under way: Redis, RabbitMQ, and the Docker Compose deployment are in, with its backup, and every race of the design has a test against the real code. What is still open, such as how people are told that the system cancelled their ticket, is in [project-todo.md](docs/project-todo.md); ideas for after the program is complete, such as more than one instance and a server on the internet, are in [future-ideas.md](docs/future-ideas.md).
+All eight phases of the [implementation roadmap](docs/implementation-roadmap.md) are built and were checked against the running system. One question is still open: how people are told that the system cancelled their ticket ([project-todo.md](docs/project-todo.md)). Ideas for after the program is complete, such as more than one instance and a server on the internet, are in [future-ideas.md](docs/future-ideas.md).
 
-`README.md` and `docs/` define the current project scope and implementation decisions.
+## License
+
+[MIT](LICENSE)

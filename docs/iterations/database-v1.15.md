@@ -47,7 +47,7 @@ The authoritative design is [OpsFlow Database Design](../database/database-desig
 | [`run-db-verification.ps1`](../../db/verification/run-db-verification.ps1) | One check added. Run on 2026-11-15: 162 passed, 0 failed |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: Latest run, the counts, and Block C |
 | `TestInfrastructureTest` | Changed as above. `mvnw test` on 2026-11-15: 310 passed, 0 failed |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the per-table privileges, and the `REVOKE` for an older database |
+| [environment-setup.md](../environment-setup.md) | Updated: the per-table privileges, and the `REVOKE` for an older database |
 | Migrations, Physical ERD, Simplified ERD | Not changed: no table or column changed |
 | [project-todo.md](../project-todo.md) | Q-37 removed as decided |
 | [README.md](../../README.md) | Updated: Project Log |

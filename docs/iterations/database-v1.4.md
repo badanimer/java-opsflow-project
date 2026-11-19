@@ -110,7 +110,7 @@ New actions, with `target_type` `ROLE` and `target_id` set to `roles.id`: `ROLE_
 
 ### Privileges
 
-- Deleting a role needs `DELETE` on `roles`. It is not granted now. [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) and [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md#per-table-privileges-after-the-first-migration) say to grant it, for that table only, when the permission feature is built, next to `DELETE` on `user_roles`.
+- Deleting a role needs `DELETE` on `roles`. It is not granted now. [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) and [environment-setup.md](../environment-setup.md#per-table-privileges-after-the-first-migration) say to grant it, for that table only, when the permission feature is built, next to `DELETE` on `user_roles`.
 
 ## Decisions Made In This Iteration
 

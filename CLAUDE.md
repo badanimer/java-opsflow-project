@@ -16,7 +16,8 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 
 | To find | Look in |
 | --- | --- |
-| Project overview, documentation structure, Project Log | [README.md](README.md) |
+| Project overview and documentation structure | [README.md](README.md) |
+| Project Log: the index of every iteration | [docs/iterations/README.md](docs/iterations/README.md) |
 | Open tasks and undecided questions | [docs/project-todo.md](docs/project-todo.md) |
 | The order in which the open tasks are built, in phases | [docs/implementation-roadmap.md](docs/implementation-roadmap.md) |
 | Ideas for features after the program is complete. Add one only after the owner approves it. | [docs/future-ideas.md](docs/future-ideas.md) |
@@ -26,7 +27,7 @@ Read [docs/project-todo.md](docs/project-todo.md) first to see what is still ope
 | The executable schema | [backend/src/main/resources/db/migration/](backend/src/main/resources/db/migration/) |
 | Privileges for the application account, run once after the first migration | [db/admin/](db/admin/) |
 | The temporary-database check of the schema, privileges, and concurrency rules, and the log of every test | [db/verification/](db/verification/), the log is [concurrency-tests.md](db/verification/concurrency-tests.md) |
-| Local setup: MySQL accounts, environment variables, services, follow-up tasks | [ENVIRONMENT_SETUP.md](ENVIRONMENT_SETUP.md) |
+| Development environment: MySQL accounts, environment variables, services | [docs/environment-setup.md](docs/environment-setup.md) |
 | Diagrams: Simplified ERD, Physical ERD, Business Process Flowchart (Figma boards, not in git) | The Design Diagrams table in [docs/database/database-design.md](docs/database/database-design.md) |
 
 Secrets never go into the repository. Real passwords come from environment variables, and the files only hold placeholders.

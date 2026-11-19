@@ -7,6 +7,9 @@
 # Then open http://localhost:8000. The secrets come from .env, which git ignores; the mail variables, when they
 # are set in the shell, are passed on, and without them no mail is sent.
 #
+# The five long-running services restart with Docker (restart: unless-stopped), so starting Docker Desktop starts
+# OpsFlow again; one stopped by hand stays stopped. The migrations and the privileges run only with up.
+#
 # Order: MySQL, then the migrations, then the privileges of the application account, then the backend, then nginx.
 # Only nginx has a port on the machine, and only on 127.0.0.1.
 
@@ -15,6 +18,7 @@ name: opsflow
 services:
   mysql:
     image: mysql:8.4
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run new-env.ps1 first}
       MYSQL_DATABASE: opsflow
@@ -22,7 +26,7 @@ services:
       OPSFLOW_MIGRATION_PASSWORD: ${OPSFLOW_MIGRATION_PASSWORD:?run new-env.ps1 first}
     volumes:
       - mysql-data:/var/lib/mysql
-      # Runs once, when the volume is new: the two accounts of ENVIRONMENT_SETUP.md.
+      # Runs once, when the volume is new: the two accounts of docs/environment-setup.md.
       - ./mysql:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_ROOT_PASSWORD\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
@@ -63,6 +67,7 @@ services:
 
   redis:
     image: redis:8.0
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -71,6 +76,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:4.1
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: opsflow
       RABBITMQ_DEFAULT_PASS: ${OPSFLOW_RABBITMQ_PASSWORD:?run new-env.ps1 first}
@@ -84,6 +90,7 @@ services:
 
   backend:
     build: ../backend
+    restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/opsflow?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&characterEncoding=utf8
       OPSFLOW_DB_USERNAME: opsflow_app
@@ -122,6 +129,7 @@ services:
 
   web:
     build: ../frontend
+    restart: unless-stopped
     ports:
       - "127.0.0.1:${OPSFLOW_WEB_PORT:-8000}:80"
     depends_on:

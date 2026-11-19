@@ -72,7 +72,7 @@ The authoritative description is [OpsFlow Page Design](../frontend/page-design.m
 | [documentation-sync-rules.md](../documentation-sync-rules.md) | Updated: a row for the frontend code and its tests |
 | [README.md](../../README.md) | Updated: Documentation Structure and the Project Log |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated: T-58 is done and removed, T-22 names what the frontend already does, T-60, T-61, and T-62 are done and removed, and T-55 now covers the first run of both jobs |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the note on the Node version |
+| [environment-setup.md](../environment-setup.md) | Updated: the note on the Node version |
 | Backend, API design, database design | Not changed: the pages use the endpoints and the result codes that exist |
 | [`.github/workflows/frontend-tests.yml`](../../.github/workflows/frontend-tests.yml) | New: the lint, the tests, and the build of the frontend on every push |
 | [Backend design document](../backend/backend-design.md) | Updated: one sentence in Continuous integration that points to the frontend job (a note, no Change Log entry) |

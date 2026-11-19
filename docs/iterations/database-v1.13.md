@@ -57,7 +57,7 @@ The authoritative design is [OpsFlow Database Design](../database/database-desig
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated: Role management, Authority over roles and accounts, Steps of a change to a user, and the Change Log |
 | [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Updated: `DELETE` on `user_roles` |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the one line to run on a database where the script ran before. It was run on the owner's local database on 2026-11-15, and the account now has `INSERT` and `DELETE` on `user_roles` |
+| [environment-setup.md](../environment-setup.md) | Updated: the one line to run on a database where the script ran before. It was run on the owner's local database on 2026-11-15, and the account now has `INSERT` and `DELETE` on `user_roles` |
 | [run-db-verification.ps1](../../db/verification/run-db-verification.ps1) | Updated: the two checks named above. **Re-run on 2026-11-15, MySQL 8.4: 161 passed, 0 failed**, started by the assistant with the root password typed by the owner in the masked dialog. The application tests also exercise the privilege: they apply the same privilege script to the MySQL container and replace roles as the application account |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the two entries of Block C, the application tests of the user module, and What is not tested yet |
 | [api-design.md](../api/api-design.md) | The three codes, in [api-v1.5.md](api-v1.5.md) |

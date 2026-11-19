@@ -87,7 +87,7 @@ The authoritative design is [Database Structure and Business Flow](../database/d
 | [Database design document](../database/database-design.md) | Updated: Manual stock changes, Who may take a ticket, Categories, Role management, Authority over roles and accounts, Administrator protection, Steps of a change to a user (new), Role grant and revocation logs, Stock logs, The time filter (new), Stock page, Logs, Ticket search, The user picker (new), User page, Audit log page, Permission Matrix, Concurrency by Module, Initial Constraints, and the Change Log. The section Role management logs is removed |
 | [page-design.md](../frontend/page-design.md) | Updated in [frontend-v1.4.md](frontend-v1.4.md) |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated: T-06, T-21, T-23, T-26, T-27, T-30, T-41, T-47, T-48, and Phase 3. T-55 removed: the owner read the results of the two continuous integration jobs, and they passed |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the planned grant is `DELETE` on `user_roles` only |
+| [environment-setup.md](../environment-setup.md) | Updated: the planned grant is `DELETE` on `user_roles` only |
 | [Test log](../../db/verification/concurrency-tests.md) | What is not tested yet: "direct set" is now "correction", and the row of Users and roles lists the races as they are now. No check changed |
 | [README.md](../../README.md) | Updated: Project Log |
 | [api-design.md](../api/api-design.md) | Not changed: no path and no result code is defined here. They come when the module is built |

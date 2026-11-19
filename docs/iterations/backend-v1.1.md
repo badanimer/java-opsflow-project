@@ -67,7 +67,7 @@ One package for each module under `com.opsflow`, such as `order`, `inventory`, `
 | --- | --- |
 | [Backend design document](../backend/backend-design.md) | Updated: Stack, Layout, a Transactions section, and the Change Log |
 | [README.md](../../README.md) | Updated: Project Log |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the note on virtualization, the Docker rows, and section 2.6 |
+| [environment-setup.md](../environment-setup.md) | Updated: the note on virtualization, the Docker rows, and section 2.6 |
 | [project-todo.md](../project-todo.md) | Updated: T-51 removed; T-52 added; T-53 added and done; Q-09 removed (decided); Q-32 narrowed; T-20 and T-05 extended |
 | Database design, migrations, verification | Not changed |
 

@@ -54,7 +54,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | --- | --- |
 | [Backend design](../backend/backend-design.md) | Updated: Change Log, Stack, Layout, Tests, Configuration, Running, and Deployment (new) |
 | [Page design](../frontend/page-design.md) | Updated in [frontend-v1.11.md](frontend-v1.11.md): the image of the frontend |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: Docker runs the deployment too, and the port 8000 |
+| [environment-setup.md](../environment-setup.md) | Updated: Docker runs the deployment too, and the port 8000 |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the new tests and the latest run |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated: Q-32 narrowed to more than one instance and a server on the internet |
 | [README.md](../../README.md) | Updated: Project Log, and how to run the system |

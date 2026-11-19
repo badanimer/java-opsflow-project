@@ -70,7 +70,7 @@ The draft has 32 frames of 1440 by 900. The first round had 14; the owner then c
 | [Backend design document](../backend/backend-design.md) | Updated: one sentence in Authentication, where the token is kept (a note, no Change Log entry) |
 | [README.md](../../README.md) | Updated: Design Documents and the Project Log |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated: T-18 is done and removed, T-60 and T-61 are new, and Phase 7 says that the frontend is built beside the backend |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the follow-up task on the framework is ticked |
+| [environment-setup.md](../environment-setup.md) | Updated: the follow-up task on the framework is ticked |
 | Database design, API design | Not changed: the pages use the endpoints and the result codes that exist |
 
 ## Open Items

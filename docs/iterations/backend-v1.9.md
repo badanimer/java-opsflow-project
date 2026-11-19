@@ -55,7 +55,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | [Backend design document](../backend/backend-design.md) | Updated: Warehouse Items and Products (new), and the Change Log |
 | [API design](../api/api-design.md) | [api-v1.7.md](api-v1.7.md) |
 | [Database design](../database/database-design.md) | Not changed: the tables, the rules, and the locks of Phase 4 were already designed |
-| Configuration and environment | `OPSFLOW_IMAGE_DIR` (optional) in [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) and in Configuration; the new properties in Configuration |
+| Configuration and environment | `OPSFLOW_IMAGE_DIR` (optional) in [environment-setup.md](../environment-setup.md) and in Configuration; the new properties in Configuration |
 | [Test log](../../db/verification/concurrency-tests.md) | Application tests: Warehouse items and products, the latest `mvnw test` run, the repeats of D4 and D5, and What is not tested yet |
 | [README.md](../../README.md) | Updated: Project Log |
 

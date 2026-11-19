@@ -127,10 +127,10 @@ Version 1.2 keeps the table structure and tightens the rules around it. The revi
 | [Initial migration](../../backend/src/main/resources/db/migration/V1__initial_schema.sql) | New |
 | [Per-table privilege script](../../db/admin/restrict-app-privileges.sql) | New; run once after the first migration |
 | [Verification scripts](../../db/verification/) | New; the concurrency fixtures and the runner |
-| [Environment setup](../../ENVIRONMENT_SETUP.md) | Updated; accounts, UTC, environment variables |
+| [Environment setup](../environment-setup.md) | Updated; accounts, UTC, environment variables |
 | [Physical ERD](https://www.figma.com/board/GNiX9p2D1tTfKvqPs8L9DQ/OpsFlow-Initial-Physical-ERD?node-id=0-1) | Updated; shows generic types, the migration holds the exact ones |
 | [Simplified ERD](https://www.figma.com/board/FTesM5Ue6WpNV6GcipdfK9/OpsFlow-Database-ER-Diagram?node-id=0-1) | Updated; `version` removed |
-| [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn?utm_source=chatgpt&utm_content=edit_in_figjam&oai_id=v1%2FtDcmP81m3SYAzncralkx17NKbn5enuMgAGNWsRIfEoNLjm99sa6yfR&request_id=d371b03f-7e6a-445b-802e-8bf638e4ca02) | Updated; shows reservation, confirmation, release, timeout, and retry |
+| [Business Process Flowchart](https://www.figma.com/board/At5VgWJp5LHbFl2qZYZzKn) | Updated; shows reservation, confirmation, release, timeout, and retry |
 
 ## Open Items
 

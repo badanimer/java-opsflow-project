@@ -62,7 +62,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated |
 | Database design, migrations, ERDs | Not changed |
 | `db/verification/run-db-verification.ps1` | Not run, because no schema, privilege, or flow changed |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Not changed: the application reads no new environment variable |
+| [environment-setup.md](../environment-setup.md) | Not changed: the application reads no new environment variable |
 
 ## Open Items
 

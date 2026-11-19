@@ -53,7 +53,7 @@ The owner's requirements: a record says who, when, what, and how much; only an a
 ### Listing, deletion, and email codes
 
 - `list_product` in the fixtures reads the stock under the shared lock, for the first listing and for a relisting, and returns `NO_STOCK`. The extra items of the listing races now carry 5 units.
-- `restrict-app-privileges.sql` grants `DELETE` on `email_verification_codes`. [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) lists it.
+- `restrict-app-privileges.sql` grants `DELETE` on `email_verification_codes`. [environment-setup.md](../environment-setup.md) lists it.
 - Image files are kept for ever like every other record, so the "cleanup job" for images that [database-v1.8.md](database-v1.8.md) left to Q-17 is dropped.
 
 ## Decisions Made
@@ -81,7 +81,7 @@ The owner's requirements: a record says who, when, what, and how much; only an a
 | Artifact | Status |
 | --- | --- |
 | [Database design document](../database/database-design.md) | Updated: Listing and delisting, Manual stock changes, Email codes, Operating Parameters, Auditing (Stock logs, Order records, User and account logs, the archive row), the products race rows, the privilege rules, Future Evolution, and the Change Log |
-| [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql), [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: `DELETE` on `email_verification_codes` |
+| [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql), [environment-setup.md](../environment-setup.md) | Updated: `DELETE` on `email_verification_codes` |
 | [Verification script and fixtures](../../db/verification/run-db-verification.ps1) | Updated: the refusal of `DELETE` on `email_verification_codes` removed (its reason is the new grant); four checks added (the application can delete expired codes and keeps a valid one, an item with no stock cannot be listed, an attempt needs the name of the product, and a recorded attempt carries that name); the extra items of three checks carry stock; the inserts into `order_attempts` and the two attempt procedures carry the name. **Run on 2026-10-27: 156 passed, 0 failed** (A 2, B 91, C 31, D 32), after the audit categories were added (the index check changed, one check added for the category, and the inserts into `operation_logs` carry a category) |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the entries, the counts of blocks B and D, and the table of how the count grew. Run recorded: 156 passed, 0 failed |
 | [page-design.md](../frontend/page-design.md) | A reference to Q-03 changed to Q-34; the pickers and the Deleted items module |

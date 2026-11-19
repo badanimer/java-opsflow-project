@@ -40,7 +40,7 @@ import com.opsflow.common.mail.OutgoingMail;
  * in-memory database does not lock like MySQL.
  *
  * The container is started once for the whole test run and set up the way the real server is: the
- * two accounts of ENVIRONMENT_SETUP.md, the Flyway migrations run as the migration account, and then
+ * two accounts of docs/environment-setup.md, the Flyway migrations run as the migration account, and then
  * db/admin/restrict-app-privileges.sql. The application connects as the application account, so a
  * missing grant fails here as it would in production. The passwords are made at random for each run.
  *

@@ -67,7 +67,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | [database-design.md](../database/database-design.md) | One sentence under the Permission Matrix says where the permissions live. No rule changed, so there is no database iteration |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md) | Updated: T-22 removed as done, and T-19 and T-27 narrowed to what is left |
 | [README.md](../../README.md) | Updated: Project Log |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md), migrations, [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Not changed: no variable, table, or privilege is new. The verification script was not re-run |
+| [environment-setup.md](../environment-setup.md), migrations, [restrict-app-privileges.sql](../../db/admin/restrict-app-privileges.sql) | Not changed: no variable, table, or privilege is new. The verification script was not re-run |
 
 ## Open Items
 

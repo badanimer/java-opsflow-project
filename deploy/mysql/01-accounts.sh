@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs once, when the MySQL volume of the deployment is new: the two accounts of ENVIRONMENT_SETUP.md, with the
+# Runs once, when the MySQL volume of the deployment is new: the two accounts of docs/environment-setup.md, with the
 # passwords of .env. The application account starts with the database-wide rights that
 # db/admin/restrict-app-privileges.sql then narrows, as on the development machine.
 set -e

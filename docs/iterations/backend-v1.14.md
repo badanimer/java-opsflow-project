@@ -63,7 +63,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the new tests, D6 written, What is not tested yet emptied, the latest run |
 | [project-todo.md](../project-todo.md), [implementation-roadmap.md](../implementation-roadmap.md), [future-ideas.md](../future-ideas.md) | Updated: T-17, Q-34, and Q-32 removed from the to-do; T-34 kept as the rule for new write paths; more than one instance and a server on the internet added as an idea, by the owner's decision |
 | [README.md](../../README.md) | Updated: Project Log |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Not changed: no account, variable, or service changed |
+| [environment-setup.md](../environment-setup.md) | Not changed: no account, variable, or service changed |
 
 ## Open Items
 

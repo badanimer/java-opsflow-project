@@ -57,7 +57,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | [Backend design](../backend/backend-design.md) | Updated: Change Log, Stack, Shared Code, Tests, Continuous integration, Authentication, Mail, and Configuration |
 | [Database design](../database/database-design.md) | Updated in [database-v1.18.md](database-v1.18.md): the login rules. No table changed |
 | [API design](../api/api-design.md) | Updated in [api-v1.10.md](api-v1.10.md): the meanings of `LOGIN_LOCKED` and `TOO_MANY_REQUESTS` at login |
-| [ENVIRONMENT_SETUP.md](../../ENVIRONMENT_SETUP.md) | Updated: the Redis and RabbitMQ variables, named `OPSFLOW_*` like the others (T-08), and what the backend uses each service for |
+| [environment-setup.md](../environment-setup.md) | Updated: the Redis and RabbitMQ variables, named `OPSFLOW_*` like the others (T-08), and what the backend uses each service for |
 | [Test log](../../db/verification/concurrency-tests.md) | Updated: the login and mail tests, the two login races, and the latest run |
 | [README.md](../../README.md) | Updated: Project Log |
 | `db/verification/run-db-verification.ps1` | Not run: the schema, the privileges, and the flows of the script did not change |
