@@ -93,7 +93,7 @@ public class CreateAdminCommand {
 	 * Why the application did not start, in one sentence for the person at the console. The usual reason is
 	 * an environment variable that this terminal does not have. The text never holds the value of a variable.
 	 */
-	static String describeStartFailure(Throwable failure) {
+	public static String describeStartFailure(Throwable failure) {
 		Throwable root = failure;
 		while (root.getCause() != null && root.getCause() != root) {
 			root = root.getCause();

@@ -21,6 +21,9 @@ import com.opsflow.common.audit.AuditLogWriter;
  * this transaction started.
  *
  * Nobody is logged in at the console, so the log rows have no operator.
+ *
+ * {@link #createWithRole} is the same transaction with another of the fixed roles, for the accounts of the
+ * demo data ({@link DemoAccounts}).
  */
 @Component
 public class AdminCreator {
@@ -47,8 +50,14 @@ public class AdminCreator {
 	/** @return the id of the new administrator */
 	@Transactional
 	public long create(String username, String email, String passwordHash) {
-		long roleId = repository.lockRoleId(ADMIN).orElseThrow(() -> new Refused(
-				"The ADMIN role does not exist. Start the application once, so that the migrations create the roles."));
+		return createWithRole(username, email, passwordHash, ADMIN);
+	}
+
+	/** @return the id of the new user, who holds the one role given */
+	@Transactional
+	public long createWithRole(String username, String email, String passwordHash, String roleCode) {
+		long roleId = repository.lockRoleId(roleCode).orElseThrow(() -> new Refused(
+				"The " + roleCode + " role does not exist. Start the application once, so that the migrations create the roles."));
 		if (repository.usernameExists(username)) {
 			throw new Refused("This username is already used.");
 		}
@@ -71,7 +80,7 @@ public class AdminCreator {
 
 		Map<String, Object> grant = new LinkedHashMap<>();
 		grant.put("roleId", roleId);
-		grant.put("roleCode", ADMIN);
+		grant.put("roleCode", roleCode);
 		grant.put("username", username);
 		audit.write(AuditAction.ROLE_GRANTED, null, AuditLogWriter.TARGET_USER, id, null, grant, null, CONSOLE);
 		return id;

@@ -12,7 +12,7 @@ RUN mvn -B -q package -DskipTests
 FROM eclipse-temurin:17-jre
 # The application does not run as root. The item images live in a volume at /data/images.
 RUN useradd --system --no-create-home opsflow && mkdir -p /data/images && chown opsflow /data/images
-COPY --from=build /src/target/opsflow-backend-0.0.1-SNAPSHOT.jar /app/opsflow.jar
+COPY --from=build /src/target/opsflow-backend-*.jar /app/opsflow.jar
 USER opsflow
 # 8080: the API, which nginx passes on. 8081: Actuator, which nobody outside the containers reaches.
 EXPOSE 8080 8081

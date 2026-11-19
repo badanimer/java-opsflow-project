@@ -4,11 +4,14 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+
+import com.opsflow.common.web.ApiDocsConfig;
 
 import jakarta.servlet.DispatcherType;
 
@@ -52,6 +55,10 @@ public class SecurityConfig {
 				// Actuator, on the management port only: the health check and the counters. The reverse proxy
 				// passes nothing to that port, so it is reachable from the machine and its containers only.
 				.requestMatchers(request -> onManagementPort(request.getLocalPort(), environment)).permitAll()
+				// The API documentation: Swagger UI, its files, and the description it reads. They are served by the
+				// library and not by a controller method, so they are named here. Calling an endpoint from the page
+				// still goes through the rule below with the token given in Authorize.
+				.requestMatchers(HttpMethod.GET, ApiDocsConfig.PUBLIC_PATHS.toArray(String[]::new)).permitAll()
 				// Every other request is decided by what its controller method declares.
 				.anyRequest().access(permissions))
 			.oauth2ResourceServer(server -> server

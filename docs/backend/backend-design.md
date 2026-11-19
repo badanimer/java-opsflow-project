@@ -10,6 +10,7 @@ This document always describes the current backend. Each iteration has a summary
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-19 | 1.18 | Version 1.0.0. The API documentation: springdoc with Swagger UI at `/api/v1/docs`, each operation saying who may call it from its declaration. The console command `seed-demo`, which makes five demo accounts and fills a new deployment with items, products, orders, and tickets through the API. `new-env.sh` for macOS and Linux, and the variable `OPSFLOW_DEMO_API_URL`. 4 tests | [backend-v1.18.md](../iterations/backend-v1.18.md) |
 | 2026-11-19 | 1.17 | A take is logged as `TICKET_TAKEN`, a new constant of `AuditAction`, and an assignment from the pool stays `TICKET_ASSIGNED`; `TicketWriter.logAssigned` takes the action. 2 tests changed | [backend-v1.17.md](../iterations/backend-v1.17.md) |
 | 2026-11-19 | 1.16 | Each ticket screen lists the person and the time of its own step (`TicketRepository.timeColumn` and `personColumn`), ordered and filtered by that time; a take, an assignment, and a reassignment write `tickets.assigned_at` (migration `V5`) and a release empties it; the audit page finds the rows of one ticket by `ticketNo`, through `TicketNumbers.typed`, now public. 3 tests | [backend-v1.16.md](../iterations/backend-v1.16.md) |
 | 2026-11-19 | 1.15 | The five long-running services of the deployment restart with Docker, so starting Docker Desktop brings OpsFlow back after the machine restarts. The documentation prepared for a public repository: a new README, the Project Log in `docs/iterations/README.md`, the environment document moved to `docs/environment-setup.md` and made general, and an MIT license | [backend-v1.15.md](../iterations/backend-v1.15.md) |
@@ -47,6 +48,7 @@ This document always describes the current backend. Each iteration has a summary
 | Redis | `spring-boot-starter-data-redis` (Lettuce): the login counts of each client address. See Authentication. Added on 2026-11-18 (Q-07) |
 | RabbitMQ | `spring-boot-starter-amqp`: the mail queue. See Mail. Added on 2026-11-18 (Q-07) |
 | Health and counters | `spring-boot-starter-actuator` on a management port of its own: the health check and two counters of the retry. See Deployment. Added on 2026-11-18 (Q-32) |
+| API documentation | `springdoc-openapi-starter-webmvc-ui` 3.0.3, the line built on Spring Boot 4.0: the OpenAPI description and Swagger UI. See API documentation. Added on 2026-11-19 |
 
 Neither Redis nor RabbitMQ holds anything that cannot be lost: when one cannot be reached, the login goes on with the ceiling in the user row only, and a mail is sent at once without the queue.
 
@@ -192,6 +194,7 @@ The tests of the shared code are in `backend/src/test/java/com/opsflow/common`, 
 | `PageQueryFactoryTest` | Unit | The defaults, the limit of the page size, the refusal of a bad `limit`, `direction`, `order`, or `cursor`, and a list whose fixed order is ascending |
 | `PagingWalkTest` | Unit | Walks a list forward and back with the query a repository would run: every row once, no cursor at the two ends, and rows inserted or deleted between two reads neither repeat nor skip a row |
 | `TransactionRetryTest` | Unit | The retry rules with a fake pause: the configured attempts, `BUSY` at the end, no retry of any other failure or of a refusal of the API, the waits, the refusal to run inside a transaction, and the two counters |
+| `ApiDocsTest` | Integration | In a real server: the API description and Swagger UI open with no login under the base path, describe only the controllers of the application, say who may call each operation, and ask for the token on every operation that is not public; the API itself stays closed |
 | `ActuatorTest` | Integration | In a real server with two ports: the health check sees the database, Redis, and RabbitMQ and the two counters answer on the management port without a login, and the port of the API refuses both |
 | `TransactionRetryMySqlTest` | Integration | The retry against a real deadlock between two transactions and a real lock wait timeout |
 | `UtcTimeTest` | Unit | The conversions between `DATETIME` values and instants, whatever the time zone of the machine |
@@ -225,6 +228,7 @@ The tests of login, sign-up, and password recovery are in `backend/src/test/java
 | `SignUpTest` | Integration | Sign-up: the active account with no role, its log row, and the token that logs the new user in and ends with a reset in the same millisecond, a wrong, dead, expired, older, or foreign code, the rules checked before the code, a taken username that leaves the code usable, and the races of one code sent four times and of one username wanted twice |
 | `PasswordResetTest` | Integration | The reset: the new password, the old tokens ended, the locks of every address cleared, the log row, a new password equal to the current one, the same answer for an address with no account, a disabled and a soft-deleted account, a token issued in the same millisecond as a reset, and a login and a reset on real threads at the same moment |
 | `AccountRaceTest` | Integration | A newer code is requested while the password of a sign-up or a reset is being hashed: the older code no longer works and nothing is written. The test wraps the real `PasswordHasher`, so the order is the same on every run |
+| `SeedDemoTest` | Integration | The demo data against a real server: the five accounts with their roles, and through the API the items with pictures, the products, the stock changes, the orders with one refused, and a ticket on every screen with its log rows; a second run, a weak password, and a backend that does not answer leave nothing behind |
 | `CreateAdminCommandTest` | Integration | The console command, in an application started without the web server and with a terminal played by the test: the administrator with its role and its two log rows, who can log in; a second administrator; differing passwords, a value that breaks a rule of sign-up, a taken username or address, a missing `ADMIN` role, and input that ends early, each of which creates nothing; the password is never printed; and two commands at the same moment |
 | `EmailCodeCleanupJobTest` | Integration | The cleanup job, called directly: an expired code is deleted and a valid one is kept, the counts of windows long over are deleted, a run deletes at most its batch, a second run changes nothing, and no job is scheduled in the tests |
 | `PermissionProbeController`, `EndpointPermissionTest` | Integration | A controller that exists only in the tests, with one endpoint for each kind of declaration and one that declares nothing, and the checks through it: no token, a user with no role (`ACCOUNT_NO_ROLE`), roles that do not grant the permission (`FORBIDDEN`), each role that grants it, a user with two roles, an endpoint that declares nothing, a path with another method, a role granted or taken away between two requests, and a disabled account |
@@ -511,7 +515,7 @@ Built on 2026-11-16 for Phase 5 (T-46; [backend-v1.10.md](../iterations/backend-
 `create-admin` makes an administrator on the server, so that no page and no endpoint exists for it (see [First administrator](../database/database-design.md#first-administrator)). It is run from `backend/` after `mvnw package`, in a terminal, with the five required variables set:
 
 ```
-java -jar target/opsflow-backend-0.0.1-SNAPSHOT.jar create-admin
+java -jar target/opsflow-backend-1.0.0.jar create-admin
 ```
 
 - **No web server.** `OpsflowBackendApplication.main` sees the argument and starts the application with no web server and with the scheduled jobs off, runs the command, and exits with 0 when the administrator was created and 1 otherwise. Flyway still runs at that start, so the roles exist. `SecurityConfig` and `SecurityErrorHandler` are marked as parts of the web application only, because they need the web layer; `CreateAdminCommandTest` starts the application the same way, so a class that cannot start without the web server fails there.
@@ -519,6 +523,26 @@ java -jar target/opsflow-backend-0.0.1-SNAPSHOT.jar create-admin
 - **The rules of sign-up** apply to the username, the email, and the password. A value that breaks one, two passwords that differ, a username or an address that is taken, and a missing `ADMIN` role each end the command with a message that names the reason, and nothing is created.
 - **A start that fails** is reported in one sentence and not as a stack trace. The usual reason is an environment variable that the terminal does not have, because the terminal was opened before the variable was set; the sentence names the variable and never a value.
 - **It can run again** at any time, for another administrator.
+
+## Demo data
+
+`seed-demo` fills a new deployment with data to show, so a person who runs OpsFlow for the first time sees every page with something on it (backend v1.18). In the deployment:
+
+```
+docker compose run --rm backend seed-demo
+```
+
+- **Five accounts, one for each role:** `adam` (administrator), `mary` (manager), `olive` and `otto` (operators), and `vera` (viewer), with addresses at `example.com`. They share one password, typed twice at a hidden prompt as for `create-admin`, checked with the rule of sign-up, and never written anywhere. `DemoAccounts` in `auth` makes them through the transaction of `AdminCreator`, which gives each its role, because an account cannot be made through the API without an email code.
+- **Everything else through the API** of the running backend, as those people, by `DemoSeeder` and `DemoClient` in the package `demo`: six warehouse items with pictures drawn in the code (`DemoImages`, no image file and no font), five of them put on sale, a delivery, a write-off, and a correction, three orders and one refused for want of stock, and six tickets: one waiting in the pool, one assigned by a manager, one taken and then reassigned, one resolved, one archived, and one cancelled, one of them an order exception on the refused order. Every row goes through the permission checks, the locks, and the log rows of a change made on a page. The types of the other modules are not used from `demo`, so the rules between the packages hold.
+- **The address of the backend** is `OPSFLOW_DEMO_API_URL`, `http://localhost:8080` by default; the deployment sets `http://backend:8080`. The command first asks the backend for its API description, so a wrong address stops it before anything is made.
+- **For a new deployment.** It refuses to run when one of the five usernames exists, and stops at an item whose name is taken. Like `create-admin` it needs a real terminal.
+
+## API documentation
+
+The OpenAPI description of the API is at `/api/v1/api-docs`, and Swagger UI at `/api/v1/docs`, both under the base path, so the development server of Vite and nginx in the deployment pass them on as they pass the API: `http://localhost:8000/api/v1/docs` in the deployment (backend v1.18).
+
+- **`ApiDocsConfig`** in `common/web` describes the API (the title, the version of the jar, a bearer token) and writes into every operation who may call it, read from the declaration of its controller method: "Public: no login needed.", "Any logged-in account.", or "Needs the permission ORDER_PLACE.", so the page cannot disagree with the check. Every operation that is not public asks for the token, which the page takes once with Authorize. Only the controllers of `com.opsflow` are described.
+- **Security.** The page, its files, and the description are served by the library and not by a controller method, so `SecurityConfig` names them (`ApiDocsConfig.PUBLIC_PATHS`, `GET` only) before the rule that asks each method for its declaration. They open with no login; every endpoint called from the page still needs its token and its permission.
 
 ## Mail
 
@@ -564,6 +588,7 @@ The Redis and RabbitMQ variables are optional too. Without them the application 
 | `OPSFLOW_REDIS_HOST`, `OPSFLOW_REDIS_PORT` | The Redis server. The defaults are `127.0.0.1` and 6379 |
 | `OPSFLOW_REDIS_PASSWORD` | The password of Redis, when it has one. A secret. Empty by default, as the local service has none |
 | `OPSFLOW_RABBITMQ_HOST`, `OPSFLOW_RABBITMQ_PORT` | The RabbitMQ broker. The defaults are `127.0.0.1` and 5672 |
+| `OPSFLOW_DEMO_API_URL` | Read only by the console command `seed-demo`: the address of the running backend it fills through the API. `http://localhost:8080` by default; the deployment sets `http://backend:8080` |
 | `OPSFLOW_MANAGEMENT_PORT` | The port of Actuator, 8081 by default. Not the port of the API, which a reverse proxy passes on |
 | `SERVER_FORWARD_HEADERS_STRATEGY` | Set to `native` only behind nginx, in the deployment, so the client address comes from `X-Forwarded-For`. Not set on the development machine |
 | `OPSFLOW_RABBITMQ_USERNAME`, `OPSFLOW_RABBITMQ_PASSWORD` | The account of the broker. Without them the default local account of RabbitMQ is used, which RabbitMQ lets in from the same machine only. On another machine set both; the password is a secret |
@@ -637,9 +662,10 @@ Decided on 2026-11-18 (Q-32): the whole system runs on one machine with Docker C
 
 ```
 cd deploy
-.\new-env.ps1                    # once: makes .env with random secrets, shows none of them
+.\new-env.ps1                    # once: makes .env with random secrets, shows none of them (./new-env.sh on macOS and Linux)
 docker compose up -d --build     # then open http://localhost:8000
-docker compose run --rm backend create-admin    # once: the first administrator, at a hidden prompt
+docker compose run --rm backend seed-demo       # optional, once: the demo accounts and data, at a hidden prompt
+docker compose run --rm backend create-admin    # once, for a real start: the first administrator, at a hidden prompt
 ```
 
 | Service | Image | What it does |
@@ -651,7 +677,7 @@ docker compose run --rm backend create-admin    # once: the first administrator,
 | `backend` | built from [`backend/Dockerfile`](../../backend/Dockerfile) | The application, as a user that is not root, with Flyway off and no migration password. It starts after the rights are set and Redis and RabbitMQ are healthy, and is healthy when `/actuator/health/readiness` answers. The item images are in the volume `images` |
 | `web` | built from [`frontend/Dockerfile`](../../frontend/Dockerfile) | nginx with the built pages and [`nginx.conf`](../../frontend/nginx.conf), which passes `/api` to the backend and does not buffer the event stream. The only port on the machine: `127.0.0.1:8000` |
 
-- **Secrets.** `.env` holds the root password of MySQL, the two account passwords, the RabbitMQ password, and the token signing key, all made at random by `new-env.ps1`, which prints none of them; git ignores `.env`. [`.env.example`](../../deploy/.env.example) shows the names. The mail variables are taken from the shell when they are set there. The deployment has its own secrets, so a token of the development backend does not open it.
+- **Secrets.** `.env` holds the root password of MySQL, the two account passwords, the RabbitMQ password, and the token signing key, all made at random by `new-env.ps1`, or by `new-env.sh` on macOS and Linux, which print none of them; git ignores `.env`. [`.env.example`](../../deploy/.env.example) shows the names. The mail variables are taken from the shell when they are set there. The deployment has its own secrets, so a token of the development backend does not open it.
 - **The client address.** nginx sets `X-Forwarded-For` to the address of the connection and never passes on one the client sent. The backend runs with `SERVER_FORWARD_HEADERS_STRATEGY=native`, so Tomcat takes the address from that header, and only when the request comes from a private address, such as the nginx container. On 2026-11-18 a login sent through nginx with a forged `X-Forwarded-For: 1.2.3.4` was counted for `172.18.0.1`, the address of the machine, and not for the forged one or for nginx. The development backend does not trust the header: nothing stands in front of it.
 - **Health and counters.** Actuator answers on the management port 8081, which is not published and which nginx does not reach: `docker compose exec backend curl -s localhost:8081/actuator/health`. The security rules let a request through without a token on that port only; on the port of the API the same paths are refused. `opsflow.retry.retries` counts the transactions tried again after a lock conflict, and `opsflow.retry.busy` the `BUSY` answers.
 - **One instance.** The scheduled jobs and the event streams of one signed-in device are kept by one instance. A second one needs a lock for the jobs and the logins sent between the instances through Redis; that waits until it is wanted.

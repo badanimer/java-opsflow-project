@@ -87,7 +87,7 @@ Docker runs the integration tests, which start MySQL 8.4, Redis, and RabbitMQ in
 
 On Windows it runs on WSL2. To limit the memory of the WSL2 virtual machine, create `%UserProfile%\.wslconfig` with a `[wsl2]` section and a `memory=` line.
 
-The deployment has its own MySQL, Redis, and RabbitMQ in containers, with no port on the machine, so it does not touch the development services; only nginx listens, on `127.0.0.1:8000`. Its secrets are in `deploy/.env`, made by `deploy/new-env.ps1` and ignored by git, and are separate from the variables below.
+The deployment has its own MySQL, Redis, and RabbitMQ in containers, with no port on the machine, so it does not touch the development services; only nginx listens, on `127.0.0.1:8000`. Its secrets are in `deploy/.env`, made by `deploy/new-env.ps1` (or `deploy/new-env.sh` on macOS and Linux) and ignored by git, and are separate from the variables below.
 
 ## Environment Variables
 
@@ -101,6 +101,7 @@ Real credentials live in environment variables and never in the repository. The 
 | `OPSFLOW_IMAGE_DIR` | No. By default `./data/images` under the folder the backend starts in, which git ignores |
 | `OPSFLOW_MAIL_HOST`, `OPSFLOW_MAIL_PORT`, `OPSFLOW_MAIL_USERNAME`, `OPSFLOW_MAIL_PASSWORD`, `OPSFLOW_MAIL_FROM` | No. Without the host or the password the backend starts and sends no mail, so sign-up and password recovery cannot finish |
 | `OPSFLOW_REDIS_*`, `OPSFLOW_RABBITMQ_*` | No, see above |
+| `OPSFLOW_DEMO_API_URL` | No. Read only by the console command `seed-demo`: the backend it fills with demo data, `http://localhost:8080` by default |
 
 The required ones have no default on purpose: if one is missing, the backend does not start, instead of falling back to a value in the repository. The MySQL `root` password is deliberately not among them.
 

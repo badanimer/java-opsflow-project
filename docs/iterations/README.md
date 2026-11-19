@@ -13,6 +13,8 @@ The process for recording iterations and keeping documents in sync is defined in
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 1.18 | Backend | Version 1.0.0; Swagger UI with who may call each endpoint; the console command `seed-demo` that fills a new deployment through the API; `new-env.sh` for macOS and Linux | [backend-v1.18.md](backend-v1.18.md) |
+| 2026-11-19 | 1.13 | API | The API describes itself: `GET /api-docs` and Swagger UI at `/docs` | [api-v1.13.md](api-v1.13.md) |
 | 2026-11-19 | 1.17 | Backend | A take is logged as `TICKET_TAKEN`, apart from an assignment | [backend-v1.17.md](backend-v1.17.md) |
 | 2026-11-19 | 1.14 | Frontend | The audit page offers Ticket taken as its own action | [frontend-v1.14.md](frontend-v1.14.md) |
 | 2026-11-19 | 1.21 | Database | A take from the pool is its own audit action, `TICKET_TAKEN` | [database-v1.21.md](database-v1.21.md) |

@@ -10,6 +10,7 @@ This document always describes the current API conventions. Each iteration has a
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-19 | 1.13 | The description of the API: `GET /api-docs` (OpenAPI) and Swagger UI at `/docs`, open with no login, each operation saying who may call it | [api-v1.13.md](../iterations/api-v1.13.md) |
 | 2026-11-19 | 1.12 | A row of `GET /tickets` carries `person` and `time`, the person and the time of the step its screen is about, in place of `createdBy`, `createdAt`, `closedAt`, and `cancelledAt`; the list is ordered and filtered by that time. `GET /audit-records` takes `ticketNo` in the area `TICKET` | [api-v1.12.md](../iterations/api-v1.12.md) |
 | 2026-11-18 | 1.11 | Who sees which order records (Q-34): `GET /order-records` returns everyone's attempts with the new permission `ORDER_VIEW_ALL`, which may narrow them with `userId`; without it only the caller's own, and a `userId` is `FORBIDDEN`. `userId` with `orderNo` is `VALIDATION_FAILED`. `GET /user-options?use=filter` is open to `ORDER_VIEW_ALL` too | [api-v1.11.md](../iterations/api-v1.11.md) |
 | 2026-11-18 | 1.10 | The login counts by client address (Q-07): `LOGIN_LOCKED` also means that this address is locked out of the account, `TOO_MANY_REQUESTS` also refuses a login from an address with 50 failures in 15 minutes, and a password reset clears the locks of every address. No path or format changed | [api-v1.10.md](../iterations/api-v1.10.md) |
@@ -23,6 +24,10 @@ This document always describes the current API conventions. Each iteration has a
 | 2026-11-12 | 1.2 | Every response carries a request id in the header `X-Request-Id`, and every error body carries it as `requestId` | [api-v1.2.md](../iterations/api-v1.2.md) |
 | 2026-11-09 | 1.1 | The conventions are written into code: the format of the idempotency key, the rules that refuse a bad paging parameter, and two codes for a wrong method and a wrong media type | [api-v1.1.md](../iterations/api-v1.1.md) |
 | 2026-11-04 | 1.0 | The first conventions: paths, formats, the error response, result codes, status codes, and key-based paging | [api-v1.0.md](../iterations/api-v1.0.md) |
+
+## API Documentation
+
+The API describes itself (api v1.13): `GET /api/v1/api-docs` returns its OpenAPI description, and `/api/v1/docs` opens Swagger UI on it, in the deployment `http://localhost:8000/api/v1/docs`. Both open with no login. Each operation says who may call it, from the same declaration the check reads (`Public`, any logged-in account, or the permission it needs), and every operation that is not public asks for the bearer token, which the page takes once with Authorize after `POST /auth/login`. This document stays the reference for the rules the description cannot say: the result codes, the paging, the time formats, and who sees which rows. How it is built is in [API documentation](../backend/backend-design.md#api-documentation).
 
 ## General Rules
 

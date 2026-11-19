@@ -18,6 +18,7 @@ The repository holds the backend, the frontend, the database migrations, a one-c
 - **Architecture rules as tests.** A test reads the compiled classes and fails when a module uses another module's repository, when a controller reads the database, or when shared code depends on a module.
 - **Reliable mail.** Mail goes through a durable RabbitMQ queue with three tries and dead letters, and never inside a database transaction.
 - **Keyset paging** on every list, times stored in UTC, and request ids on every response and log line.
+- **Self-describing API.** Swagger UI lists every endpoint with the permission it needs, read from the same annotation the security check uses, so the documentation cannot drift from the code.
 
 ## Architecture
 
@@ -73,19 +74,24 @@ What each role may do is the [Permission Matrix](docs/database/database-design.m
 | Tests | JUnit 5 and Testcontainers (MySQL, Redis, and RabbitMQ in containers); Vitest with Testing Library |
 | CI | GitHub Actions runs both test suites, the lint, and the build on every push |
 | Deployment | Docker Compose with nginx in front, and Spring Boot Actuator for the health check and the counters |
+| API documentation | springdoc OpenAPI with Swagger UI |
 
 ## Running It
 
-The whole system runs on one machine with Docker Compose. It needs Docker and PowerShell (Windows, or `pwsh` on macOS and Linux).
+The whole system runs on one machine with Docker Compose. It needs only Docker.
 
 ```
 cd deploy
-./new-env.ps1                                     # once: random passwords and a signing key in .env
+./new-env.ps1        # Windows, once: random passwords and a signing key in .env (./new-env.sh on macOS and Linux)
 docker compose up -d --build                      # MySQL, migrations, Redis, RabbitMQ, backend, nginx
-docker compose run --rm backend create-admin      # once: the first administrator, at a hidden prompt
+docker compose run --rm backend seed-demo         # once: demo accounts and data, with a password you type
 ```
 
-Then open `http://localhost:8000`, log in as that administrator, and give roles to the people who sign up. Sign-up and password recovery send an email code, so they need the `OPSFLOW_MAIL_*` variables set in the shell. The details are in [Deployment](docs/backend/backend-design.md#deployment).
+Then open `http://localhost:8000` and log in as `adam` (administrator), `mary` (manager), `olive` or `otto` (operators), or `vera` (viewer), with the password you typed. Every page has data: items with pictures, products, orders, one refused order, and a ticket on each ticket screen, with their logs.
+
+The API is described at `http://localhost:8000/api/v1/docs` (Swagger UI): every endpoint with who may call it. Log in with `POST /auth/login` and use Authorize with the token to try one.
+
+To start without the demo, run `docker compose run --rm backend create-admin` instead, and give roles to the people who sign up. Sign-up and password recovery send an email code, so they need the `OPSFLOW_MAIL_*` variables set in the shell. The details are in [Deployment](docs/backend/backend-design.md#deployment).
 
 For development, the backend and the frontend run on their own against local services: see [environment-setup.md](docs/environment-setup.md).
 
@@ -93,7 +99,7 @@ For development, the backend and the frontend run on their own against local ser
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend | `mvnw test` in `backend/`, with Docker running | 462 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
+| Backend | `mvnw test` in `backend/`, with Docker running | 466 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
 | Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 302 tests that drive whole pages for each role against a fake server |
 | Database | [`run-db-verification.ps1`](db/verification/run-db-verification.ps1), by hand | 162 checks of the schema, the rights, and the order and stock races, in a temporary database |
 

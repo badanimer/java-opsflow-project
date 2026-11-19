@@ -120,3 +120,14 @@ opsflow:
   # The key that signs the login tokens: Base64 of at least 32 random bytes. It is a secret, so it
   # comes from the environment and has no default.
   token-signing-key: ${OPSFLOW_TOKEN_SIGNING_KEY}
+
+# The API documentation (see API documentation in the backend design): the OpenAPI description and Swagger UI,
+# under the base path so the reverse proxy passes them on. Only the controllers of the application are described.
+springdoc:
+  api-docs:
+    path: /api/v1/api-docs
+  swagger-ui:
+    path: /api/v1/docs
+    operations-sorter: alpha
+    tags-sorter: alpha
+  packages-to-scan: com.opsflow

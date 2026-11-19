@@ -2,7 +2,9 @@
 # See Deployment in docs/backend/backend-design.md. From this folder:
 #
 #   .\new-env.ps1          once: makes .env with random passwords and a signing key, and shows none of them
+#                          (./new-env.sh does the same on macOS and Linux)
 #   docker compose up -d --build
+#   docker compose run --rm backend seed-demo    optional, once: demo accounts and data, at a hidden prompt
 #
 # Then open http://localhost:8000. The secrets come from .env, which git ignores; the mail variables, when they
 # are set in the shell, are passed on, and without them no mail is sent.
@@ -20,10 +22,10 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run new-env.ps1 first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?run new-env.ps1 or new-env.sh first}
       MYSQL_DATABASE: opsflow
-      OPSFLOW_DB_PASSWORD: ${OPSFLOW_DB_PASSWORD:?run new-env.ps1 first}
-      OPSFLOW_MIGRATION_PASSWORD: ${OPSFLOW_MIGRATION_PASSWORD:?run new-env.ps1 first}
+      OPSFLOW_DB_PASSWORD: ${OPSFLOW_DB_PASSWORD:?run new-env.ps1 or new-env.sh first}
+      OPSFLOW_MIGRATION_PASSWORD: ${OPSFLOW_MIGRATION_PASSWORD:?run new-env.ps1 or new-env.sh first}
     volumes:
       - mysql-data:/var/lib/mysql
       # Runs once, when the volume is new: the two accounts of docs/environment-setup.md.
@@ -79,7 +81,7 @@ services:
     restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: opsflow
-      RABBITMQ_DEFAULT_PASS: ${OPSFLOW_RABBITMQ_PASSWORD:?run new-env.ps1 first}
+      RABBITMQ_DEFAULT_PASS: ${OPSFLOW_RABBITMQ_PASSWORD:?run new-env.ps1 or new-env.sh first}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
@@ -97,12 +99,14 @@ services:
       OPSFLOW_DB_PASSWORD: ${OPSFLOW_DB_PASSWORD}
       # The migrations ran in their own container; the backend never holds the migration password.
       SPRING_FLYWAY_ENABLED: "false"
-      OPSFLOW_TOKEN_SIGNING_KEY: ${OPSFLOW_TOKEN_SIGNING_KEY:?run new-env.ps1 first}
+      OPSFLOW_TOKEN_SIGNING_KEY: ${OPSFLOW_TOKEN_SIGNING_KEY:?run new-env.ps1 or new-env.sh first}
       OPSFLOW_REDIS_HOST: redis
       OPSFLOW_RABBITMQ_HOST: rabbitmq
       OPSFLOW_RABBITMQ_USERNAME: opsflow
       OPSFLOW_RABBITMQ_PASSWORD: ${OPSFLOW_RABBITMQ_PASSWORD}
       OPSFLOW_IMAGE_DIR: /data/images
+      # Read only by the console command seed-demo, which fills the demo data through the running backend.
+      OPSFLOW_DEMO_API_URL: http://backend:8080
       # The client address is the one nginx reports in X-Forwarded-For, trusted from a private address only.
       SERVER_FORWARD_HEADERS_STRATEGY: native
       # Optional: taken from the shell when set there, as on the development machine.
