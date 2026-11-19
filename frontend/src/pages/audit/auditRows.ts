@@ -73,6 +73,8 @@ export function summaryOf(record: AuditRecord): string {
       return TEXT.audit.granted(ROLE_NAMES[text(after, 'roleCode') ?? ''] ?? text(after, 'roleCode') ?? '')
     case 'ROLE_REVOKED':
       return withReturned(TEXT.audit.revoked(ROLE_NAMES[text(before, 'roleCode') ?? ''] ?? text(before, 'roleCode') ?? ''))
+    case 'TICKET_TAKEN':
+      return TEXT.audit.takenFromPool
     case 'TICKET_ASSIGNED':
       return TEXT.audit.assignedTo(text(after, 'assigneeUsername') ?? '')
     case 'TICKET_REASSIGNED':

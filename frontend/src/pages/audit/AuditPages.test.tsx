@@ -123,6 +123,16 @@ describe('the audit log page', SLOW, () => {
     await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&action=TICKET_CANCELLED')).toHaveLength(1))
   })
 
+  it('offers a take as its own action, apart from an assignment', async () => {
+    const { server, user } = await openAudit('/audit/tickets', { 'GET /audit-records?area=TICKET': page([CANCELLED]) })
+    await within(await screen.findByRole('region', { name: 'Audit log' })).findByText('System')
+    server.on('GET /audit-records?area=TICKET&action=TICKET_TAKEN', page([]))
+    await user.click(screen.getByRole('combobox', { name: 'Action' }))
+    expect(await screen.findByTitle('Ticket assigned')).toBeInTheDocument()
+    await user.click(await screen.findByTitle('Ticket taken'))
+    await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&action=TICKET_TAKEN')).toHaveLength(1))
+  })
+
   it('offers the ticket number only in the Tickets area', async () => {
     await openAudit('/audit/stock', { 'GET /audit-records?area=STOCK': page([]) })
     await screen.findByRole('combobox', { name: 'Action' })

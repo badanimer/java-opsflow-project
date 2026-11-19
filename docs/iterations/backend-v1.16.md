@@ -46,7 +46,7 @@ The authoritative description is [OpsFlow Backend](../backend/backend-design.md)
 | --- | --- |
 | `mvnw test` | 462 passed, 0 failed (2026-11-19); the run before had 459. Flyway applies `V5` in the containers of every run |
 | `V5` on real data | Applied to the deployment by `docker compose up -d --build` on 2026-11-19 ("now at version v5"). Of its four tickets, the one taken and then reassigned got the time of the reassignment, the one taken got the time of the take, the open and the cancelled one stayed empty, and no `updated_at` changed. The two indexes exist, and `http://localhost:8000` answers 200 |
-| [`run-db-verification.ps1`](../../db/verification/run-db-verification.ps1) | Not run yet: it needs the MySQL root password, typed by the owner in its masked dialog. It applies `V1` and `V3` only, so it does not apply `V5` itself; `V5` is checked by the two rows above |
+| [`run-db-verification.ps1`](../../db/verification/run-db-verification.ps1) | 162 passed, 0 failed (2026-11-19), the same count as the run before: no check changed. It applies `V1` and `V3` only, so `V5` itself is checked by the two rows above. Started by the assistant with the root password typed by the owner in the masked dialog |
 
 ## Affected Artifacts
 

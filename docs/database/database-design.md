@@ -12,6 +12,7 @@ This document always describes the current design. Each iteration has a summary 
 
 | Date | Version | Summary | Details |
 | --- | --- | --- | --- |
+| 2026-11-19 | 1.21 | A take from the pool is logged as its own action, `TICKET_TAKEN`, apart from an assignment by a manager (`TICKET_ASSIGNED`), so the audit page finds who took a ticket themselves. No table changed | [database-v1.21.md](../iterations/database-v1.21.md) |
 | 2026-11-19 | 1.20 | Each ticket screen shows the person and the time of its own step instead of the creator: the assignee and when they got the ticket in progress, then who resolved, archived, or cancelled it and when; the list is ordered and filtered by that time. `tickets.assigned_at` and two indexes (migration `V5`). The Tickets area of the audit page finds the rows of one ticket by its number | [database-v1.20.md](../iterations/database-v1.20.md) |
 | 2026-11-18 | 1.19 | Who sees which order records (Q-34): an `OPERATOR` reads only the attempts they made, in every way into the order records, as on the ticket screens; `ADMIN`, `MANAGER`, and `VIEWER` read everyone's and may narrow them to the person who ordered, chosen from the user picker, read through `idx_order_attempts_user_created`. The stock movements stay whole for every role. A new row in the Permission Matrix and a new use of the user picker | [database-v1.19.md](../iterations/database-v1.19.md) |
 | 2026-11-18 | 1.18 | The lockout after wrong passwords counts by client address (Q-07): the steps lock one address out of one account, counted in Redis, so a stranger cannot lock the owner out; `users.failed_login_count` becomes the failures of the day from every address, with a ceiling of 100 that locks the account until midnight; and one address is refused for the rest of a 15-minute window after 50 failures on any username. A successful login no longer clears the count of the day. No table, column, or migration changed | [database-v1.18.md](../iterations/database-v1.18.md) |
@@ -447,7 +448,7 @@ Every row of `operation_logs` has a `category`, the area the audit page files it
 | --- | --- | --- |
 | Accounts | `ACCOUNT` | `USER_REGISTERED`, `USER_STATUS_CHANGED`, `USER_DELETED`, `PASSWORD_RESET`, `LOGIN_LOCKED` |
 | Roles and permissions | `ROLE` | `ROLE_GRANTED`, `ROLE_REVOKED` |
-| Tickets | `TICKET` | `TICKET_CREATED`, `TICKET_ASSIGNED`, `TICKET_REASSIGNED`, `TICKET_RELEASED`, `TICKET_RESOLVED`, `TICKET_CLOSED`, `TICKET_CANCELLED` |
+| Tickets | `TICKET` | `TICKET_CREATED`, `TICKET_TAKEN`, `TICKET_ASSIGNED`, `TICKET_REASSIGNED`, `TICKET_RELEASED`, `TICKET_RESOLVED`, `TICKET_CLOSED`, `TICKET_CANCELLED` |
 | Stock | `STOCK` | `STOCK_RESTOCK`, `STOCK_WRITE_OFF`, `STOCK_ADJUSTED` |
 | Warehouse items | `ITEM` | `ITEM_CREATED`, `ITEM_UPDATED`, `ITEM_DELETED` |
 | Products | `PRODUCT` | `PRODUCT_LISTED`, `PRODUCT_DELISTED` |
@@ -691,7 +692,8 @@ Every ticket action writes one `operation_logs` row in the same transaction as t
 | Action | `action` | `before_data` | `after_data` |
 | --- | --- | --- | --- |
 | Open a ticket | `TICKET_CREATED` | Empty | `{"type": "INVENTORY_EXCEPTION", "source": "MANUAL", "createdBy": 7, "followsTicketId": null, "orderNo": null, "inventoryIds": [3, 5]}`. The links are part of this row, because they are written with the ticket. |
-| Take, or assign from the pool | `TICKET_ASSIGNED` | `{"status": "OPEN"}` | `{"status": "IN_PROGRESS", "assigneeId": 9}`. `remark` says `taken` or `assigned`. |
+| Take from the pool | `TICKET_TAKEN` | `{"status": "OPEN"}` | `{"status": "IN_PROGRESS", "assigneeId": 9}`. `operator_id` is the person who took it, who is also the assignee. `remark` is `taken`. A take before database v1.21 was written as `TICKET_ASSIGNED` with the remark `taken`, and stays so: the rows are append-only. |
+| Assign from the pool | `TICKET_ASSIGNED` | `{"status": "OPEN"}` | `{"status": "IN_PROGRESS", "assigneeId": 9}`. `operator_id` is the manager or the administrator who assigned it. `remark` is `assigned`; the reason typed is in `ticket_assignment_history`. |
 | Reassign | `TICKET_REASSIGNED` | `{"assigneeId": 9}` | `{"assigneeId": 12}`. `remark` is the reason. |
 | Release, remove the assignee, or the system returns the ticket | `TICKET_RELEASED` | `{"status": "IN_PROGRESS", "assigneeId": 9}` | `{"status": "OPEN"}`. `remark` is the reason, or the fixed reason of the system. |
 | Resolve | `TICKET_RESOLVED` | `{"status": "IN_PROGRESS"}` | `{"status": "RESOLVED", "resolvedBy": 9}`. The resolution text stays in `tickets.resolution`. |

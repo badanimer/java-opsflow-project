@@ -164,7 +164,7 @@ public class TicketWriter {
 					: new ApiException(ErrorCode.TICKET_CHANGED, "The ticket is no longer in the pool, please reload");
 		}
 		repository.insertHistory(ticketId, null, actor.id(), actor.id(), TAKEN, now);
-		logAssigned(actor.id(), ticket, taker, "taken", ipAddress);
+		logAssigned(AuditAction.TICKET_TAKEN, actor.id(), ticket, taker, "taken", ipAddress);
 	}
 
 	/** A manager or an administrator gives an {@code OPEN} ticket to an eligible assignee. */
@@ -178,7 +178,7 @@ public class TicketWriter {
 			throw changed(ticket.status());
 		}
 		repository.insertHistory(ticketId, null, assigneeId, actor.id(), reason, now);
-		logAssigned(actor.id(), ticket, assignee, "assigned", ipAddress);
+		logAssigned(AuditAction.TICKET_ASSIGNED, actor.id(), ticket, assignee, "assigned", ipAddress);
 	}
 
 	/**
@@ -351,13 +351,14 @@ public class TicketWriter {
 				after, ipAddress, reason);
 	}
 
-	private void logAssigned(long actorId, Locked ticket, UserLock assignee, String remark, String ipAddress) {
+	/** The row of a take ({@code TICKET_TAKEN}, by the assignee) or an assignment from the pool ({@code TICKET_ASSIGNED}). */
+	private void logAssigned(AuditAction action, long actorId, Locked ticket, UserLock assignee, String remark, String ipAddress) {
 		Map<String, Object> after = new LinkedHashMap<>();
 		after.put("status", TicketStatus.IN_PROGRESS.name());
 		after.put("assigneeId", assignee.id());
 		after.put("assigneeUsername", assignee.username());
 		after.put("ticketNo", ticket.ticketNo());
-		audit.write(AuditAction.TICKET_ASSIGNED, actorId, AuditLogWriter.TARGET_TICKET, ticket.id(), Map.of("status", TicketStatus.OPEN.name()),
+		audit.write(action, actorId, AuditLogWriter.TARGET_TICKET, ticket.id(), Map.of("status", TicketStatus.OPEN.name()),
 				after, ipAddress, remark);
 	}
 

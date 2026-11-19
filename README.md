@@ -35,6 +35,20 @@ flowchart LR
 
 The backend is organized by feature: `auth`, `user`, `warehouse`, `order`, `ticket`, and `log`, with shared code in `common`. It uses plain JDBC through `JdbcTemplate`, so every SQL statement and every lock is visible in the code. Redis and RabbitMQ hold nothing that cannot be lost: when one is down, logins and mail go on without it.
 
+## Screenshots
+
+| Products | Stock |
+| --- | --- |
+| ![The product page](docs/images/product.png) | ![The stock page](docs/images/stock.png) |
+
+| Tickets in progress | Resolved tickets |
+| --- | --- |
+| ![The In progress screen with the assignee and when they got the ticket](docs/images/ticket-inprocess.png) | ![The Resolved screen with who resolved each ticket](docs/images/ticket-resolved.png) |
+
+| Users | Audit log |
+| --- | --- |
+| ![The user page](docs/images/users.png) | ![The menu of the audit log](docs/images/logs.png) |
+
 ## What It Does
 
 | Area | What a person can do |
@@ -80,7 +94,7 @@ For development, the backend and the frontend run on their own against local ser
 | Suite | Command | What it covers |
 | --- | --- | --- |
 | Backend | `mvnw test` in `backend/`, with Docker running | 462 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
-| Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 300 tests that drive whole pages for each role against a fake server |
+| Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 302 tests that drive whole pages for each role against a fake server |
 | Database | [`run-db-verification.ps1`](db/verification/run-db-verification.ps1), by hand | 162 checks of the schema, the rights, and the order and stock races, in a temporary database |
 
 ## Documentation Structure

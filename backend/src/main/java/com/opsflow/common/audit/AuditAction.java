@@ -18,6 +18,7 @@ public enum AuditAction {
 	ROLE_REVOKED(AuditCategory.ROLE, "Revoked on the user page"),
 
 	TICKET_CREATED(AuditCategory.TICKET, "Opened on the ticket page"),
+	TICKET_TAKEN(AuditCategory.TICKET, "Taken from the pool"),
 	TICKET_ASSIGNED(AuditCategory.TICKET, "Assigned"),
 	TICKET_REASSIGNED(AuditCategory.TICKET, "Reassigned"),
 	TICKET_RELEASED(AuditCategory.TICKET, "Released"),

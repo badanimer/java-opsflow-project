@@ -180,7 +180,8 @@ class TicketTest extends TicketIntegrationSupport {
 		assertThat(history(id)).hasSize(1);
 		assertThat(history(id).get(0)).containsEntry("to_user_id", olive).containsEntry("changed_by", olive).containsEntry("reason", "Taken from the pool");
 		assertThat(history(id).get(0).get("from_user_id")).isNull();
-		assertThat(logs(id).get(1).get("remark")).isEqualTo("taken");
+		assertThat(logs(id).get(1)).as("a take is its own action").containsEntry("action", "TICKET_TAKEN").containsEntry("operator_id", olive)
+				.containsEntry("remark", "taken");
 
 		postAs("otto", "/tickets/" + id + "/take", null).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("TICKET_CHANGED"))
 				.andExpect(jsonPath("$.ticketStatus").doesNotExist());
@@ -222,7 +223,7 @@ class TicketTest extends TicketIntegrationSupport {
 		tickets.assign(as(adam), id, adam, "I will", null);
 		assertThat(assigneeOf(id)).isEqualTo(adam);
 		assertThat(history(id).get(0).get("reason")).isEqualTo("I will");
-		assertThat(logs(id).get(1).get("remark")).isEqualTo("assigned");
+		assertThat(logs(id).get(1)).containsEntry("action", "TICKET_ASSIGNED").containsEntry("remark", "assigned");
 	}
 
 	@Test

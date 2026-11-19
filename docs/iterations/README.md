@@ -13,6 +13,9 @@ The process for recording iterations and keeping documents in sync is defined in
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 1.17 | Backend | A take is logged as `TICKET_TAKEN`, apart from an assignment | [backend-v1.17.md](backend-v1.17.md) |
+| 2026-11-19 | 1.14 | Frontend | The audit page offers Ticket taken as its own action | [frontend-v1.14.md](frontend-v1.14.md) |
+| 2026-11-19 | 1.21 | Database | A take from the pool is its own audit action, `TICKET_TAKEN` | [database-v1.21.md](database-v1.21.md) |
 | 2026-11-19 | 1.16 | Backend | Each ticket screen lists the person and the time of its own step, ordered and filtered by it; `assigned_at` written by a take, an assignment, and a reassignment; the audit page finds the rows of one ticket by its number | [backend-v1.16.md](backend-v1.16.md) |
 | 2026-11-19 | 1.13 | Frontend | The ticket screens show Assignee, Resolved by, Archived by, and Cancelled by with their times in place of the creator; a Ticket number filter in the Tickets area of the audit page | [frontend-v1.13.md](frontend-v1.13.md) |
 | 2026-11-19 | 1.12 | API | A ticket list row carries `person` and `time`, the step of its screen; `GET /audit-records` takes `ticketNo` | [api-v1.12.md](api-v1.12.md) |

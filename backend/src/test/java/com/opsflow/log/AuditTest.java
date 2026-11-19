@@ -79,6 +79,11 @@ class AuditTest extends MySqlIntegrationTest {
 		read("mary", "/audit-records?area=TICKET&ticketNo=" + ticketNo + "&action=TICKET_CREATED&userId=" + olive)
 				.andExpect(jsonPath("$.items.length()").value(1)).andExpect(jsonPath("$.items[0].by").value("olive"));
 		read("mary", "/audit-records?area=TICKET&ticketNo=" + ticketNo + "&action=TICKET_ASSIGNED").andExpect(jsonPath("$.items.length()").value(0));
+		// A take is TICKET_TAKEN, so the people who took a ticket themselves are found apart from the assignments.
+		String otherNo = root().queryForObject("SELECT ticket_no FROM tickets WHERE id = ?", String.class, other);
+		read("mary", "/audit-records?area=TICKET&ticketNo=" + otherNo + "&action=TICKET_TAKEN").andExpect(jsonPath("$.items.length()").value(1))
+				.andExpect(jsonPath("$.items[0].by").value("olive")).andExpect(jsonPath("$.items[0].after.assigneeUsername").value("olive"));
+		read("mary", "/audit-records?area=TICKET&ticketNo=" + otherNo + "&action=TICKET_ASSIGNED").andExpect(jsonPath("$.items.length()").value(0));
 		read("mary", "/audit-records?area=TICKET&ticketNo=ZZZZ9999").andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(0));
 
 		read("mary", "/audit-records?area=TICKET&ticketNo=ABC").andExpect(status().isBadRequest())
