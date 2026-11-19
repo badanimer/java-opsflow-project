@@ -23,19 +23,6 @@ import { isSearched, personName, readListState, searchOf, writeListState, type S
 
 const MAX_ARCHIVE = 100
 
-/** The time a screen is about: creation, or the archive or cancellation time (Ticket list order). */
-function screenTime(status: TicketStatus, row: TicketRow): string {
-  if (status === 'CLOSED') return row.closedAt ?? row.createdAt
-  if (status === 'CANCELLED') return row.cancelledAt ?? row.createdAt
-  return row.createdAt
-}
-
-function timeTitle(status: TicketStatus): string {
-  if (status === 'CLOSED') return TEXT.tickets.archivedAt
-  if (status === 'CANCELLED') return TEXT.tickets.cancelledAt
-  return TEXT.tickets.created
-}
-
 /**
  * One ticket screen (Ticket screens in docs/frontend/page-design.md; Figma section A "Ticket lists"): the
  * tickets of one status that the user may see, the system tickets first with their own background, newest
@@ -131,7 +118,7 @@ export function TicketListPage({ status }: { status: TicketStatus }) {
               <Link to={`/tickets/${row.id}`} className="ticket-number">{row.ticketNo}</Link>
               <span>{row.title}</span>
               <Typography.Text type="secondary">
-                {TEXT.tickets.types[row.type]} · {personName(row.createdBy)} · {formatTime(screenTime(status, row))}
+                {TEXT.tickets.types[row.type]} · {personName(row.person)} · {formatTime(row.time)}
               </Typography.Text>
               <StatusTag status={row.status} />
             </li>
@@ -167,8 +154,8 @@ export function TicketListPage({ status }: { status: TicketStatus }) {
           { key: 'ticket', title: TEXT.tickets.ticket, width: 120, render: (_: unknown, row: TicketRow) => <Link to={`/tickets/${row.id}`} className="ticket-number">{row.ticketNo}</Link> },
           { key: 'type', title: TEXT.tickets.type, width: 170, render: (_: unknown, row: TicketRow) => TEXT.tickets.types[row.type] },
           { key: 'title', title: TEXT.tickets.title, className: 'cell-grow', render: (_: unknown, row: TicketRow) => <span className="cell-text" title={row.title}>{row.title}</span> },
-          { key: 'createdBy', title: TEXT.tickets.createdBy, width: 130, render: (_: unknown, row: TicketRow) => personName(row.createdBy) },
-          { key: 'time', title: timeTitle(status), width: 170, render: (_: unknown, row: TicketRow) => formatTime(screenTime(status, row)) },
+          { key: 'person', title: TEXT.tickets.stepColumns[status].person, width: 130, render: (_: unknown, row: TicketRow) => personName(row.person) },
+          { key: 'time', title: TEXT.tickets.stepColumns[status].time, width: 170, render: (_: unknown, row: TicketRow) => formatTime(row.time) },
           { key: 'status', title: TEXT.tickets.statusColumn, width: 170, render: (_: unknown, row: TicketRow) => <StatusTag status={row.status} /> },
         ]}
       />

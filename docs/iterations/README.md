@@ -13,6 +13,10 @@ The process for recording iterations and keeping documents in sync is defined in
 
 | Date | Version | Area | Summary | Details |
 | --- | --- | --- | --- | --- |
+| 2026-11-19 | 1.16 | Backend | Each ticket screen lists the person and the time of its own step, ordered and filtered by it; `assigned_at` written by a take, an assignment, and a reassignment; the audit page finds the rows of one ticket by its number | [backend-v1.16.md](backend-v1.16.md) |
+| 2026-11-19 | 1.13 | Frontend | The ticket screens show Assignee, Resolved by, Archived by, and Cancelled by with their times in place of the creator; a Ticket number filter in the Tickets area of the audit page | [frontend-v1.13.md](frontend-v1.13.md) |
+| 2026-11-19 | 1.12 | API | A ticket list row carries `person` and `time`, the step of its screen; `GET /audit-records` takes `ticketNo` | [api-v1.12.md](api-v1.12.md) |
+| 2026-11-19 | 1.20 | Database | What a ticket list shows is the step of its screen, with `tickets.assigned_at` and two indexes (`V5`); the rows of one ticket on the audit page | [database-v1.20.md](database-v1.20.md) |
 | 2026-11-19 | 1.15 | Backend | The deployment comes back when Docker Desktop starts; the documentation prepared for a public repository: a new README, this Project Log in its own file, a general environment document, and an MIT license | [backend-v1.15.md](backend-v1.15.md) |
 | 2026-11-18 | 1.14 | Backend | The order records of one's own (Q-34) with `ORDER_VIEW_ALL`; the last races against the real code (T-17, T-34), so every check and race has a test; the way of working between development and the deployment, and its backup and restore | [backend-v1.14.md](backend-v1.14.md) |
 | 2026-11-18 | 1.12 | Frontend | An operator sees only the orders they placed, and the other roles get an Ordered by filter on the order records | [frontend-v1.12.md](frontend-v1.12.md) |

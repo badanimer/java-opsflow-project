@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { FakeServer, me, openApp, problem, storeToken } from '../../test/server'
-import { MARY, SYSTEM, page, row, ticket } from './ticketFixtures'
+import { BOB, MARY, SYSTEM, page, row, ticket } from './ticketFixtures'
 
 /**
  * The ticket screens (Figma section A): the rows with the system tickets first, what each role is offered,
@@ -24,7 +24,7 @@ const SLOW = { timeout: 45_000 }
 describe('a ticket screen', SLOW, () => {
   it('lists the rows with the system tickets first, marked, and opens a ticket from its row', async () => {
     const { user } = await openScreen('/tickets/pool', ['MANAGER'], {
-      'GET /tickets?status=OPEN': page([row(1, 'R5F2C8LU', { source: 'SYSTEM', createdBy: SYSTEM }), row(2, 'K7Q2M9XA')]),
+      'GET /tickets?status=OPEN': page([row(1, 'R5F2C8LU', { source: 'SYSTEM', person: SYSTEM }), row(2, 'K7Q2M9XA')]),
       'GET /tickets/2': { status: 200, body: ticket({ id: 2, ticketNo: 'K7Q2M9XA' }) },
     })
     const region = await list()
@@ -73,6 +73,31 @@ describe('a ticket screen', SLOW, () => {
     await user.type(box, 'k7q2m9xa')
     await user.click(screen.getByRole('button', { name: 'Find' }))
     await waitFor(() => expect(server.callsTo('GET /tickets?status=OPEN&ticketNo=K7Q2M9XA')).toHaveLength(1))
+  })
+
+  it('shows on each screen the person and the time of its own step, not the creator', async () => {
+    await openScreen('/tickets/in-progress', ['MANAGER'], {
+      'GET /tickets?status=IN_PROGRESS': page([row(2, 'K7Q2M9XA', { status: 'IN_PROGRESS', person: BOB, time: '2026-11-16T03:00:00Z' })]),
+    }, { id: 2, username: 'mary' })
+    const table = await list()
+    await within(table).findByText('K7Q2M9XA')
+    expect(within(table).getByRole('columnheader', { name: 'Assignee' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Assigned' })).toBeInTheDocument()
+    expect(within(table).queryByRole('columnheader', { name: 'Created by' })).not.toBeInTheDocument()
+    expect(within(table).getByText('bob')).toBeInTheDocument()
+    expect(within(table).getByText('16 Nov 2026 14:00')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['/tickets/resolved', 'RESOLVED', 'Resolved by', 'Resolved'],
+    ['/tickets/archive', 'CLOSED', 'Archived by', 'Archived'],
+    ['/tickets/cancelled', 'CANCELLED', 'Cancelled by', 'Cancelled'],
+  ] as const)('names the step on %s', async (path, status, person, time) => {
+    await openScreen(path, ['MANAGER'], { [`GET /tickets?status=${status}`]: page([row(2, 'K7Q2M9XA', { status, person: MARY })]) }, { id: 2, username: 'mary' })
+    const table = await list()
+    await within(table).findByText('K7Q2M9XA')
+    expect(within(table).getByRole('columnheader', { name: person })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: time })).toBeInTheDocument()
   })
 
   it('narrows by kind and by creator, and shows no match with Clear filters', async () => {

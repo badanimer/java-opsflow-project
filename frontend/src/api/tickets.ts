@@ -14,18 +14,19 @@ export interface Person {
   system: boolean
 }
 
-/** A row of a ticket list. */
+/**
+ * A row of a ticket list. `person` and `time` belong to the step the screen is about: the creator in the
+ * pool, the assignee and when they got the ticket in progress, then who resolved, archived, or cancelled it.
+ */
 export interface TicketRow {
   id: number
   ticketNo: string
   type: TicketType
   source: TicketSource
   title: string
-  createdBy: Person
-  createdAt: string
   status: TicketStatus
-  closedAt: string | null
-  cancelledAt: string | null
+  person: Person
+  time: string
 }
 
 /** Another ticket by its number. `id` is null when the caller may not see it: the number is shown without a link. */

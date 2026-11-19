@@ -79,8 +79,8 @@ For development, the backend and the frontend run on their own against local ser
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend | `mvnw test` in `backend/`, with Docker running | 459 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
-| Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 294 tests that drive whole pages for each role against a fake server |
+| Backend | `mvnw test` in `backend/`, with Docker running | 462 tests, most of them against a real MySQL, among them the race tests. Each one is listed in the [test log](db/verification/concurrency-tests.md) with what it shows and the design rule it supports |
+| Frontend | `npm test`, `npm run lint`, `npm run build` in `frontend/` | 300 tests that drive whole pages for each role against a fake server |
 | Database | [`run-db-verification.ps1`](db/verification/run-db-verification.ps1), by hand | 162 checks of the schema, the rights, and the order and stock races, in a temporary database |
 
 ## Documentation Structure

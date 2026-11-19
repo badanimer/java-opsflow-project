@@ -1042,6 +1042,11 @@ body {
   min-width: 200px;
 }
 
+/* The ticket number of the audit Tickets area: as wide as the other filters, with Find beside it. */
+.audit-ticket-number .ant-input-affix-wrapper {
+  width: 200px;
+}
+
 .audit-changes {
   display: grid;
   grid-template-columns: 1fr 1fr;

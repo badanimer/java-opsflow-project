@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react'
-import { Button, Card, Empty, Grid, Select, Spin, Table, Typography } from 'antd'
+import { Button, Card, Empty, Grid, Input, Select, Spin, Table, Typography } from 'antd'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { AREA_ACTIONS, auditOrderRecords, auditRecords, type AuditArea, type AuditFilters, type AuditRecord } from '../../api/audit'
 import type { OrderRecord, OrderResult } from '../../api/logs'
+import { normalizeTicketNo } from '../../api/tickets'
 import { pageNumberOf } from '../../api/paging'
 import { CursorPager } from '../../components/CursorPager'
 import { EmptyText, ListFailure } from '../../components/ListStates'
@@ -60,6 +61,7 @@ interface AuditState extends TimeFilterValue {
   system?: boolean
   about?: number
   aboutName?: string
+  ticketNo?: string
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
@@ -77,6 +79,7 @@ function readState(params: URLSearchParams): AuditState {
     system: params.get('system') === 'true',
     about: Number.isInteger(about) && about > 0 ? about : undefined,
     aboutName: params.get('aboutName') ?? undefined,
+    ticketNo: normalizeTicketNo(params.get('ticketNo') ?? '') ?? undefined,
     from: from && DAY.test(from) ? from : undefined,
     to: to && DAY.test(to) ? to : undefined,
     quick: quick && QUICK_RANGES.includes(quick) ? quick : undefined,
@@ -96,6 +99,7 @@ function writeState(state: AuditState): URLSearchParams {
     params.set('about', String(state.about))
     if (state.aboutName) params.set('aboutName', state.aboutName)
   }
+  if (state.ticketNo) params.set('ticketNo', state.ticketNo)
   if (state.from) params.set('from', state.from)
   if (state.to) params.set('to', state.to)
   if (state.quick) params.set('quick', state.quick)
@@ -106,8 +110,9 @@ function writeState(state: AuditState): URLSearchParams {
 /**
  * One area of the audit page: its records, newest first, with three independent filters (the action of
  * the area, or the result for Orders; the user or System; the time) kept in the address. The areas whose
- * rows are about a user, Accounts and Roles and permissions, can also be narrowed to one such user. A row reads by
- * its labels, and View shows the fields before and after.
+ * rows are about a user, Accounts and Roles and permissions, can also be narrowed to one such user, and the
+ * Tickets area to one ticket by its number, which combines with the action and the user to find one step of
+ * one ticket. A row reads by its labels, and View shows the fields before and after.
  */
 export function AuditAreaPage() {
   const { area: slug } = useParams()
@@ -125,7 +130,8 @@ export function AuditAreaPage() {
   const update = (next: AuditState) => setParams(writeState(next), { replace: true })
   const orders = area.key === 'ORDER'
   const aboutUsers = area.key === 'ACCOUNT' || area.key === 'ROLE'
-  const filtered = Boolean(state.action || state.userId || state.system || (aboutUsers && state.about) || state.from || state.to)
+  const aboutTicket = area.key === 'TICKET'
+  const filtered = Boolean(state.action || state.userId || state.system || (aboutUsers && state.about) || (aboutTicket && state.ticketNo) || state.from || state.to)
   const actionOptions = orders
     ? RESULTS.map((result) => ({ value: result, label: TEXT.logs.results[result] }))
     : AREA_ACTIONS[area.key as AuditArea].map((action) => ({ value: action, label: TEXT.audit.actions[action] ?? action }))
@@ -175,6 +181,9 @@ export function AuditAreaPage() {
               />
             </label>
           )}
+          {aboutTicket && (
+            <TicketNumberFilter value={state.ticketNo} onChange={(ticketNo) => update({ ...state, ticketNo })} />
+          )}
         </div>
         <TimeFilter value={state} onChange={(time) => update({ ...state, ...time })} />
       </section>
@@ -188,7 +197,55 @@ export function AuditAreaPage() {
 }
 
 function filtersOf(state: AuditState): AuditFilters {
-  return { action: state.action, userId: state.userId, system: state.system, aboutUserId: state.about, from: state.from, to: state.to, order: state.order }
+  return { action: state.action, userId: state.userId, system: state.system, aboutUserId: state.about, ticketNo: state.ticketNo, from: state.from, to: state.to, order: state.order }
+}
+
+/** One ticket of the Tickets area, by its number: applied with Find or Enter, and taken off by clearing the box. */
+function TicketNumberFilter({ value, onChange }: { value?: string; onChange: (ticketNo?: string) => void }) {
+  const [text, setText] = useState(value ?? '')
+  const [invalid, setInvalid] = useState(false)
+  // Clear filters, or a link to another number, changes the address: the box follows it.
+  const [shown, setShown] = useState(value)
+  if (value !== shown) {
+    setShown(value)
+    setText(value ?? '')
+    setInvalid(false)
+  }
+
+  function find() {
+    const number = normalizeTicketNo(text)
+    if (!number) {
+      setInvalid(true)
+      return
+    }
+    setInvalid(false)
+    setText(number)
+    onChange(number)
+  }
+
+  return (
+    <div className="time-filter__field audit-ticket-number">
+      <label htmlFor="audit-ticket-number">{TEXT.audit.ticketNumber}</label>
+      <div className="order-number-search__row">
+        <Input
+          id="audit-ticket-number"
+          placeholder={TEXT.audit.anyTicket}
+          value={text}
+          maxLength={64}
+          allowClear
+          status={invalid ? 'error' : undefined}
+          onChange={(event) => {
+            setInvalid(false)
+            setText(event.target.value)
+            if (event.target.value === '' && value) onChange(undefined)
+          }}
+          onPressEnter={find}
+        />
+        <Button type="primary" disabled={text.trim() === ''} onClick={find}>{TEXT.tickets.find}</Button>
+      </div>
+      {invalid && <span className="field-error field-error--inline" role="alert">{TEXT.audit.ticketNumberInvalid}</span>}
+    </div>
+  )
 }
 
 function RecordArea({ area, state, filtered, onClear }: { area: AuditArea; state: AuditState; filtered: boolean; onClear: () => void }) {

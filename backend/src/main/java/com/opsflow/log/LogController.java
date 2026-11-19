@@ -75,12 +75,13 @@ public class LogController {
 	public PageResponse<AuditRecordResponse> auditRecords(@RequestParam(required = false) String area,
 			@RequestParam(required = false) String action, @RequestParam(required = false) Long userId,
 			@RequestParam(required = false) Boolean system, @RequestParam(required = false) Long aboutUserId,
+			@RequestParam(required = false) String ticketNo,
 			@RequestParam(required = false) String from, @RequestParam(required = false) String to,
 			@RequestParam(required = false) Integer limit,
 			@RequestParam(required = false) String cursor, @RequestParam(required = false) String direction,
 			@RequestParam(required = false) String order) {
 		PageQuery page = pages.create(limit, cursor, direction, order, true);
-		return map(logs.auditRecords(area, action, userId, system, aboutUserId, from, to, page), this::audit);
+		return map(logs.auditRecords(area, action, userId, system, aboutUserId, ticketNo, from, to, page), this::audit);
 	}
 
 	/** The Orders area of the audit page: the attempts, the same rows as the order records. */

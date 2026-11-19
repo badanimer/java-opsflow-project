@@ -1,6 +1,5 @@
 package com.opsflow.ticket;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -275,7 +274,7 @@ public class TicketService {
 		Filter filter = new Filter(screen, all ? null : user.id(), source, optionalId("createdBy", search.createdBy()),
 				optionalId("assigneeId", search.assigneeId()), itemId(search.inventoryId()), range, ticketNo, orderNo);
 		return PageResponse.of(repository.list(filter, page), page,
-				row -> new Cursor(TicketRepository.cursorKeyOf(row.source(), sortTime(screen, row)), row.id()));
+				row -> new Cursor(TicketRepository.cursorKeyOf(row.source(), row.time()), row.id()));
 	}
 
 	public TicketDetail detail(CurrentUser user, long id) {
@@ -310,14 +309,6 @@ public class TicketService {
 		String name = "PRODUCT_DELISTED".equals(matcher.group(1)) ? repository.productName(id).orElse(null)
 				: repository.itemNameOf(id).orElse(null);
 		return new CancelCause(matcher.group(1), name);
-	}
-
-	private static Instant sortTime(TicketStatus screen, Listed row) {
-		return switch (screen) {
-			case CLOSED -> row.closedAt();
-			case CANCELLED -> row.cancelledAt();
-			default -> row.createdAt();
-		};
 	}
 
 	private static TicketStatus status(String status) {

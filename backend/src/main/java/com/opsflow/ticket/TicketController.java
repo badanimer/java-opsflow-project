@@ -60,13 +60,15 @@ public class TicketController {
 	public record ArchiveBatchRequest(List<Long> ids) {
 	}
 
-	/** A row of a ticket list. */
-	public record TicketRow(long id, String ticketNo, String type, String source, String title, Person createdBy, Instant createdAt,
-			String status, Instant closedAt, Instant cancelledAt) {
+	/**
+	 * A row of a ticket list. {@code person} and {@code time} belong to the step the screen is about: the
+	 * creator and the creation in the pool, the assignee and when they got the ticket in progress, then who
+	 * resolved, archived, or cancelled it, and when.
+	 */
+	public record TicketRow(long id, String ticketNo, String type, String source, String title, String status, Person person, Instant time) {
 
 		static TicketRow of(Listed row) {
-			return new TicketRow(row.id(), row.ticketNo(), row.type(), row.source(), row.title(), row.createdBy(), row.createdAt(),
-					row.status().name(), row.closedAt(), row.cancelledAt());
+			return new TicketRow(row.id(), row.ticketNo(), row.type(), row.source(), row.title(), row.status().name(), row.person(), row.time());
 		}
 	}
 

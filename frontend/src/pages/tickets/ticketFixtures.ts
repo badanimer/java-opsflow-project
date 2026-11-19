@@ -14,11 +14,9 @@ export function row(id: number, ticketNo: string, extra: Partial<TicketRow> = {}
     type: 'INVENTORY_EXCEPTION',
     source: 'MANUAL',
     title: 'Stock count does not match the record',
-    createdBy: OLIVE,
-    createdAt: '2026-11-15T23:24:00Z',
     status: 'OPEN',
-    closedAt: null,
-    cancelledAt: null,
+    person: OLIVE,
+    time: '2026-11-15T23:24:00Z',
     ...extra,
   }
 }

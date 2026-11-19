@@ -69,6 +69,25 @@ class AuditTest extends MySqlIntegrationTest {
 	}
 
 	@Test
+	void theTicketsAreaFindsTheRowsOfOneTicketByItsNumberWithTheOtherFilters() throws Exception {
+		long other = id(post("mary", "/tickets", "{\"type\":\"OTHER\",\"title\":\"Another\",\"description\":\"Not this one\"}"));
+		post("olive", "/tickets/" + other + "/take", "").andExpect(status().isOk());
+
+		read("mary", "/audit-records?area=TICKET&ticketNo=" + ticketNo.toLowerCase())
+				.andExpect(jsonPath("$.items[*].action").value(contains("TICKET_CANCELLED", "TICKET_CREATED")))
+				.andExpect(jsonPath("$.items[*].targetId").value(contains((int) ticket, (int) ticket)));
+		read("mary", "/audit-records?area=TICKET&ticketNo=" + ticketNo + "&action=TICKET_CREATED&userId=" + olive)
+				.andExpect(jsonPath("$.items.length()").value(1)).andExpect(jsonPath("$.items[0].by").value("olive"));
+		read("mary", "/audit-records?area=TICKET&ticketNo=" + ticketNo + "&action=TICKET_ASSIGNED").andExpect(jsonPath("$.items.length()").value(0));
+		read("mary", "/audit-records?area=TICKET&ticketNo=ZZZZ9999").andExpect(status().isOk()).andExpect(jsonPath("$.items.length()").value(0));
+
+		read("mary", "/audit-records?area=TICKET&ticketNo=ABC").andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors[0].field").value("ticketNo"));
+		read("mary", "/audit-records?area=ITEM&ticketNo=" + ticketNo).andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors[0].field").value("ticketNo"));
+	}
+
+	@Test
 	void anAreaListsItsActionsNewestFirstWithWhoDidItAndTheDataOfTheRow() throws Exception {
 		read("mary", "/audit-records?area=ITEM").andExpect(status().isOk())
 				.andExpect(jsonPath("$.items[*].action").value(contains("ITEM_DELETED", "ITEM_CREATED", "ITEM_CREATED")))

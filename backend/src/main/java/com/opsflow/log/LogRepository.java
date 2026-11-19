@@ -116,9 +116,10 @@ class LogRepository {
 	 * @param action one action of the category, or null for all
 	 * @param userId the user who acted, or null for anyone
 	 * @param systemOnly only the actions of the system (no operator)
+	 * @param ticketNo the number of the ticket the rows are about, or null for every ticket
 	 */
-	List<AuditRecord> auditRecords(String category, String action, Long userId, boolean systemOnly, Long aboutUserId, Range range,
-			PageQuery page) {
+	List<AuditRecord> auditRecords(String category, String action, Long userId, boolean systemOnly, Long aboutUserId, String ticketNo,
+			Range range, PageQuery page) {
 		Query q = new Query("""
 				SELECT l.id, l.created_at, l.category, l.action, l.operator_id, u.username, l.target_type, l.target_id,
 				       CAST(l.before_data AS CHAR) AS before_data, CAST(l.after_data AS CHAR) AS after_data, l.ip_address, l.remark
@@ -133,6 +134,11 @@ class LogRepository {
 		if (aboutUserId != null) {
 			// The rows whose target is this user, through idx_operation_logs_target.
 			q.condition("l.target_type = 'USER' AND l.target_id = ?", aboutUserId);
+		}
+		if (ticketNo != null) {
+			// The rows whose target is this ticket, through the unique key of the number and idx_operation_logs_target.
+			// A number that no ticket has finds no row.
+			q.condition("l.target_type = 'TICKET' AND l.target_id = (SELECT t.id FROM tickets t WHERE t.ticket_no = ?)", ticketNo);
 		}
 		q.during("l.created_at", range);
 		RowMapper<AuditRecord> mapper = (rs, row) -> {

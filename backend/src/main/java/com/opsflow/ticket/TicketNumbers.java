@@ -32,7 +32,7 @@ public class TicketNumbers {
 	 * A number a person typed, in upper case and without the spaces around it, or null when it cannot be a
 	 * ticket number. The column compares exactly, and the numbers are made in upper case.
 	 */
-	static String typed(String text) {
+	public static String typed(String text) {
 		if (text == null) {
 			return null;
 		}

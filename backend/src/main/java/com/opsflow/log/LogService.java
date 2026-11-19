@@ -25,6 +25,7 @@ import com.opsflow.log.LogRepository.ListingRecord;
 import com.opsflow.log.LogRepository.OrderRecord;
 import com.opsflow.log.LogRepository.ProductOption;
 import com.opsflow.log.LogRepository.StockMovement;
+import com.opsflow.ticket.TicketNumbers;
 
 /**
  * The two logs, the Deleted items module, and the product picker (T-46, T-50; see Logs in
@@ -101,9 +102,10 @@ public class LogService {
 	/**
 	 * One area of the audit page (see Audit log page in docs/database/database-design.md): the rows of one
 	 * category, with the action, the time filter, and the user, or {@code system} for the actions of the system.
+	 * The Tickets area also takes one ticket number, for the rows of that ticket.
 	 */
-	public PageResponse<AuditRecord> auditRecords(String area, String action, Long userId, Boolean system, Long aboutUserId, String from,
-			String to, PageQuery page) {
+	public PageResponse<AuditRecord> auditRecords(String area, String action, Long userId, Boolean system, Long aboutUserId,
+			String ticketNo, String from, String to, PageQuery page) {
 		AuditCategory category = category(area);
 		String checkedAction = null;
 		if (action != null && !action.isBlank()) {
@@ -119,9 +121,19 @@ public class LogService {
 		if (aboutUserId != null && category != AuditCategory.ACCOUNT && category != AuditCategory.ROLE) {
 			throw ApiException.invalid("aboutUserId", "is for the areas ACCOUNT and ROLE, whose rows are about a user");
 		}
+		String number = null;
+		if (ticketNo != null && !ticketNo.isBlank()) {
+			if (category != AuditCategory.TICKET) {
+				throw ApiException.invalid("ticketNo", "is for the area TICKET, whose rows are about a ticket");
+			}
+			number = TicketNumbers.typed(ticketNo);
+			if (number == null) {
+				throw ApiException.invalid("ticketNo", "must be 8 letters and digits");
+			}
+		}
 		Range range = days.parse(from, to);
 		return PageResponse.of(repository.auditRecords(category.name(), checkedAction, id("userId", userId), systemOnly,
-				id("aboutUserId", aboutUserId), range, page), page,
+				id("aboutUserId", aboutUserId), number, range, page), page,
 				r -> new Cursor(LogRepository.timeKey(r.at()), r.id()));
 	}
 

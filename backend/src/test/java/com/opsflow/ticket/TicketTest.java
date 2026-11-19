@@ -403,7 +403,7 @@ class TicketTest extends TicketIntegrationSupport {
 		root().update("UPDATE tickets SET source = 'SYSTEM', created_by = ? WHERE id IN (?, ?)", systemIdentity(), ids.get(2), ids.get(9));
 
 		String first = getAs("vera", "/tickets?status=OPEN").andExpect(jsonPath("$.items[0].id").value(ids.get(9)))
-				.andExpect(jsonPath("$.items[1].id").value(ids.get(2))).andExpect(jsonPath("$.items[1].createdBy.system").value(true))
+				.andExpect(jsonPath("$.items[1].id").value(ids.get(2))).andExpect(jsonPath("$.items[1].person.system").value(true))
 				.andExpect(jsonPath("$.items[2].id").value(ids.get(11))).andReturn().getResponse().getContentAsString();
 		String next = JsonPath.read(first, "$.nextCursor");
 		String second = getAs("vera", "/tickets?status=OPEN&cursor=" + next).andExpect(jsonPath("$.items.length()").value(2))
@@ -612,6 +612,76 @@ class TicketTest extends TicketIntegrationSupport {
 		getAs("olive", "/user-options?use=filter").andExpect(status().isForbidden());
 		getAs("mary", "/user-options?use=everyone").andExpect(status().isBadRequest());
 		getAs("mary", "/user-options").andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void eachScreenShowsThePersonAndTheTimeOfItsOwnStep() throws Exception {
+		clock.set(Instant.parse("2026-11-10T01:00:00Z"));
+		long id = other(mary, "Steps");
+		String number = numberOf(id);
+		screenRow("OPEN", number, "mary", "2026-11-10T01:00:00Z");
+
+		clock.set(Instant.parse("2026-11-10T02:00:00Z"));
+		tickets.take(as(olive), id, null);
+		screenRow("IN_PROGRESS", number, "olive", "2026-11-10T02:00:00Z");
+
+		clock.set(Instant.parse("2026-11-10T03:00:00Z"));
+		tickets.reassign(as(mary), id, otto, olive, "olive is away", null);
+		screenRow("IN_PROGRESS", number, "otto", "2026-11-10T03:00:00Z");
+
+		clock.set(Instant.parse("2026-11-10T04:00:00Z"));
+		tickets.release(as(otto), id, otto, "not mine", null);
+		assertThat(ticket(id).get("assigned_at")).as("a release empties the time with the assignee").isNull();
+		clock.set(Instant.parse("2026-11-10T05:00:00Z"));
+		tickets.assign(as(mary), id, olive, "olive is back", null);
+		screenRow("IN_PROGRESS", number, "olive", "2026-11-10T05:00:00Z");
+
+		clock.set(Instant.parse("2026-11-10T06:00:00Z"));
+		tickets.resolve(as(mary), id, "fixed", null);
+		screenRow("RESOLVED", number, "mary", "2026-11-10T06:00:00Z");
+		assertThat(ticket(id).get("assigned_at")).as("a resolution keeps the time of the assignee").isNotNull();
+
+		clock.set(Instant.parse("2026-11-10T07:00:00Z"));
+		tickets.archive(as(adam), id, null);
+		screenRow("CLOSED", number, "adam", "2026-11-10T07:00:00Z");
+
+		long cancelled = other(otto, "Cancelled");
+		clock.set(Instant.parse("2026-11-10T08:00:00Z"));
+		tickets.cancel(as(mary), cancelled, "opened twice", null);
+		screenRow("CANCELLED", numberOf(cancelled), "mary", "2026-11-10T08:00:00Z");
+	}
+
+	@Test
+	void theInProgressAndResolvedScreensAreOrderedAndFilteredByTheirOwnTime() throws Exception {
+		// The ticket opened first is taken last and resolved last, so the time of the step and the creation
+		// disagree. Sydney is 11 hours ahead: 13:00 UTC on 7 November starts 8 November there.
+		clock.set(Instant.parse("2026-11-07T10:00:00Z"));
+		long early = other(mary, "Opened first");
+		clock.set(Instant.parse("2026-11-07T10:30:00Z"));
+		long late = other(mary, "Opened second");
+		clock.set(Instant.parse("2026-11-07T11:00:00Z"));
+		tickets.take(as(olive), late, null);
+		clock.set(Instant.parse("2026-11-07T14:00:00Z"));
+		tickets.take(as(otto), early, null);
+
+		getAs("vera", "/tickets?status=IN_PROGRESS").andExpect(jsonPath("$.items[0].id").value(early))
+				.andExpect(jsonPath("$.items[1].id").value(late));
+		getAs("vera", "/tickets?status=IN_PROGRESS&from=2026-11-08&to=2026-11-08").andExpect(jsonPath("$.items.length()").value(1))
+				.andExpect(jsonPath("$.items[0].id").value(early));
+
+		clock.set(Instant.parse("2026-11-07T15:00:00Z"));
+		tickets.resolve(as(olive), late, "done", null);
+		clock.set(Instant.parse("2026-11-07T16:00:00Z"));
+		tickets.resolve(as(otto), early, "done", null);
+		getAs("vera", "/tickets?status=RESOLVED").andExpect(jsonPath("$.items[0].id").value(early))
+				.andExpect(jsonPath("$.items[0].person.username").value("otto")).andExpect(jsonPath("$.items[1].id").value(late));
+		getAs("vera", "/tickets?status=RESOLVED&order=asc").andExpect(jsonPath("$.items[0].id").value(late));
+		getAs("vera", "/tickets?status=RESOLVED&from=2026-11-07&to=2026-11-07").andExpect(jsonPath("$.items.length()").value(0));
+	}
+
+	private void screenRow(String status, String number, String username, String time) throws Exception {
+		getAs("vera", "/tickets?status=" + status + "&ticketNo=" + number).andExpect(jsonPath("$.items.length()").value(1))
+				.andExpect(jsonPath("$.items[0].person.username").value(username)).andExpect(jsonPath("$.items[0].time").value(time));
 	}
 
 	@Test

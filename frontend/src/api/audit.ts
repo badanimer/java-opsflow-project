@@ -41,6 +41,8 @@ export interface AuditFilters {
   system?: boolean
   /** The user the rows are about, for the areas ACCOUNT and ROLE. */
   aboutUserId?: number
+  /** The ticket the rows are about, for the area TICKET. */
+  ticketNo?: string
   from?: string
   to?: string
   order: 'desc' | 'asc'
@@ -59,6 +61,7 @@ export function auditRecords(area: AuditArea, filters: AuditFilters, page: PageR
   const params = new URLSearchParams({ area })
   if (filters.action) params.append('action', filters.action)
   if (filters.aboutUserId !== undefined && (area === 'ACCOUNT' || area === 'ROLE')) params.append('aboutUserId', String(filters.aboutUserId))
+  if (filters.ticketNo && area === 'TICKET') params.append('ticketNo', filters.ticketNo)
   common(params, filters, page)
   return api<Page<AuditRecord>>(`/audit-records?${params.toString()}`)
 }

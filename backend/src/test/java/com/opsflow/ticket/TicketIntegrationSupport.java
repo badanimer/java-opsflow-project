@@ -122,10 +122,10 @@ abstract class TicketIntegrationSupport extends MySqlIntegrationTest {
 		boolean closed = "CLOSED".equals(status);
 		boolean cancelled = "CANCELLED".equals(status);
 		root().update("""
-				INSERT INTO tickets (ticket_no, created_by, assignee_id, resolved_by, resolution, resolved_at, closed_by, closed_at,
+				INSERT INTO tickets (ticket_no, created_by, assignee_id, assigned_at, resolved_by, resolution, resolved_at, closed_by, closed_at,
 				                     cancelled_by, cancel_reason, cancelled_at, type, source, status, title, description)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OTHER', 'MANUAL', ?, 'Made for a test', 'Made for a test')
-				""", number, createdBy, assigneeId, resolvedBy, resolvedBy == null ? null : "done", resolvedBy == null ? null : LONG_AGO,
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OTHER', 'MANUAL', ?, 'Made for a test', 'Made for a test')
+				""", number, createdBy, assigneeId, assigneeId == null ? null : LONG_AGO, resolvedBy, resolvedBy == null ? null : "done", resolvedBy == null ? null : LONG_AGO,
 				closed ? createdBy : null, closed ? LONG_AGO : null, cancelled ? createdBy : null, cancelled ? "made" : null,
 				cancelled ? LONG_AGO : null, status);
 		return root().queryForObject("SELECT id FROM tickets WHERE ticket_no = ?", Long.class, number);

@@ -49,9 +49,8 @@ class TicketRepository {
 	record Locked(long id, String ticketNo, TicketStatus status, long createdBy, Long assigneeId, Long resolvedBy) {
 	}
 
-	/** A row of a ticket list. */
-	record Listed(long id, String ticketNo, String type, String source, String title, Person createdBy, Instant createdAt,
-			TicketStatus status, Instant closedAt, Instant cancelledAt) {
+	/** A row of a ticket list, with the person and the time of the step its screen is about (see timeColumn). */
+	record Listed(long id, String ticketNo, String type, String source, String title, TicketStatus status, Person person, Instant time) {
 	}
 
 	/** The whole of one ticket row, with the people it names. */
@@ -195,21 +194,24 @@ class TicketRepository {
 				id).stream().findFirst();
 	}
 
-	/** The status gate of a take or an assignment. */
-	int assignFromPool(long id, long assigneeId) {
-		return jdbc.update("UPDATE tickets SET status = 'IN_PROGRESS', assignee_id = ? WHERE id = ? AND status = 'OPEN'", assigneeId, id);
+	/** The status gate of a take or an assignment. {@code at} is when the assignee got the ticket. */
+	int assignFromPool(long id, long assigneeId, Instant at) {
+		return jdbc.update("UPDATE tickets SET status = 'IN_PROGRESS', assignee_id = ?, assigned_at = ? WHERE id = ? AND status = 'OPEN'",
+				assigneeId, UtcTime.toLocalDateTime(at), id);
 	}
 
 	/** The gate of a reassignment: the ticket is still in progress with the assignee the actor saw. */
-	int reassign(long id, long fromUserId, long toUserId) {
-		return jdbc.update("UPDATE tickets SET assignee_id = ? WHERE id = ? AND status = 'IN_PROGRESS' AND assignee_id = ?", toUserId, id,
-				fromUserId);
+	int reassign(long id, long fromUserId, long toUserId, Instant at) {
+		return jdbc.update("UPDATE tickets SET assignee_id = ?, assigned_at = ? WHERE id = ? AND status = 'IN_PROGRESS' AND assignee_id = ?",
+				toUserId, UtcTime.toLocalDateTime(at), id, fromUserId);
 	}
 
 	/** The gate of a release: the ticket is still in progress with this assignee. */
 	int release(long id, long assigneeId) {
-		return jdbc.update("UPDATE tickets SET status = 'OPEN', assignee_id = NULL WHERE id = ? AND status = 'IN_PROGRESS' AND assignee_id = ?",
-				id, assigneeId);
+		return jdbc.update("""
+				UPDATE tickets SET status = 'OPEN', assignee_id = NULL, assigned_at = NULL
+				WHERE id = ? AND status = 'IN_PROGRESS' AND assignee_id = ?
+				""", id, assigneeId);
 	}
 
 	int resolve(long id, String resolution, long resolvedBy, Instant at) {
@@ -295,9 +297,9 @@ class TicketRepository {
 	 */
 	List<Listed> list(Filter filter, PageQuery page) {
 		String time = "t." + timeColumn(filter.status());
-		StringBuilder sql = new StringBuilder("SELECT t.id, t.ticket_no, t.type, t.source, t.title, t.created_at, t.status, t.closed_at, t.cancelled_at, ")
-				.append(time).append(" AS sort_time, cu.id AS cu_id, cu.username AS cu_username, cu.is_system AS cu_system ")
-				.append("FROM tickets t JOIN users cu ON cu.id = t.created_by WHERE t.status = ?");
+		StringBuilder sql = new StringBuilder("SELECT t.id, t.ticket_no, t.type, t.source, t.title, t.status, ").append(time)
+				.append(" AS screen_time, pu.id AS pu_id, pu.username AS pu_username, pu.is_system AS pu_system ")
+				.append("FROM tickets t JOIN users pu ON pu.id = t.").append(personColumn(filter.status())).append(" WHERE t.status = ?");
 		List<Object> args = new ArrayList<>();
 		args.add(filter.status().name());
 		if (filter.ownerId() != null) {
@@ -325,10 +327,10 @@ class TicketRepository {
 					filter.inventoryId());
 		}
 		if (filter.range() != null && filter.range().from() != null) {
-			condition(sql, args, "t.created_at >= ?", filter.range().from());
+			condition(sql, args, time + " >= ?", filter.range().from());
 		}
 		if (filter.range() != null && filter.range().to() != null) {
-			condition(sql, args, "t.created_at < ?", filter.range().to());
+			condition(sql, args, time + " < ?", filter.range().to());
 		}
 		if (filter.ticketNo() != null) {
 			condition(sql, args, "t.ticket_no = ?", filter.ticketNo());
@@ -358,8 +360,8 @@ class TicketRepository {
 				.append(way).append(" LIMIT ?");
 		args.add(page.fetchSize());
 		return jdbc.query(sql.toString(), (rs, row) -> new Listed(rs.getLong("id"), rs.getString("ticket_no"), rs.getString("type"),
-				rs.getString("source"), rs.getString("title"), new Person(rs.getLong("cu_id"), rs.getString("cu_username"), rs.getBoolean("cu_system")),
-				time(rs, "created_at"), TicketStatus.of(rs.getString("status")), time(rs, "closed_at"), time(rs, "cancelled_at")), args.toArray());
+				rs.getString("source"), rs.getString("title"), TicketStatus.of(rs.getString("status")),
+				new Person(rs.getLong("pu_id"), rs.getString("pu_username"), rs.getBoolean("pu_system")), time(rs, "screen_time")), args.toArray());
 	}
 
 	/** The cursor key of a row of a list: its source, a bar, and the time of the screen. */
@@ -367,12 +369,29 @@ class TicketRepository {
 		return source + "|" + UtcTime.toLocalDateTime(sortTime);
 	}
 
-	/** The time that orders the list of a screen. */
+	/**
+	 * The time of the step a screen is about, which the list shows, orders by, and filters by: the creation
+	 * in the pool, the time the assignee got the ticket in progress, then the resolution, the archive, and
+	 * the cancellation.
+	 */
 	static String timeColumn(TicketStatus status) {
 		return switch (status) {
+			case OPEN -> "created_at";
+			case IN_PROGRESS -> "assigned_at";
+			case RESOLVED -> "resolved_at";
 			case CLOSED -> "closed_at";
 			case CANCELLED -> "cancelled_at";
-			default -> "created_at";
+		};
+	}
+
+	/** The person of the step a screen is about, who did it or holds the ticket, as {@link #timeColumn}. */
+	static String personColumn(TicketStatus status) {
+		return switch (status) {
+			case OPEN -> "created_by";
+			case IN_PROGRESS -> "assignee_id";
+			case RESOLVED -> "resolved_by";
+			case CLOSED -> "closed_by";
+			case CANCELLED -> "cancelled_by";
 		};
 	}
 

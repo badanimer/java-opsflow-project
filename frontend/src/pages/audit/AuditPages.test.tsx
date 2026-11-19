@@ -100,6 +100,35 @@ describe('the audit log page', SLOW, () => {
     await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&action=TICKET_CANCELLED&system=true')).toHaveLength(1))
   })
 
+  it('narrows the Tickets area to one ticket by its number, with the action of one step', async () => {
+    const { server, user } = await openAudit('/audit/tickets', { 'GET /audit-records?area=TICKET': page([CANCELLED]) })
+    await within(await screen.findByRole('region', { name: 'Audit log' })).findByText('System')
+    const box = screen.getByLabelText('Ticket number')
+    await user.type(box, 'ABC{Enter}')
+    expect(await screen.findByText('Enter an 8-character ticket number.')).toBeInTheDocument()
+
+    server.on('GET /audit-records?area=TICKET&ticketNo=K7Q2M9XA', page([CANCELLED]))
+    await user.clear(box)
+    await user.type(box, ' k7q2m9xa {Enter}')
+    await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&ticketNo=K7Q2M9XA')).toHaveLength(1))
+    expect(box).toHaveValue('K7Q2M9XA')
+
+    server.on('GET /audit-records?area=TICKET&action=TICKET_CANCELLED&ticketNo=K7Q2M9XA', page([CANCELLED]))
+    await user.click(screen.getByRole('combobox', { name: 'Action' }))
+    await user.click(await screen.findByTitle('Ticket cancelled'))
+    await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&action=TICKET_CANCELLED&ticketNo=K7Q2M9XA')).toHaveLength(1))
+
+    server.on('GET /audit-records?area=TICKET&action=TICKET_CANCELLED', page([CANCELLED]))
+    await user.clear(box)
+    await waitFor(() => expect(server.callsTo('GET /audit-records?area=TICKET&action=TICKET_CANCELLED')).toHaveLength(1))
+  })
+
+  it('offers the ticket number only in the Tickets area', async () => {
+    await openAudit('/audit/stock', { 'GET /audit-records?area=STOCK': page([]) })
+    await screen.findByRole('combobox', { name: 'Action' })
+    expect(screen.queryByLabelText('Ticket number')).not.toBeInTheDocument()
+  })
+
   it('narrows the Accounts area to the rows about one user, and names the tickets a disabling returned', async () => {
     const disabled: AuditRecord = {
       id: 40, at: '2026-11-16T05:52:00Z', area: 'ACCOUNT', action: 'USER_STATUS_CHANGED', userId: 1, by: 'adam', targetType: 'USER', targetId: 3,

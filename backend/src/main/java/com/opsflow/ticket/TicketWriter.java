@@ -158,11 +158,11 @@ public class TicketWriter {
 		// The pool is open to everyone, so a ticket that just left it is answered as changed, not as missing.
 		// Its status is told only to someone who may see the ticket now.
 		Locked ticket = repository.lockTicket(ticketId).orElseThrow(TicketWriter::notFound);
-		if (ticket.status() != TicketStatus.OPEN || repository.assignFromPool(ticketId, actor.id()) == 0) {
+		Instant now = now();
+		if (ticket.status() != TicketStatus.OPEN || repository.assignFromPool(ticketId, actor.id(), now) == 0) {
 			throw TicketAccess.visible(actor, ticket) ? changed(ticket.status())
 					: new ApiException(ErrorCode.TICKET_CHANGED, "The ticket is no longer in the pool, please reload");
 		}
-		Instant now = now();
 		repository.insertHistory(ticketId, null, actor.id(), actor.id(), TAKEN, now);
 		logAssigned(actor.id(), ticket, taker, "taken", ipAddress);
 	}
@@ -173,10 +173,11 @@ public class TicketWriter {
 		UserLock assignee = lockActorAndAssignee(actor.id(), assigneeId);
 		requireRoomInProgress(assignee, assignee.username() + " already has " + maxInProgress + " tickets in progress");
 		Locked ticket = lockVisible(actor, ticketId);
-		if (ticket.status() != TicketStatus.OPEN || repository.assignFromPool(ticketId, assigneeId) == 0) {
+		Instant now = now();
+		if (ticket.status() != TicketStatus.OPEN || repository.assignFromPool(ticketId, assigneeId, now) == 0) {
 			throw changed(ticket.status());
 		}
-		repository.insertHistory(ticketId, null, assigneeId, actor.id(), reason, now());
+		repository.insertHistory(ticketId, null, assigneeId, actor.id(), reason, now);
 		logAssigned(actor.id(), ticket, assignee, "assigned", ipAddress);
 	}
 
@@ -192,11 +193,12 @@ public class TicketWriter {
 		UserLock assignee = lockActorAndAssignee(actor.id(), assigneeId);
 		requireRoomInProgress(assignee, assignee.username() + " already has " + maxInProgress + " tickets in progress");
 		Locked ticket = lockVisible(actor, ticketId);
+		Instant now = now();
 		if (ticket.status() != TicketStatus.IN_PROGRESS || !Objects.equals(ticket.assigneeId(), expectedAssigneeId)
-				|| repository.reassign(ticketId, expectedAssigneeId, assigneeId) == 0) {
+				|| repository.reassign(ticketId, expectedAssigneeId, assigneeId, now) == 0) {
 			throw changed(ticket.status());
 		}
-		repository.insertHistory(ticketId, expectedAssigneeId, assigneeId, actor.id(), reason, now());
+		repository.insertHistory(ticketId, expectedAssigneeId, assigneeId, actor.id(), reason, now);
 		Map<String, Object> before = new LinkedHashMap<>();
 		before.put("assigneeId", expectedAssigneeId);
 		before.put("assigneeUsername", repository.username(expectedAssigneeId));
